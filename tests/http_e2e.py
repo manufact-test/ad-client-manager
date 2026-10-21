@@ -267,6 +267,30 @@ try:
     check("Imported CI client" in html(page) and "0,30 USD" in html(page),
           "Historical imported charges and payments shown precisely in analytics")
 
+    # Search and type filters must remain literal, URL-safe and preserve the
+    # selected filters when a client drawer is opened/closed.
+    status, _, page = request("director", "/?view=clients&q=Imported+CI&demo=0")
+    rendered = html(page)
+    check(status == 200 and "Imported CI client" in rendered, "Search shows matching real client")
+    check('name="q"' in rendered and 'value="Imported CI"' in rendered,
+          "Search input preserves query")
+    match = re.search(r'href="([^"]+client=\d+)"', rendered)
+    check(match is not None and "q=Imported%20CI" in match.group(1),
+          "Client links retain the filter in HTML-escaped URL")
+    selected_url = match.group(1).replace("&amp;", "&")
+    status, _, page = request("director", selected_url)
+    check("Imported CI client" in html(page), "Filtered client drawer opens")
+    check("q=Imported%20CI" in html(page) and "Закрыть ✕" in html(page),
+          "Closing drawer can return to same search")
+    status, _, page = request("director", "/?view=clients&q=Imported+CI&demo=1")
+    check("Imported CI client" not in html(page), "Demo filter excludes real search result")
+    status, _, page = request("director", "/?view=clients&q=%25")
+    check("Imported CI client" not in html(page), "SQL substring search treats percent literally")
+    status, _, page = request("director", "/?view=clients&q=%3Cscript%3Ebad%3C%2Fscript%3E")
+    check('<script>bad</script>' not in html(page) and "&lt;script&gt;" in html(page),
+          "Search value is escaped; cannot inject HTML")
+
+
     print("HTTP E2E passed: authentication, client form, PDF upload/download, roles, CSRF, replacement, transfer, cascade")
 finally:
     for file in WORK.iterdir():
