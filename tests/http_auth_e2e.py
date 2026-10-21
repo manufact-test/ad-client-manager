@@ -200,7 +200,8 @@ try:
     })
     check(status==303,"Director reactivates the same employee account")
     hire_token,page=login("hire","hire@example.test",NEW_HIRE_PASSWORD)
-    check("Worker monthly task" in page,
+    status,_,page=request("hire","/?view=tasks")
+    check(status==200 and "Worker monthly task" in page,
           "Reactivated employee retains existing password and personal tasks")
     status,_,page=request("hire",payload={
         "csrf":hire_token,"action":"activate_employee","employee_id":hire_id
