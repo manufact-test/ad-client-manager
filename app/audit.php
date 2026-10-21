@@ -8,6 +8,7 @@ declare(strict_types=1);
 function adc_audit_labels(): array {
     return [
         'bootstrap_director'=>'Первоначальная настройка директора',
+        'staging_schema_upgrade'=>'Обновлены настройки системы',
         'create_employee'=>'Создание сотрудника',
         'deactivate_employee'=>'Отключение сотрудника',
         'change_password'=>'Смена пароля',
@@ -54,14 +55,18 @@ function adc_audit_panel(PDO $db, array $user): string {
     $more=count($rows)>50;
     $rows=array_slice($rows,0,50);
     $labels=adc_audit_labels();
-    $html='<details class="card"><summary>Журнал изменений (последние записи)</summary>'.
-        '<p class="muted">История действий сотрудников и финансовых изменений. '.
-        'Журнал доступен только директору, не содержит паролей и содержимого PDF.</p>';
+    $html='<details class="card"><summary>Журнал изменений</summary>'.
+        '<p class="muted">Показаны последние 50 действий. Более ранние записи доступны ниже.</p>';
     foreach ($rows as $item) {
-        $label=$labels[$item['action']]??$item['action'];
+        $label=$labels[$item['action']]??'Действие системы';
         $html.='<div class="item"><div><strong>'.adc_h($label).'</strong>'.
             '<p class="muted">'.adc_h($item['occurred_at']).' UTC · '.
-            adc_h($item['actor']).' · '.adc_h($item['object_type']).
+            adc_h($item['actor']).' · '.adc_h([
+                    'client'=>'Клиент','user'=>'Сотрудник','engagement'=>'Сотрудничество',
+                    'personal_task'=>'Задача','database'=>'Система',
+                    'document_bundle'=>'Документ','payment_event'=>'Оплата',
+                    'charge_line'=>'Начисление','billing_period'=>'Период'
+                ][$item['object_type']] ?? 'Изменение').
             ($item['object_id']===null?'':' #'.(int)$item['object_id']).'</p></div></div>';
     }
     if (!$rows) $html.='<p class="muted">Записей пока нет.</p>';

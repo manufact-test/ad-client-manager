@@ -14,11 +14,21 @@ adc_session();
 
 function adc_page(string $title, string $body, ?array $user = null): never {
     $name = $user ? adc_h((string) $user['display_name']) : '';
-    $menu = $user
-        ? '<nav><span>' . $name . ' · ' . ($user['role'] === 'director' ? 'Директор' : 'Сотрудник') . '</span>'
-            . '<form method="post" class="inline"><input type="hidden" name="csrf" value="' . adc_csrf() . '">'
-            . '<input type="hidden" name="action" value="logout"><button type="submit" class="link">Выйти</button></form></nav>'
-        : '';
+    $menu = '';
+    if ($user) {
+        $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
+        $menu = '<div class="header-inner"><nav class="top-nav" aria-label="Основные разделы">';
+        foreach (['clients'=>'Клиенты','tasks'=>'Мои задачи','archive'=>'Архив',
+                  'analytics'=>'Аналитика','team'=>'Настройки'] as $id=>$label) {
+            $menu .= '<a href="/?view='.$id.'"'.($view===$id?' class="active" aria-current="page"':'').
+                '>'.adc_h($label).'</a>';
+        }
+        $menu .= '</nav><div class="account"><span>'.$name.' · '.
+            ($user['role']==='director'?'Директор':'Сотрудник').'</span>'.
+            '<form method="post" class="inline"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
+            '<input type="hidden" name="action" value="logout"><button type="submit" class="link">Выйти</button></form>'.
+            '</div></div>';
+    }
     echo '<!doctype html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
        . '<meta name="robots" content="noindex,nofollow"><title>' . adc_h($title) . ' · Ad Client Manager</title>'
        . '<style>
@@ -44,7 +54,70 @@ function adc_page(string $title, string $body, ?array $user = null): never {
        
        .table-scroll{overflow-x:auto;max-width:100%} :is(a,button,input,select,textarea,summary,.table-scroll):focus-visible{outline:3px solid #c17b08;outline-offset:3px}table{border-collapse:collapse;width:100%;min-width:480px}td,th{border-bottom:1px solid #edf0f3;padding:9px 6px;text-align:left;font-size:14px}tr:hover td{background:#fafaff}td:last-child,th:last-child{white-space:nowrap}
        @media(max-width:560px){header{padding:12px 16px}.item{align-items:flex-start;flex-direction:column}.card{padding:16px}h1{font-size:23px}.drawer{padding:12px}.drawer .actions{width:100%}.drawer-head{align-items:flex-start}}
-       </style></head><body><header><div class="brand">Ad Client Manager</div>' . $menu . '</header><main>' . $body . '</main></body></html>';
+       
+        :root{--accent:#4d43c2;--accent-dark:#3629a7;--accent-soft:#eeecff;--line:#e2e5ef;--text:#19223a}
+        body{color:var(--text);background:#f6f7fb;overflow-x:hidden}
+        header{padding:0 18px;display:block}
+        .header-inner{max-width:948px;margin:auto;min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:14px}
+        .top-nav{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:14px}
+        .top-nav a{padding:11px 13px;border-radius:9px;color:#30395a;text-decoration:none;white-space:nowrap}
+        .top-nav a.active{color:var(--accent-dark);background:var(--accent-soft);font-weight:750}
+        .top-nav a:hover{background:#f3f1ff}
+        .account{display:flex;align-items:center;gap:14px;font-size:12px;color:#596680;white-space:nowrap}
+        main{width:100%;max-width:980px;padding:0 16px 56px;margin:24px auto}
+        .card{min-width:0;max-width:100%;overflow-wrap:anywhere;padding:22px;border-color:var(--line)}
+        .card .grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,245px),1fr))}
+        .field,.field input,.field select,.field textarea{min-width:0;max-width:100%}
+        code,pre{display:block;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
+        button,.btn{background:var(--accent);border-color:var(--accent);font-weight:600}
+        button:hover,.btn:hover{background:var(--accent-dark);color:#fff}
+        .btn.secondary:hover,button.secondary:hover{color:var(--accent-dark);background:var(--accent-soft)}
+        :is(input,select,textarea){accent-color:var(--accent)}
+        :is(input,select,textarea):focus{border-color:var(--accent);outline:2px solid #9188e9;outline-offset:1px;box-shadow:0 0 0 3px #ebe8ff}
+        :is(a,button,input,select,textarea,summary,.table-scroll):focus-visible{outline:2px solid var(--accent)!important;outline-offset:2px}
+        input[type=date]{min-height:43px}
+        input[type=date]::-webkit-calendar-picker-indicator{opacity:.9;cursor:pointer;background-color:#edeafe;border-radius:6px;padding:6px;background-size:16px}
+        select{cursor:pointer;background-color:#fff;appearance:none;-webkit-appearance:none;
+          padding-right:38px;background-image:linear-gradient(45deg,transparent 50%,#4d43c2 50%),
+          linear-gradient(135deg,#4d43c2 50%,transparent 50%);
+          background-position:calc(100% - 20px) 50%,calc(100% - 15px) 50%;
+          background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+        select:hover{border-color:#8f88d6}
+        .drawer .customer-tools nav,.customer-tools nav{flex-wrap:wrap}
+        .customer-tools .btn{font-size:13px;padding:8px 12px}
+        .drawer .client-overview{margin-top:14px}
+        .drawer .client-overview .muted{margin:5px 0 0}
+        .customer-edit>summary{font-weight:700}
+        .settings-disclosure>summary{font-size:16px}
+        .task-month .task-month-body{margin-top:6px}
+        .task-day .badge{vertical-align:middle}
+        .task-inline-edit .field{margin-bottom:8px}
+        
+        details>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:9px 0}
+        details>summary::-webkit-details-marker{display:none}
+        details>summary::before{content:"";width:7px;height:7px;flex:none;border-right:2px solid var(--accent);border-bottom:2px solid var(--accent);transform:rotate(-45deg);transition:transform .15s ease;margin-right:3px}
+        details[open]>summary::before{transform:rotate(45deg)}
+        .drawer{width:min(880px,100vw);padding:22px;background:#f7f8fc}
+        .drawer .card{margin-top:15px}.drawer-head{position:sticky;top:-22px;z-index:2;background:#f7f8fc;padding:12px 0;box-shadow:0 1px 0 #e2e5ef}
+        .drawer .period{background:#fff}.drawer .item>div{min-width:0}.drawer .actions{flex-shrink:0}
+        .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+        .summary-metric{padding:15px;border:1px solid var(--line);background:#fbfbff;border-radius:11px}
+        .summary-metric small{display:block;margin-bottom:5px}.summary-metric strong{font-size:20px}
+        .source-choice .conditional-other{display:none}
+        .source-choice:has(select option[value="other"]:checked) .conditional-other{display:grid}
+        .task-month{margin-bottom:16px}.task-month>h2{font-size:18px;padding:0 0 13px;border-bottom:1px solid var(--line);margin:0}
+        .task-day{padding:10px 0 14px;border-bottom:1px solid var(--line)}.task-day:last-child{border-bottom:none;padding-bottom:0}
+        .task-day>h3{margin:0;padding:3px 0 6px}
+        .task-row{display:flex;justify-content:space-between;align-items:center;gap:16px;min-height:46px;padding:6px 0}
+        .task-row+.task-row{border-top:1px dashed #e2e5ef}
+        .task-actions{display:flex;gap:10px;align-items:center}.task-actions form{margin:0}
+        .task-actions .btn,.task-actions button{min-width:82px;height:39px;text-align:center}
+        .task-inline-edit{margin:6px 0 12px;padding:16px;border-radius:10px;background:#f8f7ff;border:1px solid #dedaf9}
+        .task-create .check{margin:4px 0 10px}.task-create .grid{gap:12px}
+        .customer-edit{margin-top:15px}.customer-tools{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+        @media(max-width:760px){.header-inner{align-items:flex-start;flex-direction:column;padding:9px 0}.top-nav{overflow-x:auto;flex-wrap:nowrap;width:100%;scrollbar-width:thin}.top-nav a{padding:9px 11px}.account{align-self:flex-end}.card{padding:16px}.drawer{padding:12px}.drawer-head{top:-12px}}
+        @media(max-width:480px){main{padding:0 12px 40px;margin-top:18px}.task-row{flex-direction:column}.task-actions{align-self:flex-end}.top-nav{font-size:13px}.summary-grid{grid-template-columns:1fr 1fr}}
+        </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main></body></html>';
     exit;
 }
 
