@@ -103,6 +103,22 @@ function adc_w_period(PDO $db, int $clientId, int $periodId): array {
     return $row;
 }
 
+function adc_w_invalidate_period_documents(PDO $db,int $actor,int $periodId): void {
+    $stmt=$db->prepare('SELECT id FROM document_bundles WHERE period_id=? AND is_void=0
+        AND (needs_invoice=1 OR needs_spec=1 OR needs_act=1) FOR UPDATE');
+    $stmt->execute([$periodId]);
+    $documentIds=$stmt->fetchAll(PDO::FETCH_COLUMN);
+    if (!$documentIds) return;
+    $db->prepare('UPDATE document_bundles SET transferred_at=NULL WHERE period_id=? AND is_void=0
+        AND (needs_invoice=1 OR needs_spec=1 OR needs_act=1)')->execute([$periodId]);
+    // Re-transfer cannot be acknowledged without a replacement file.
+    // A new upload creates a new document ID with no invalidation event.
+    foreach ($documentIds as $documentId) {
+        adc_audit($db,$actor,'invalidate_document','document_bundle',(int)$documentId,
+            ['reason'=>'financial_change','period_id'=>$periodId]);
+    }
+}
+
 function adc_w_collaboration_fields(): array {
     $date = adc_w_date(adc_input('started_on'));
     $day = filter_var(adc_input('billing_day'), FILTER_VALIDATE_INT);
@@ -358,9 +374,7 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         }
         // An edited amount can invalidate an already-transferred invoice,
         // specification or act. Transfer must be acknowledged again.
-        $db->prepare('UPDATE document_bundles SET transferred_at=NULL WHERE period_id=?
-            AND is_void=0 AND (needs_invoice=1 OR needs_spec=1 OR needs_act=1)')
-            ->execute([$pid]);
+        adc_w_invalidate_period_documents($db,$actor,$pid);
     } elseif ($action === 'void_charge') {
         $cid = adc_w_id('charge_id');
         $s = $db->prepare('UPDATE charge_lines SET is_void=1 WHERE id=? AND client_id=? AND is_void=0');
@@ -369,10 +383,10 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             throw new RuntimeException('Начисление не найдено.');
         }
         adc_audit($db, $actor, 'void_charge', 'charge_line', $cid);
-        $db->prepare('UPDATE document_bundles SET transferred_at=NULL
-            WHERE period_id=(SELECT period_id FROM charge_lines WHERE id=? AND client_id=?)
-            AND is_void=0 AND (needs_invoice=1 OR needs_spec=1 OR needs_act=1)')
-            ->execute([$cid,$clientId]);
+        $periodStmt=$db->prepare('SELECT period_id FROM charge_lines WHERE id=? AND client_id=?');
+        $periodStmt->execute([$cid,$clientId]);
+        $affected=(int)$periodStmt->fetchColumn();
+        if ($affected > 0) adc_w_invalidate_period_documents($db,$actor,$affected);
     } elseif ($action === 'add_payment') {
         $pid = adc_w_id('period_id');
         $period = adc_w_period($db, $clientId, $pid);
