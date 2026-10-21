@@ -14,7 +14,7 @@ function check(bool $condition, string $label): void {
 function run_action(PDO $db, array $user, string $action, array $data): void {
     $_POST = $data;
     try {
-        $handled = adc_w_action($db, $user, $action);
+        $handled = adc_w_action($db, $user, $action) || adc_doc_action($db, $user, $action);
         throw new RuntimeException('Action was not handled: ' . $action . ' ' . (int)$handled);
     } catch (Redirected $ok) {
         check(!$db->inTransaction(), 'Transaction committed: ' . $action);
