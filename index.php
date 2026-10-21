@@ -77,7 +77,22 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         :is(a,button,input,select,textarea,summary,.table-scroll):focus-visible{outline:2px solid var(--accent)!important;outline-offset:2px}
         input[type=date]{min-height:43px}
         input[type=date]::-webkit-calendar-picker-indicator{opacity:.9;cursor:pointer;background-color:#edeafe;border-radius:6px;padding:6px;background-size:16px}
-        select{cursor:pointer;background-color:#fff}
+        select{cursor:pointer;background-color:#fff;appearance:none;-webkit-appearance:none;
+          padding-right:38px;background-image:linear-gradient(45deg,transparent 50%,#4d43c2 50%),
+          linear-gradient(135deg,#4d43c2 50%,transparent 50%);
+          background-position:calc(100% - 20px) 50%,calc(100% - 15px) 50%;
+          background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+        select:hover{border-color:#8f88d6}
+        .drawer .customer-tools nav,.customer-tools nav{flex-wrap:wrap}
+        .customer-tools .btn{font-size:13px;padding:8px 12px}
+        .drawer .client-overview{margin-top:14px}
+        .drawer .client-overview .muted{margin:5px 0 0}
+        .customer-edit>summary{font-weight:700}
+        .settings-disclosure>summary{font-size:16px}
+        .task-month .task-month-body{margin-top:6px}
+        .task-day .badge{vertical-align:middle}
+        .task-inline-edit .field{margin-bottom:8px}
+        
         details>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:9px 0}
         details>summary::-webkit-details-marker{display:none}
         details>summary::before{content:"";width:7px;height:7px;flex:none;border-right:2px solid var(--accent);border-bottom:2px solid var(--accent);transform:rotate(-45deg);transition:transform .15s ease;margin-right:3px}
