@@ -53,7 +53,9 @@ function adc_client_reminders(PDO $db, string $today): array {
         FROM clients c JOIN engagements e ON e.client_id=c.id
         WHERE e.status="active" ORDER BY c.id');
     $events=[];
-    $docsStmt=$db->prepare('SELECT d.is_void,d.storage_key,d.created_at,d.transfer_due_on,d.transferred_at,
+    $docsStmt=$db->prepare('SELECT d.id,d.is_void,d.storage_key,d.created_at,d.transfer_due_on,d.transferred_at,
+        EXISTS(SELECT 1 FROM audit_events a WHERE a.object_type="document_bundle" AND a.object_id=d.id
+          AND a.action="invalidate_document") AS needs_replacement,
         d.needs_contract,d.needs_spec,d.needs_invoice,d.needs_act,p.period_start,p.period_end
         FROM document_bundles d LEFT JOIN billing_periods p ON p.id=d.period_id
         WHERE d.client_id=? AND d.is_void=0');
@@ -71,6 +73,10 @@ function adc_client_reminders(PDO $db, string $today): array {
         // Prepared and handover are distinct workflows; a ready but unshared
         // document generates only handover, not another prepare reminder.
         foreach ($documents as $doc) {
+            if ((int)$doc['needs_replacement'] === 1) {
+                $push($today,'replace','Заменить устаревший PDF после изменения суммы');
+                continue;
+            }
             if ($doc['storage_key'] !== null && $doc['transferred_at'] === null) {
                 $date=$doc['transfer_due_on'] ?: $today;
                 if ($date < $minDate) $date=$minDate; // keep old overdue visible
