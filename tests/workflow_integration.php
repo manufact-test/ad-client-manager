@@ -210,6 +210,16 @@ run_action($db,$director,'edit_task',[
 ]);
 $taskRow=$db->query("SELECT * FROM personal_tasks WHERE id=$task")->fetch();
 check($taskRow['title']==='Task A revised' && (int)$taskRow['anchor_day']===30,'Owner edit and monthly anchor');
+$db->prepare('INSERT INTO personal_tasks(user_id,title,due_date,repeat_monthly,anchor_day) VALUES (?,?,?,?,?)')
+    ->execute([$director['id'],'Task anchored 31','2026-02-28',1,31]);
+$clampedTask=(int)$db->lastInsertId();
+run_action($db,$director,'edit_task',[
+    'task_id'=>(string)$clampedTask,'title'=>'Task renamed, still 31',
+    'due_date'=>'2026-02-28','repeat_monthly'=>'1',
+]);
+check((int)$db->query("SELECT anchor_day FROM personal_tasks WHERE id=$clampedTask")->fetchColumn()===31,
+    'Preserve original day 31 when editing February reminder');
+
 
 $key=str_repeat('b',48).'.pdf';
 $db->prepare('INSERT INTO document_bundles(client_id,period_id,storage_key,original_filename,needs_invoice)
