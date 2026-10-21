@@ -232,16 +232,12 @@ function adc_import_panel(array $user):string {
     if ($user['role']!=='director') return '';
     $csrf=adc_csrf();
     $header=implode(',',adc_import_headers());
-    $html='<section class="card"><h2>Импорт истории из CSV</h2>'.
-        '<p class="muted">Только вымышленные данные до завершения разработки и перевода GitHub в Private. '.
-        'Формат UTF-8 с запятыми, максимум 2 МБ / 2000 строк. Одна строка — отдельная работа и/или платеж. '.
-        'Одинаковый external_client_id объединяет строки одного клиента; одинаковый период — в один расчётный период. '.
-        'Сначала проверить файл, затем повторно выбрать <strong>тот же CSV</strong> и подтвердить. '.
-        'Копии файла на сервере не остаётся.</p>'.
-        '<details><summary>Показать заголовки CSV</summary><code>'.adc_h($header).'</code>'.
-        '<p class="muted">billed, received, refunded можно оставлять пустыми. is_demo: 0 или 1. '.
-        'archived_on пустой для активного клиента. Дату платежа указывать только при оплатах/возвратах. '.
-        'Поля и порядок пока канонические; автоматическое сопоставление старой Excel-таблицы не выполняется.</p></details>';
+    $html='<details class="card settings-disclosure"><summary>Импорт клиентов из CSV</summary>'.
+        '<p class="muted">Загрузите таблицу в формате CSV (до 2 МБ). Сначала проверьте содержимое, затем подтвердите импорт.</p>'.
+        '<details><summary>Требования к файлу</summary>'.
+        '<p class="muted">Разделитель — запятая, кодировка UTF-8. До 2000 строк. '.
+        'Используйте шаблон требуемых столбцов.</p>'.
+        '<code>'.adc_h($header).'</code></details>';
     $html.='<form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="'.$csrf.'">'.
         '<input type="hidden" name="action" value="preview_history_csv">'.
         '<label class="field">Проверить CSV без записи в базу<input type="file" name="history_csv" accept=".csv,text/csv" required></label>'.
@@ -255,5 +251,5 @@ function adc_import_panel(array $user):string {
             '<label class="field">Повторно выбрать тот же CSV<input type="file" name="history_csv" accept=".csv,text/csv" required></label>'.
             '<button type="submit">Подтвердить импорт</button></form>';
     }
-    return $html.'</section>';
+    return $html.'</details>';
 }
