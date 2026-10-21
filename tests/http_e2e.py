@@ -274,7 +274,7 @@ try:
     check(status == 200 and "Imported CI client" in rendered, "Search shows matching real client")
     check('name="q"' in rendered and 'value="Imported CI"' in rendered,
           "Search input preserves query")
-    match = re.search(r'href="([^"]+client=\d+)"', rendered)
+    match = re.search(r'href="([^"]*q=Imported%20CI[^"]*client=\d+)"', rendered)
     check(match is not None and "q=Imported%20CI" in match.group(1),
           "Client links retain the filter in HTML-escaped URL")
     selected_url = match.group(1).replace("&amp;", "&")
