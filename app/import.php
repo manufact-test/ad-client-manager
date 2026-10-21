@@ -104,6 +104,20 @@ function adc_import_parse(string $path): array {
         fclose($file);
     }
     if (!$lines) throw new RuntimeException('Нет строк для импорта.');
+    $balances=[];
+    foreach ($lines as $item) {
+        $external=$item['id'];
+        $balances[$external] ??= 0;
+        if ($item['received']!==null) {
+            $balances[$external]=adc_fin_add($balances[$external],adc_fin_minor($item['received']));
+        }
+        if ($item['refunded']!==null) {
+            $balances[$external]=adc_fin_add($balances[$external],-adc_fin_minor($item['refunded']));
+        }
+    }
+    foreach ($balances as $balance) {
+        if ($balance<0) throw new RuntimeException('Суммарные возвраты превышают поступления у одного из клиентов CSV.');
+    }
     $ranges=[];
     foreach ($periods as $period) $ranges[$period['id']][]=$period;
     foreach ($ranges as $periodList) {
