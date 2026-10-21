@@ -81,6 +81,7 @@ try {
     }
     $bad=$records;
     $bad[0][12]='';
+    $bad[0][14]='';
     $bad[1][12]='';
     $bad[1][13]='1.00';
     file_put_contents($path,imp_csv($bad));
