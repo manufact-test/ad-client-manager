@@ -187,6 +187,31 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           .task-day .task-actions{justify-content:flex-end;align-self:stretch}
           .task-day .task-actions button{min-width:84px}
         }
+
+        .analytics-filter{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+        .analytics-filter label{min-width:145px;display:grid;gap:5px}
+        .analytics-filter select{min-height:42px}
+        .analytics-filter button{min-height:42px}
+        .analytics-overview-title{display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;margin-bottom:15px}
+        .analytics-overview-title h2{margin:0}
+        .analytics-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+        .analytics-kpi{display:flex;flex-direction:column;gap:6px;min-width:0;padding:16px 18px;background:#f8f8ff;border-radius:12px;border:1px solid #e7e5fa}
+        .analytics-kpi>small{font-weight:650;color:#68748a}
+        .analytics-kpi>strong{font-size:clamp(18px,2.2vw,27px);line-height:1.2;overflow-wrap:anywhere}
+        .analytics-kpi>span{font-size:12px;color:#71809a}
+        .analytics-chart-row{display:grid;grid-template-columns:75px minmax(120px,1fr) 145px;gap:12px;align-items:center;margin:10px 0}
+        .analytics-chart-month{font-size:13px;font-weight:650;color:#535c7e}
+        .analytics-chart-track{display:grid;grid-template-rows:repeat(2,12px);gap:4px}
+        .analytics-chart-bar{height:12px;border-radius:2px 7px 7px 2px;min-width:0}
+        .analytics-chart-bar.billed{background:#5144bd}
+        .analytics-chart-bar.received{background:#77bde9}
+        .analytics-chart-label{font-size:12px;white-space:nowrap;text-align:right;color:#50607a}
+        .analytics-export{margin:0 0 28px}
+        @media(max-width:600px){.analytics-kpis{grid-template-columns:1fr 1fr;gap:8px}
+          .analytics-kpi{padding:12px}
+          .analytics-chart-row{grid-template-columns:60px minmax(90px,1fr);gap:8px}
+          .analytics-chart-label{grid-column:2;justify-self:end}
+          .analytics-filter label{flex:1;min-width:120px}}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script>
 (function(){
   "use strict";
