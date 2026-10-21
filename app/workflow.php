@@ -346,6 +346,11 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             $stmt->execute([$clientId, $pid, $category, $label, $amount, $period['currency'], $reason]);
             adc_audit($db, $actor, 'add_charge', 'charge_line', (int)$db->lastInsertId(), ['amount'=>$amount]);
         }
+        // An edited amount can invalidate an already-transferred invoice,
+        // specification or act. Transfer must be acknowledged again.
+        $db->prepare('UPDATE document_bundles SET transferred_at=NULL WHERE period_id=?
+            AND is_void=0 AND (needs_invoice=1 OR needs_spec=1 OR needs_act=1)')
+            ->execute([$pid]);
     } elseif ($action === 'void_charge') {
         $cid = adc_w_id('charge_id');
         $s = $db->prepare('UPDATE charge_lines SET is_void=1 WHERE id=? AND client_id=? AND is_void=0');
@@ -354,6 +359,10 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             throw new RuntimeException('Начисление не найдено.');
         }
         adc_audit($db, $actor, 'void_charge', 'charge_line', $cid);
+        $db->prepare('UPDATE document_bundles SET transferred_at=NULL
+            WHERE period_id=(SELECT period_id FROM charge_lines WHERE id=? AND client_id=?)
+            AND is_void=0 AND (needs_invoice=1 OR needs_spec=1 OR needs_act=1)')
+            ->execute([$cid,$clientId]);
     } elseif ($action === 'add_payment') {
         $pid = adc_w_id('period_id');
         $period = adc_w_period($db, $clientId, $pid);
