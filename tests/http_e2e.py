@@ -185,7 +185,7 @@ try:
     status, _, _ = request("director", payload=auto_payload)
     check(status == 303, "Repeating the exact auto-period POST is harmless")
     status, _, page = request("director", "/?view=clients&client=" + str(client))
-    check(html(page).count('class="period"') == 2,
+    check(html(page).count('class="period client-period"') == 2,
           "Repeat of auto-period POST never adds an additional billing month")
     status, _, error = request("director", payload={
         **auto_payload, "submission_key": "a" * 64
@@ -193,7 +193,7 @@ try:
     check(status == 200 and "изменился в другой вкладке" in html(error),
           "Separate old tab cannot auto-create an unintended next-next month")
     status, _, page = request("director", "/?view=clients&client=" + str(client))
-    check(html(page).count('class="period"') == 2,
+    check(html(page).count('class="period client-period"') == 2,
           "Rejected stale auto-period request does not mutate periods")
 
     # Real browser-generated nonce: repeat POSTs cannot double-count money.
