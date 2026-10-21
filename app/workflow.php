@@ -120,7 +120,7 @@ function adc_w_collaboration_fields(): array {
 
 function adc_w_action(PDO $db, array $user, string $action): bool {
     $supported = [
-        'save_client', 'start_engagement', 'archive_engagement', 'save_period', 'create_next_period',
+        'save_client', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
         'save_charge', 'void_charge', 'add_payment', 'edit_task',
     ];
     if (!in_array($action, $supported, true)) {
@@ -223,6 +223,36 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             VALUES (?,?,?,?,?,?)');
         $stmt->execute([$clientId, ...$fields]);
         adc_audit($db, $actor, 'resume_client', 'client', $clientId);
+    } elseif ($action === 'save_engagement') {
+        $eid=adc_w_id('engagement_id');
+        $old=adc_w_engagement($db,$clientId,$eid);
+        if ($old['status'] !== 'active') {
+            throw new RuntimeException('Исторические условия доступны только для просмотра.');
+        }
+        $fields=adc_w_collaboration_fields();
+        [$started,$day,$mode,$currency,$quote]=$fields;
+        $stmt=$db->prepare('SELECT MIN(period_start) FROM billing_periods WHERE engagement_id=?');
+        $stmt->execute([$eid]);
+        $first=$stmt->fetchColumn();
+        if ($first !== null && $started > $first) {
+            throw new RuntimeException('Начало сотрудничества не может быть позже существующего периода.');
+        }
+        if ($old['currency'] !== $currency) {
+            $stmt=$db->prepare('SELECT
+                (SELECT COUNT(*) FROM charge_lines ch JOIN billing_periods p ON p.id=ch.period_id
+                    WHERE p.engagement_id=?)
+              + (SELECT COUNT(*) FROM payment_events pe JOIN billing_periods p ON p.id=pe.period_id
+                    WHERE p.engagement_id=?)');
+            $stmt->execute([$eid,$eid]);
+            if ((int)$stmt->fetchColumn()>0) {
+                throw new RuntimeException('Нельзя менять валюту после начислений или оплат.');
+            }
+        }
+        $db->prepare('UPDATE engagements SET started_on=?,billing_day=?,payment_mode=?,currency=?,quoted_amount=?
+            WHERE id=? AND client_id=? AND status="active"')
+            ->execute([$started,$day,$mode,$currency,$quote,$eid,$clientId]);
+        adc_audit($db,$actor,'edit_engagement','engagement',$eid,
+            ['payment_mode'=>$mode,'billing_day'=>$day,'quoted_amount'=>$quote,'currency'=>$currency]);
     } elseif ($action === 'archive_engagement') {
         $eid = adc_w_id('engagement_id');
         $e = adc_w_engagement($db, $clientId, $eid);
@@ -419,13 +449,13 @@ function adc_w_client_form(PDO $db, ?array $client): string {
     return $html . '<p><button type="submit">Сохранить клиента</button></p></form></details>';
 }
 
-function adc_w_engagement_fields(): string {
+function adc_w_engagement_fields(?array $current = null): string {
     return '<div class="grid">' .
-        adc_w_field('Дата начала','started_on',date('Y-m-d'),'date','required') .
-        adc_w_field('Расчётный день (1–31)','billing_day',(string)(int)date('j'),'number','min="1" max="31" required') .
-        adc_w_select('Оплата','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],'prepayment') .
-        adc_w_field('Валюта','currency','BYN','text','maxlength="3" required') .
-        adc_w_field('Ориентировочная сумма (не начисление)','quoted_amount','','number','min="0" step="0.01" placeholder="0.00"') .
+        adc_w_field('Дата начала','started_on',(string)($current['started_on'] ?? date('Y-m-d')),'date','required') .
+        adc_w_field('Расчётный день (1–31)','billing_day',(string)($current['billing_day'] ?? (int)date('j')),'number','min="1" max="31" required') .
+        adc_w_select('Оплата','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)($current['payment_mode'] ?? 'prepayment')) .
+        adc_w_field('Валюта','currency',(string)($current['currency'] ?? 'BYN'),'text','maxlength="3" required') .
+        adc_w_field('Ориентировочная сумма (не начисление)','quoted_amount',(string)($current['quoted_amount'] ?? ''),'number','min="0" step="0.01" placeholder="0.00"') .
         '</div>';
 }
 
@@ -446,6 +476,12 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view): string
             adc_h($eng['started_on']) . ' — ' . adc_h((string)($eng['ended_on'] ?? '…')) . ' · ' .
             adc_h($eng['currency']) . ' · ' . ($eng['payment_mode'] === 'prepayment' ? 'Предоплата' : 'Постоплата') .
             ' · расчётный день ' . (int)$eng['billing_day'] . '</p>';
+        if ($eng['status'] === 'active') {
+            $html .= '<details><summary>✎ Изменить условия и ориентировочную стоимость</summary>' .
+                adc_w_form_start('save_engagement') . adc_w_hidden('client_id',$id) .
+                adc_w_hidden('engagement_id',$eid) . adc_w_engagement_fields($eng) .
+                '<button type="submit">Сохранить условия</button></form></details>';
+        }
         $stmt = $db->prepare('SELECT * FROM billing_periods WHERE engagement_id=? ORDER BY period_start DESC,id DESC');
         $stmt->execute([$eid]);
         $periods = $stmt->fetchAll();
