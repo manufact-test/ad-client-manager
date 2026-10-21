@@ -67,6 +67,7 @@ jobs:
             sudo apt-get install -y php8.3-mysql
           fi
           php tests/mysql_integration.php
+          php tests/workflow_integration.php
 
       - name: Check bootstrap form behavior (when available)
         run: |
