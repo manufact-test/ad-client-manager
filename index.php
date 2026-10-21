@@ -27,7 +27,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
        main{max-width:980px;margin:28px auto;padding:0 16px 48px}.brand{font-weight:750;font-size:19px}nav{display:flex;gap:16px;align-items:center;font-size:13px;color:#526071}
        h1{font-size:27px;margin:4px 0 12px}h2{font-size:19px;margin:0 0 14px}p{margin:0 0 12px}small,.muted{color:#667285}
        .card{background:#fff;border:1px solid #e5e8ef;border-radius:14px;padding:22px;margin:0 0 16px}
-       .narrow{max-width:475px;margin:55px auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px}.stack{display:grid;gap:10px}
+       .narrow{max-width:475px;margin:55px auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:16px}.stack{display:grid;gap:10px}
        .field{display:grid;gap:5px;margin:0 0 13px}label{font-weight:600;font-size:13px}input,select{width:100%;padding:10px 11px;border:1px solid #cfd5df;border-radius:8px;font:inherit;background:white;color:inherit}
        input[type=checkbox]{width:auto;accent-color:#4d46cb}.check{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:14px}
        button,.btn{font:inherit;border:1px solid #3b35a8;border-radius:8px;background:#493fbc;color:white;padding:9px 13px;cursor:pointer;text-decoration:none;display:inline-block}
@@ -42,8 +42,8 @@ function adc_page(string $title, string $body, ?array $user = null): never {
        details{margin:10px 0}summary{cursor:pointer;color:#4239a9;font-weight:650;padding:8px 0}.period{border:1px solid #e6e9f1;border-radius:10px;padding:12px;margin:10px 0}.period>summary{color:#232c44}
        h3{font-size:16px;margin:14px 0 10px}.drawer{position:fixed;right:0;top:0;bottom:0;width:min(740px,100vw);background:#f7f8fb;padding:18px;overflow:auto;z-index:20;box-shadow:-20px 0 70px #1921392e}.drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.drawer-head h2{margin:0}.drawer-shade{position:fixed;inset:0;background:#0b133c38;z-index:19}.drawer .card{margin-top:14px}
        
-       .table-scroll{overflow-x:auto;max-width:100%}table{border-collapse:collapse;width:100%;min-width:480px}td,th{border-bottom:1px solid #edf0f3;padding:9px 6px;text-align:left;font-size:14px}tr:hover td{background:#fafaff}td:last-child,th:last-child{white-space:nowrap}
-       @media(max-width:560px){header{padding:12px 16px}.item{align-items:flex-start;flex-direction:column}.card{padding:16px}h1{font-size:23px}}
+       .table-scroll{overflow-x:auto;max-width:100%} :is(a,button,input,select,textarea,summary,.table-scroll):focus-visible{outline:3px solid #c17b08;outline-offset:3px}table{border-collapse:collapse;width:100%;min-width:480px}td,th{border-bottom:1px solid #edf0f3;padding:9px 6px;text-align:left;font-size:14px}tr:hover td{background:#fafaff}td:last-child,th:last-child{white-space:nowrap}
+       @media(max-width:560px){header{padding:12px 16px}.item{align-items:flex-start;flex-direction:column}.card{padding:16px}h1{font-size:23px}.drawer{padding:12px}.drawer .actions{width:100%}.drawer-head{align-items:flex-start}}
        </style></head><body><header><div class="brand">Ad Client Manager</div>' . $menu . '</header><main>' . $body . '</main></body></html>';
     exit;
 }

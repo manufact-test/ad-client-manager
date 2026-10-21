@@ -320,6 +320,10 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             if ($periodRow['period_end'] > $cutoff) {
                 $db->prepare('UPDATE billing_periods SET period_end=?,is_final=1 WHERE id=?')
                     ->execute([$cutoff,$periodRow['id']]);
+                // A shortened period changes the scope of its invoice/act/spec.
+                // Keep the old PDF for the director, but require replacement
+                // before the employee may download or transfer it again.
+                adc_w_invalidate_period_documents($db,$actor,(int)$periodRow['id']);
             }
         }
         $stmt = $db->prepare('UPDATE engagements SET status="archived", ended_on=?, end_reason=? WHERE id=? AND client_id=? AND status="active"');
@@ -517,7 +521,7 @@ function adc_w_engagement_fields(?array $current = null): string {
 
 function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string $returnUrl): string {
     $client = adc_w_client($db, $id);
-    $html = '<aside class="drawer" id="client"><div class="drawer-head"><h2>' . adc_h($client['name']) .
+    $html = '<aside class="drawer" id="client" role="region" aria-labelledby="client-heading"><div class="drawer-head"><h2 id="client-heading">' . adc_h($client['name']) .
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '') .
         '</h2><a class="btn secondary" href="' . adc_h($returnUrl) . '">Закрыть ✕</a></div>';
     $html .= adc_w_client_form($db, $client);
@@ -681,7 +685,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '<a class="btn secondary" href="/?view='.adc_h($view).'">Сбросить</a>'.
         '</form><section class="card"><p class="muted">Найдено в списке: '.count($clients).
         (count($clients)===300?' (показаны последние 300, уточните поиск)':'').'</p>'.
-        '<div class="table-scroll"><table><thead><tr>'.
+        '<div class="table-scroll" tabindex="0" role="region" aria-label="Список клиентов: таблицу можно прокручивать по горизонтали"><table><thead><tr>'.
         '<th>Клиент</th><th>Системы</th><th>Источник</th><th>Карточка</th>'.
         '</tr></thead><tbody>';
     foreach ($clients as $client) {

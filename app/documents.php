@@ -18,6 +18,29 @@ function adc_doc_path(string $key): string {
     return adc_doc_directory() . '/' . $key;
 }
 
+/** Only return the path when the private file still matches its recorded bytes.
+ * A missing, replaced or tampered PDF must never be downloaded or handed over.
+ */
+function adc_doc_verified_path(array $doc): ?string {
+    $key = $doc['storage_key'] ?? null;
+    $sha = $doc['content_sha256'] ?? null;
+    if (!is_string($key) || !is_string($sha) ||
+        !preg_match('/^[a-f0-9]{64}$/D', $sha)) {
+        return null;
+    }
+    try {
+        $path = adc_doc_path($key);
+    } catch (RuntimeException $error) {
+        return null;
+    }
+    if (is_link(adc_doc_directory()) || is_link($path) ||
+        !is_file($path) || !is_readable($path)) {
+        return null;
+    }
+    $actual = @hash_file('sha256', $path);
+    return is_string($actual) && hash_equals($sha, $actual) ? $path : null;
+}
+
 function adc_doc_ensure_directory(): void {
     $dir = adc_doc_directory();
     if (is_link($dir) || (!is_dir($dir) && !mkdir($dir, 0700))) {
@@ -124,8 +147,8 @@ function adc_doc_action(PDO $db, array $user, string $action): bool {
         if (adc_doc_requires_replacement($db,(int)$docId)) {
             throw new RuntimeException('Суммы изменены: директор должен заменить PDF перед передачей.');
         }
-        if ($oldFile === null) {
-            throw new RuntimeException('Нельзя передать документ без файла.');
+        if ($oldFile === null || adc_doc_verified_path($existing) === null) {
+            throw new RuntimeException('PDF отсутствует или повреждён. Сообщите директору, передача невозможна.');
         }
         $db->prepare('UPDATE document_bundles SET transferred_at=UTC_TIMESTAMP() WHERE id=? AND client_id=? AND is_void=0')
             ->execute([$docId,$clientId]);
@@ -207,7 +230,7 @@ function adc_doc_download(PDO $db, array $user): never {
         http_response_code(400);
         exit('Некорректный документ.');
     }
-    $stmt=$db->prepare('SELECT storage_key,original_filename FROM document_bundles
+    $stmt=$db->prepare('SELECT storage_key,original_filename,content_sha256 FROM document_bundles
         WHERE id=? AND is_void=0 AND storage_key IS NOT NULL');
     $stmt->execute([$docId]);
     $doc=$stmt->fetch();
@@ -219,10 +242,10 @@ function adc_doc_download(PDO $db, array $user): never {
         http_response_code(409);
         exit('Документ устарел. Ожидается новая версия от директора.');
     }
-    $path=adc_doc_path($doc['storage_key']);
-    if (!is_file($path) || !is_readable($path)) {
-        http_response_code(404);
-        exit('PDF временно недоступен.');
+    $path=adc_doc_verified_path($doc);
+    if ($path === null) {
+        http_response_code(409);
+        exit('PDF отсутствует или повреждён. Обратитесь к директору.');
     }
     $ascii='document-'.$docId.'.pdf';
     $unicode=rawurlencode((string)$doc['original_filename']);
@@ -279,6 +302,8 @@ function adc_doc_panel(PDO $db, array $user, int $clientId): string {
 }
 
 function adc_doc_upload_form(PDO $db, int $clientId, ?int $replaceId=null): string {
+    // A replacement should carry existing metadata by default.
+    $existing=$replaceId === null ? null : adc_doc_record($db,$clientId,$replaceId);
     $choices=[''=>'Без периода'];
     $stmt=$db->prepare('SELECT p.id,p.period_start,p.period_end FROM billing_periods p
         JOIN engagements e ON e.id=p.engagement_id WHERE e.client_id=?
@@ -287,18 +312,23 @@ function adc_doc_upload_form(PDO $db, int $clientId, ?int $replaceId=null): stri
     foreach ($stmt as $p) {
         $choices[$p['id']]=$p['period_start'].' — '.$p['period_end'];
     }
+    // Include an old selected period even if beyond the latest 100 options.
+    if ($existing && $existing['period_id'] !== null && !isset($choices[(string)$existing['period_id']])) {
+        $p=adc_w_period($db,$clientId,(int)$existing['period_id']);
+        $choices[(string)$p['id']]=$p['period_start'].' — '.$p['period_end'];
+    }
     $html='<form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
         adc_w_hidden('action',$replaceId?'replace_document':'upload_document').
         adc_w_hidden('client_id',$clientId);
     if ($replaceId) $html.=adc_w_hidden('document_id',$replaceId);
     $html.='<p class="muted">Счёт, акт и спецификация привязываются к расчётному периоду. Договор можно загрузить отдельно.</p>'.
         '<label class="field">PDF (до 20 МБ)<input type="file" name="document" accept=".pdf,application/pdf" required></label>'.
-        adc_w_select('Расчётный период','period_id',$choices).
-        adc_w_check('needs_contract','Договор',false).
-        adc_w_check('needs_spec','Спецификация',false).
-        adc_w_check('needs_invoice','Счёт',false).
-        adc_w_check('needs_act','Акт',false).
-        adc_w_field('Передать до','transfer_due_on','','date').
+        adc_w_select('Расчётный период','period_id',$choices,(string)($existing['period_id']??'')).
+        adc_w_check('needs_contract','Договор',(bool)($existing['needs_contract']??false)).
+        adc_w_check('needs_spec','Спецификация',(bool)($existing['needs_spec']??false)).
+        adc_w_check('needs_invoice','Счёт',(bool)($existing['needs_invoice']??false)).
+        adc_w_check('needs_act','Акт',(bool)($existing['needs_act']??false)).
+        adc_w_field('Передать до','transfer_due_on',(string)($existing['transfer_due_on']??''),'date').
         '<button type="submit">'.($replaceId?'Заменить PDF':'Загрузить PDF').'</button></form>';
     return $html;
 }

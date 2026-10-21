@@ -198,6 +198,14 @@ try {
     if ($db->inTransaction()) $db->rollBack();
 }
 
+// Archive must invalidate only PDF bundles whose period dates change.
+$lastPeriodId=(int)$db->query("SELECT id FROM billing_periods WHERE engagement_id=$e ORDER BY period_end DESC LIMIT 1")->fetchColumn();
+$db->prepare('INSERT INTO document_bundles(client_id,period_id,needs_invoice,transferred_at)
+    VALUES (?,?,1,UTC_TIMESTAMP())')->execute([$realId,$p]);
+$unchangedInvoice=(int)$db->lastInsertId();
+$db->prepare('INSERT INTO document_bundles(client_id,period_id,needs_act,transferred_at)
+    VALUES (?,?,1,UTC_TIMESTAMP())')->execute([$realId,$lastPeriodId]);
+$shortenedAct=(int)$db->lastInsertId();
 run_action($db,$director,'archive_engagement',[
     'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
     'ended_on'=>'2026-10-07','end_reason'=>'Fixture completion',
@@ -205,6 +213,10 @@ run_action($db,$director,'archive_engagement',[
 check($db->query("SELECT status FROM engagements WHERE id=$e")->fetchColumn()==='archived','Archived');
 $final=$db->query("SELECT period_end,is_final FROM billing_periods WHERE engagement_id=$e ORDER BY id DESC LIMIT 1")->fetch();
 check($final['period_end']==='2026-10-08' && (int)$final['is_final']===1,'Final billing period shortened on archive');
+check(adc_doc_requires_replacement($db,$shortenedAct),'Archive invalidates PDF for shortened period');
+check((int)$db->query("SELECT transferred_at IS NULL FROM document_bundles WHERE id=$shortenedAct")->fetchColumn()===1,
+    'Archive clears transferred state for shortened period');
+check(!adc_doc_requires_replacement($db,$unchangedInvoice),'Archive does not invalidate unchanged period invoice');
 try {
     run_action($db,$director,'save_period',[
         'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
@@ -291,9 +303,21 @@ check((int)$db->query("SELECT anchor_day FROM personal_tasks WHERE id=$clampedTa
 
 
 $key=str_repeat('b',48).'.pdf';
-$db->prepare('INSERT INTO document_bundles(client_id,period_id,storage_key,original_filename,needs_invoice)
-    VALUES (?,?,?,?,1)')->execute([$demoId,$demoP,$key,'fixture-invoice.pdf']);
+adc_doc_ensure_directory();
+$fixtureBytes="%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n";
+$fixturePath=adc_doc_path($key);
+check(file_put_contents($fixturePath,$fixtureBytes)!==false,'Create fictional private fixture PDF');
+$db->prepare('INSERT INTO document_bundles(client_id,period_id,storage_key,original_filename,
+    content_sha256,needs_invoice,needs_act,transfer_due_on)
+    VALUES (?,?,?,?,?,1,1,?)')->execute([
+        $demoId,$demoP,$key,'fixture-invoice.pdf',hash('sha256',$fixtureBytes),'2026-10-31'
+    ]);
 $documentId=(int)$db->lastInsertId();
+$form=adc_doc_upload_form($db,$demoId,$documentId);
+check(str_contains($form,'value="'.$demoP.'" selected'),'Replacement preserves historical period selection');
+check(str_contains($form,'name="needs_invoice" value="1" checked'),'Replacement preserves invoice type');
+check(str_contains($form,'name="needs_act" value="1" checked'),'Replacement preserves act type');
+check(str_contains($form,'value="2026-10-31"'),'Replacement preserves transfer due date');
 run_action($db,$employee,'transfer_document',[
     'client_id'=>(string)$demoId,'document_id'=>(string)$documentId
 ]);

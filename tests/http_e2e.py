@@ -209,6 +209,31 @@ try:
     check(status == 200 and downloaded == replacement.read_bytes(), "Employee gets replacement PDF")
     check(len(list(DOCS.glob("*.pdf"))) == 1, "Old PDF removed from private storage")
 
+    # Missing or modified bytes never pass the stored SHA-256 verification.
+    stored_pdf = next(DOCS.glob("*.pdf"))
+    stored_pdf.write_bytes(b"%PDF-1.5\nModified outside the application\n")
+    status, _, damaged = request("employee", "/?download=" + str(new_id))
+    check(status == 409 and not damaged.startswith(b"%PDF-"),
+          "Employee cannot download PDF with invalid SHA256")
+    status, _, damaged = request("director", "/?download=" + str(new_id))
+    check(status == 409 and not damaged.startswith(b"%PDF-"),
+          "Director cannot download corrupted private PDF")
+    status, _, page = request("employee", payload={
+        "csrf": employee_csrf, "action": "transfer_document",
+        "client_id": client, "document_id": new_id
+    })
+    check(status == 200 and "повреждён" in html(page),
+          "Transfer refuses damaged PDF without recording it")
+    stored_pdf.write_bytes(replacement.read_bytes())
+    status, _, recovered = request("employee", "/?download=" + str(new_id))
+    check(status == 200 and recovered == replacement.read_bytes(),
+          "Original bytes restore valid PDF download")
+    status, _, _ = request("employee", payload={
+        "csrf": employee_csrf, "action": "transfer_document",
+        "client_id": client, "document_id": new_id
+    })
+    check(status == 303, "After integrity restoration, transfer succeeds")
+
     status, _, page = request("employee", payload={
         "csrf": employee_csrf, "action": "void_document",
         "client_id": client, "document_id": new_id
