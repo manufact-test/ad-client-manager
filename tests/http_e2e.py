@@ -112,7 +112,8 @@ try:
     # Use the exact hidden snapshot fields rendered to a browser.
     forms = re.findall(r'<form\b[^>]*>.*?</form>', html(page), flags=re.S)
     def field_from_action(action, field):
-        form = next((f for f in forms if 'name="action" value="' + action + '"' in f), None)
+        form = next((f for f in forms if 'name="action" value="' + action + '"' in f and
+                     'name="' + field + '"' in f), None)
         check(form is not None, action + " form is available")
         found = re.search(r'name="' + field + r'" value="([a-f0-9]{64})"', form)
         check(found is not None, action + " form carries its current revision")
