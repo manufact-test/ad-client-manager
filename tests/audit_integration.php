@@ -25,7 +25,7 @@ try {
         VALUES ("<script>alert(1)</script>","test",?,?)')->execute([123,'{"s":"<img onerror=evil>"}']);
     $page=adc_audit_panel($db,$director);
     audit_check(str_contains($page,'Журнал изменений'),'Director audit panel');
-    audit_check(str_contains($page,'&lt;script&gt;alert(1)&lt;/script&gt;'),'Audit action escaped');
+    audit_check(str_contains($page,'Действие системы'),'Unknown technical event label hidden');
     audit_check(!str_contains($page,'<script>alert(1)</script>'),'Raw script not rendered');
     audit_check(!str_contains($page,'<img onerror'),'Payload not rendered as HTML');
     audit_check(str_contains($page,'audit_before='),'Large history paginated');
@@ -33,9 +33,9 @@ try {
     audit_check(isset($match[1]),'Pagination marker');
     $_GET=['audit_before'=>$match[1]];
     $older=adc_audit_panel($db,$director);
-    audit_check(str_contains($older,'audit-fixture-0'),'Earlier audit entries loaded');
+    audit_check(str_contains($older,'Действие системы'),'Earlier audit entries loaded in Russian');
     $_GET=['audit_before'=>'-10'];
-    audit_check(str_contains(adc_audit_panel($db,$director),'&lt;script&gt;'),
+    audit_check(str_contains(adc_audit_panel($db,$director),'Действие системы'),
         'Invalid pagination is ignored safely');
 } finally {
     $db->rollBack();
