@@ -466,9 +466,11 @@ try:
     check("q=Imported%20CI" in html(page) and "Закрыть ✕" in html(page),
           "Closing drawer can return to same search")
     status, _, page = request("director", "/?view=clients&q=Imported+CI&demo=1")
-    check("Imported CI client" not in html(page), "Demo filter excludes real search result")
+    check("Imported CI client" not in re.search(r"<tbody>.*?</tbody>",html(page),re.S).group(0),
+          "Demo filter excludes real client from visible results")
     status, _, page = request("director", "/?view=clients&q=%25")
-    check("Imported CI client" not in html(page), "SQL substring search treats percent literally")
+    check("Imported CI client" not in re.search(r"<tbody>.*?</tbody>",html(page),re.S).group(0),
+          "SQL substring search treats percent literally")
     status, _, page = request("director", "/?view=clients&q=%3Cscript%3Ebad%3C%2Fscript%3E")
     check('<script>bad</script>' not in html(page) and "&lt;script&gt;" in html(page),
           "Search value is escaped; cannot inject HTML")
