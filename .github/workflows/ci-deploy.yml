@@ -89,6 +89,27 @@ jobs:
           test "$code" = "503"
           grep -Eq 'Ведутся технические работы|Конфигурация базы данных ещё не установлена' /tmp/adclients-response.html
 
+
+      - name: Full authenticated HTTP and PDF upload/download E2E (disposable MySQL)
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_NAME: adclients_test
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: ci-only-root
+          ADC_HTTP_TEST_FIXTURE: isolated-github-actions
+        run: |
+          php tests/http_fixture.php init
+          php -S 127.0.0.1:8085 -t . >/tmp/adclients-http-e2e.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; php tests/http_fixture.php cleanup' EXIT
+          for i in 1 2 3 4 5 6 7 8; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8085/ || true)
+            if [ "$code" = "200" ]; then break; fi
+            sleep 1
+          done
+          test "$code" = "200"
+          python3 tests/http_e2e.py || { tail -n 75 /tmp/adclients-http-e2e.log; exit 1; }
+
   deploy:
     name: Publish verified server application files only
     needs: verify
