@@ -70,6 +70,7 @@ function adc_export_balances(PDO $db): array {
         FROM clients c JOIN (
             SELECT client_id,currency FROM charge_lines WHERE is_void=0
             UNION SELECT client_id,currency FROM payment_events
+            UNION SELECT client_id,currency FROM client_entries WHERE is_void=0 AND amount IS NOT NULL
         ) t ON t.client_id=c.id
         WHERE '.adc_demo_analytics_predicate('c').'
         ORDER BY c.id,t.currency';
@@ -79,6 +80,18 @@ function adc_export_balances(PDO $db): array {
         $other=adc_fin_minor((string)$row['other']);
         $received=adc_fin_minor((string)$row['received']);
         $refund=adc_fin_minor((string)$row['refund']);
+        $more=$db->prepare('SELECT category,SUM(amount) amount,
+            SUM(CASE WHEN received_at IS NULL THEN 0 ELSE amount END) paid
+            FROM client_entries WHERE client_id=? AND currency=? AND is_void=0 AND amount IS NOT NULL
+            GROUP BY category');
+        $more->execute([(int)$row['id'],(string)$row['currency']]);
+        foreach($more as $entry){
+            $val=adc_fin_minor((string)$entry['amount']);
+            if($entry['category']==='advertising')$ad=adc_fin_add($ad,$val);
+            elseif($entry['category']==='development')$dev=adc_fin_add($dev,$val);
+            else $other=adc_fin_add($other,$val);
+            $received=adc_fin_add($received,adc_fin_minor((string)$entry['paid']));
+        }
         $bill=adc_fin_add(adc_fin_add($ad,$dev),$other);
         $net=adc_fin_add($received,-$refund);
         $rows[]=[(int)$row['id'],(string)$row['name'],(string)$row['currency'],
@@ -126,6 +139,19 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
             (string)$line['occurred_on'],$kind,
             (string)$line['category'],(string)($line['label']??''),
             adc_export_decimal($amount),(string)$line['currency'],(int)$line['operation_id']];
+    }
+    $entries=$db->prepare('SELECT e.*,d.original_filename FROM client_entries e
+        LEFT JOIN document_bundles d ON d.id=e.document_id WHERE e.client_id=? ORDER BY e.created_at,e.id');
+    $entries->execute([$clientId]);
+    foreach($entries as $e){
+        $status=(int)$e['is_void']===1?'Удалено':
+            ($e['received_at']!==null?'Получено':($e['sent_at']!==null?'Ждём оплату':'Отправить документ'));
+        $label=$e['entry_kind']==='card'?'Оплата на карту':(string)($e['original_filename']??'PDF');
+        $rows[]=[(int)$clientId,(string)$client['name'],(int)$client['is_demo'],
+            '', '', '', '', (string)$e['created_at'],
+            $label.' · '.$status,(string)$e['category'],(string)($e['note']??''),
+            $e['amount']===null?'':adc_export_decimal(adc_fin_minor((string)$e['amount'])),
+            (string)($e['currency']??''),(int)$e['id']];
     }
     return $rows;
 }

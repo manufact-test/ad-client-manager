@@ -344,7 +344,7 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $old=adc_w_engagement($db,$clientId,$eid);
         if ($old['status']!=='active') throw new RuntimeException('Нельзя менять закрытое сотрудничество.');
         $effective=adc_w_date(adc_input('effective_on'));
-        if ($effective<$old['started_on']) throw new RuntimeException('Новые условия не могут действовать раньше начала сотрудничества.');
+        if ($effective<=$old['started_on']) throw new RuntimeException('Новые условия должны вступать в силу позже первоначальной даты начала сотрудничества.');
         $day=(int)substr($effective,8,2);
         $mode=adc_w_pick('payment_mode',['prepayment','postpayment']);
         $ccy=adc_w_currency(adc_input('currency'));
@@ -718,7 +718,10 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         '<div><small>Тип</small><strong>'.((string)$client['legal_type']==='legal'?'Юридическое лицо':'Физическое лицо').'</strong></div>'.
         '<div><small>Откуда пришёл</small><strong>'.adc_h($source).'</strong></div>';
     if ($current) {
-        $html .= '<div><small>Дата начала</small><strong>'.adc_h($qDate((string)$current['started_on'])).'</strong></div>'.
+        $effective=$db->prepare('SELECT effective_on FROM engagement_terms WHERE engagement_id=? ORDER BY effective_on DESC,id DESC LIMIT 1');
+        $effective->execute([(int)$current['id']]);
+        $activeFrom=$effective->fetchColumn() ?: $current['started_on'];
+        $html .= '<div><small>Дата начала текущих условий</small><strong>'.adc_h($qDate((string)$activeFrom)).'</strong></div>'.
             '<div><small>Ориентир стоимости за месяц</small><strong>'.
             adc_w_money($current['quoted_amount'] ?? '0.00',(string)$current['currency']).'</strong></div>'.
             '<div><small>Условия оплаты</small><strong>'.
@@ -856,7 +859,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '</form><section class="card"><p class="muted">Найдено в списке: '.count($clients).
         (count($clients)===300?' (показаны последние 300, уточните поиск)':'').'</p>'.
         '<div class="table-scroll" tabindex="0" role="region" aria-label="Список клиентов: таблицу можно прокручивать по горизонтали"><table><thead><tr>'.
-        '<th>Клиент</th><th>Услуги</th><th>Карточка</th><th>Статус</th>'.
+        '<th>Клиент</th><th>Услуги</th><th aria-label="Открыть"></th><th>Статус</th>'.
         '</tr></thead><tbody>';
     foreach ($clients as $client) {
         $html.='<tr><td><strong>'.adc_h($client['name']).'</strong>'.
