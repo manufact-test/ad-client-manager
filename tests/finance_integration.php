@@ -5,7 +5,7 @@ require __DIR__.'/../app/finance.php';
 require __DIR__.'/../app/workflow.php';
 function fin_assert(bool $ok,string $what):void {if (!$ok) throw new RuntimeException('Finance: '.$what);}
 $cases=['0.10'=>10,'0.20'=>20,'0.30'=>30,'123456789012.99'=>12345678901299,'-0.01'=>-1,'0'=>0];
-foreach ($cases as $k=>$v) fin_assert(adc_fin_minor($k)===$v,'Minor units '.$k);
+foreach ($cases as $k=>$v) fin_assert(adc_fin_minor((string)$k)===$v,'Minor units '.$k);
 fin_assert(adc_fin_add(adc_fin_minor('0.10'),adc_fin_minor('0.20'))===30,'0.1+0.2 precise');
 fin_assert(adc_fin_format(12345678901299,'BYN')==='123 456 789 012,99 BYN','Nonfloat formatting');
 try {adc_fin_minor('0.001');throw new RuntimeException('Accepts excessive precision');}
