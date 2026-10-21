@@ -120,6 +120,10 @@ function adc_doc_action(PDO $db,array $user,string $action): bool {
     $docId=null;$existing=null;
     if ($action!=='upload_document') {$docId=adc_w_id('document_id');$existing=adc_doc_record($db,$clientId,$docId,true);}
     if ($action==='transfer_document') {
+        if ($existing['transferred_at']!==null) {
+            $db->commit();adc_flash('Документ уже отправлен.');
+            adc_redirect(adc_w_client_location($db,$clientId));
+        }
         if (adc_doc_verified_path($existing)===null) throw new RuntimeException('Не удалось проверить PDF.');
         if (adc_doc_requires_replacement($db,$docId)) throw new RuntimeException('Сначала замените устаревший PDF.');
         $db->prepare('UPDATE document_bundles SET transferred_at=UTC_TIMESTAMP() WHERE id=?')->execute([$docId]);
@@ -170,8 +174,8 @@ function adc_doc_action(PDO $db,array $user,string $action): bool {
             $check=$db->prepare('SELECT id,received_at,sent_at FROM client_entries WHERE document_id=? AND is_void=0 FOR UPDATE');
             $check->execute([$docId]);$entry=$check->fetch();
             if ($entry) {
-                $db->prepare('UPDATE client_entries SET amount=?,currency=?,category=?,note=? WHERE id=?')
-                    ->execute([$amount,$currency,$category,$note,$entry['id']]);
+                $db->prepare('UPDATE client_entries SET amount=?,currency=?,category=?,note=?,received_at=IF(? IS NULL,NULL,received_at) WHERE id=?')
+                    ->execute([$amount,$currency,$category,$note,$amount,$entry['id']]);
             } else {
                 $db->prepare('INSERT INTO client_entries(client_id,document_id,entry_kind,amount,currency,category,note,sent_at)
                     VALUES (?,?,"document",?,?,?,?,?)')->execute([$clientId,$docId,$amount,$currency,$category,$note,$existing['transferred_at']]);
