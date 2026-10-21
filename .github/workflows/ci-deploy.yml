@@ -34,19 +34,27 @@ jobs:
         run: |
           test -f index.php
           test -f .htaccess
+          test -f app/core.php
+          test -f app/.htaccess
+          grep -q 'Require all denied' app/.htaccess
           test ! -f .env
           grep -q 'DirectoryIndex index.php' .htaccess
 
-      - name: HTTP smoke test
+      - name: Test business logic without a database
+        run: php tests/smoke.php
+
+      - name: HTTP smoke test (unconfigured instance stays locked)
         run: |
           php -S 127.0.0.1:8083 -t . >/tmp/adclients-php.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for i in 1 2 3 4 5; do
-            if curl -fsS http://127.0.0.1:8083/ -o /tmp/adclients-response.html; then break; fi
+            code=$(curl -sS -o /tmp/adclients-response.html -w '%{http_code}' http://127.0.0.1:8083/ || true)
+            if [ "$code" = "503" ]; then break; fi
             sleep 1
           done
-          grep -q 'Ad Client Manager' /tmp/adclients-response.html
+          test "$code" = "503"
+          grep -q 'Конфигурация базы данных ещё не установлена' /tmp/adclients-response.html
 
   deploy:
     name: Promote verified web files to deploy
@@ -64,7 +72,7 @@ jobs:
         run: |
           git fetch origin main deploy
           git switch --detach origin/deploy
-          git restore --source=origin/main --staged --worktree -- index.php .htaccess
+          git restore --source=origin/main --staged --worktree -- index.php .htaccess app
           if git diff --cached --quiet; then
             echo "No deployment changes needed."
             exit 0
