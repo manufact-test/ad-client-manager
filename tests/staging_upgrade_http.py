@@ -15,10 +15,21 @@ def check(ok, message):
     if not ok:
         raise AssertionError(message)
 def request(data=None):
+    # Production sessions intentionally use Secure cookies. The isolated
+    # fixture server is HTTP-only, so pass the CI-only cookie explicitly;
+    # curl otherwise refuses to resend it to a non-local test hostname.
+    cookie=None
+    if COOKIES.exists():
+        for line in COOKIES.read_text().splitlines():
+            parts=line.removeprefix("#HttpOnly_").split("\\t")
+            if len(parts) >= 7 and parts[5] == "ADCLIENTSESSID":
+                cookie="ADCLIENTSESSID="+parts[6]
     cmd=["curl","-sS","--max-time","15","-H",f"Host: {HOST}",
          "--noproxy","*","--resolve",f"{HOST}:8092:127.0.0.1",
-         "-b",str(COOKIES),"-c",str(COOKIES),"-D",str(TMP/"headers"),
+         "-c",str(COOKIES),"-D",str(TMP/"headers"),
          "-o",str(TMP/"body"),"-w","%{http_code}"]
+    if cookie is not None:
+        cmd.extend(["-b",cookie])
     if data is not None:
         for k,v in data.items():
             cmd.extend(["--data-urlencode",f"{k}={v}"])
