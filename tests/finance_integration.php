@@ -65,5 +65,13 @@ try {
       str_contains($html,'10,01 CHF'),'Financial page renders exact cents');
     fin_assert(!str_contains($html,'Finance demo CHF'),'Demo not in LTV');
     fin_assert(str_contains($html,'Finance real CHF'),'Real client in LTV');
+    // A Hostinger test account may contain ONLY a demo client. Rendering
+    // analytics must not throw an SQL error or produce HTTP 500 in that case.
+    $db->exec('SAVEPOINT analytics_demo_only');
+    $db->prepare('UPDATE clients SET is_demo=1 WHERE id=?')->execute([$real]);
+    $demoOnly=adc_fin_render($db);
+    fin_assert(str_contains($demoOnly,'Аналитика') && str_contains($demoOnly,'Клиентская база'),
+        'Demo-only analytics renders without SQL exceptions');
+    $db->exec('ROLLBACK TO SAVEPOINT analytics_demo_only');
 } finally {$db->rollBack();}
 echo "Financial analytics passed: cents, refunds, grouped currencies, source client exclusion, LTV and months\n";
