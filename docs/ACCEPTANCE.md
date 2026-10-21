@@ -36,6 +36,8 @@
 
 **Релизный блок 21.10.2026:** добавлено отдельное правило ручной публикации. Подтверждённый CI на исходниках `de49897fb24aef61c230c6293bd1c9b32ed3b3ff`: https://github.com/manufact-test/ad-client-manager/actions/runs/39627579240 — verify SUCCESS, deploy SKIPPED. В CI прошли проверка безопасных триггеров и read-only preflight на отдельной MySQL fixture. **На Hostinger, в настоящем браузере и при реальном изменении видимости GitHub НЕ ПРОВЕРЕНО.** Точный регламент: `docs/RELEASE.md`.
 
+**Обновление Gate B:** серверные файлы подготовлены и тестовая ветка `deploy` получила staging commit `d8f2e116d5d8305ec7eba2761d579c5e3cac701f`. На feature SHA `944f3c436702e10a89f2afed5d381b23a5312529` реально прошёл полный [CI #39646842677](https://github.com/manufact-test/ad-client-manager/actions/runs/39646842677), включая authenticated HTTP сценарий согласия директора на миграцию *фиктивной* старой схемы. **Пока не проверены** фактический Hostinger auto-deploy, вход директора на обновлённом сайте, обновление настоящей тестовой базы, проверка backup SQL/PDF и ручной Gate C. `main` не затронут, PR #2 Draft.
+
 ## Остаётся обязательно проверить вручную до релиза
 
 **Протокол ручной инфраструктурной приёмки Gate B:** [`HOSTINGER-STAGING.md`](HOSTINGER-STAGING.md), шаги B1–B9 и безопасная проверка физически независимых путей. Документ подготовлен в feature-ветке, но реальные проверки на Hostinger пока **НЕ ПРОВЕРЕНО**. **Предварительный аудит PUBLIC истории** зафиксирован в [`PUBLIC-HISTORY-AUDIT.md`](PUBLIC-HISTORY-AUDIT.md); он **не** заменяет полный Gate D.
