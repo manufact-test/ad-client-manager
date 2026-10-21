@@ -58,7 +58,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         :root{--accent:#4d43c2;--accent-dark:#3629a7;--accent-soft:#eeecff;--line:#e2e5ef;--text:#19223a}
         body{color:var(--text);background:#f6f7fb;overflow-x:hidden}
         header{padding:0 18px;display:block}
-        .header-inner{max-width:980px;margin:auto;min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:14px}
+        .header-inner{max-width:948px;margin:auto;min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:14px}
         .top-nav{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:14px}
         .top-nav a{padding:11px 13px;border-radius:9px;color:#30395a;text-decoration:none;white-space:nowrap}
         .top-nav a.active{color:var(--accent-dark);background:var(--accent-soft);font-weight:750}
