@@ -119,6 +119,7 @@ jobs:
           TEST_DB_USER: root
           TEST_DB_PASSWORD: ci-only-root
           ADC_HTTP_TEST_FIXTURE: isolated-github-actions
+          ADC_PREFLIGHT_TEST_FIXTURE: isolated-github-actions
         run: |
           php tests/http_fixture.php init
           php -r 'require "app/core.php"; require "app/documents.php"; adc_doc_ensure_directory();'
@@ -134,6 +135,17 @@ jobs:
           test "$code" = "200"
           python3 tests/http_e2e.py || { tail -n 75 /tmp/adclients-http-e2e.log; exit 1; }
           python3 tests/http_auth_e2e.py || { tail -n 75 /tmp/adclients-http-e2e.log; exit 1; }
+          # An active, valid private PDF must pass preflight; corruption must
+          # cause a hard failure even when database connectivity is healthy.
+          php tests/preflight_fixture.php seed
+          php scripts/release_preflight.php --verify-pdfs
+          php tests/preflight_fixture.php corrupt
+          if php scripts/release_preflight.php --verify-pdfs; then
+            echo "Preflight incorrectly accepted a damaged private PDF" >&2
+            exit 1
+          fi
+          php tests/preflight_fixture.php cleanup
+          php scripts/release_preflight.php --verify-pdfs
 
 
       - name: Verify backup/restore of SQL and private PDFs in a second database
