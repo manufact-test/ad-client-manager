@@ -11,6 +11,7 @@ function adc_audit_labels(): array {
         'staging_schema_upgrade'=>'Обновлены настройки системы',
         'create_employee'=>'Создание сотрудника',
         'deactivate_employee'=>'Отключение сотрудника',
+        'activate_employee'=>'Восстановление доступа сотрудника',
         'change_password'=>'Смена пароля',
         'reset_employee_password'=>'Сброс пароля сотрудника',
         'create_client'=>'Добавлен клиент',

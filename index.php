@@ -117,7 +117,119 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .customer-edit{margin-top:15px}.customer-tools{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
         @media(max-width:760px){.header-inner{align-items:flex-start;flex-direction:column;padding:9px 0}.top-nav{overflow-x:auto;flex-wrap:nowrap;width:100%;scrollbar-width:thin}.top-nav a{padding:9px 11px}.account{align-self:flex-end}.card{padding:16px}.drawer{padding:12px}.drawer-head{top:-12px}}
         @media(max-width:480px){main{padding:0 12px 40px;margin-top:18px}.task-row{flex-direction:column}.task-actions{align-self:flex-end}.top-nav{font-size:13px}.summary-grid{grid-template-columns:1fr 1fr}}
-        </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main></body></html>';
+        
+        /* A client profile is a workflow, not a pile of shortcut anchors. */
+        .customer-profile .drawer-head{padding:16px 2px;align-items:center}
+        .customer-profile .drawer-head h2{font-size:23px;line-height:1.3;overflow-wrap:anywhere}
+        .customer-profile .card{margin:14px 0;padding:22px;border-radius:14px}
+        .customer-profile .card>h3{margin:0 0 16px;font-size:19px}
+        .customer-profile .profile-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+        .profile-facts>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+        .profile-facts small{font-weight:500;color:#75819a}
+        .profile-facts strong{overflow-wrap:anywhere;font-size:15px}
+        .client-note{margin:18px 0 0;padding:12px 14px;border-radius:9px;background:#f6f7fb;color:#4b5873}
+        .customer-profile .summary-grid{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:20px}
+        .customer-profile .summary-metric{min-width:0;padding:13px}
+        .customer-profile .summary-metric strong{font-size:clamp(15px,2.2vw,20px);overflow-wrap:anywhere}
+        .engagement-block{border-top:1px solid var(--line);padding:18px 0}
+        .engagement-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin:0 0 12px}
+        .engagement-head span{font-size:13px}
+        .client-period{margin:10px 0;border-color:#e5e6f1;background:#fcfcff}
+        .client-period>summary{padding:6px 0 12px;font-weight:750;color:#292851}
+        .period-content{display:grid;gap:6px}
+        .period-total{margin:10px 0 0;display:flex;justify-content:space-between;gap:12px}
+        .customer-profile .sub-action{padding:7px 0;border-top:1px solid #eff0f6;margin:8px 0}
+        .customer-profile .sub-action:first-of-type{border-top:0}
+        .customer-profile .sub-action>summary{font-weight:600;color:#4840b4}
+        .customer-profile .sub-action>form{margin:10px 0}
+        .customer-profile .customer-edit{border:0;margin:0;padding:0;background:none}
+        .customer-profile .customer-edit>summary{font-weight:600;font-size:15px}
+        .customer-profile .doc-upload{margin:0}
+        .customer-profile .actions{gap:10px}
+        .customer-profile button,.customer-profile .btn{max-width:100%}
+        .repeat-choice{grid-column:1/-1;padding:4px 0 8px}
+        .repeat-choice>.field{margin-top:8px}
+        .repeat-choice .manual-previous{display:none}
+        .repeat-choice:has(select[name="previous_client_id"] option[value="__manual__"]:checked) .manual-previous{display:block}
+        .repeat-choice .manual-previous .field{max-width:100%}
+        .customer-more>details{margin:6px 0;padding:7px 0}
+        @media(max-width:550px){.customer-profile .profile-facts{grid-template-columns:1fr 1fr;gap:12px}
+          .customer-profile .summary-grid{grid-template-columns:1fr 1fr}
+          .customer-profile .card{padding:16px}
+          .engagement-head{flex-direction:column}
+          .customer-profile .item{flex-direction:row;align-items:center}
+          .customer-profile .summary-metric{padding:11px}
+          .customer-profile .summary-metric strong{font-size:16px}}
+
+        [hidden]{display:none!important}
+        .task-month .task-day{border:0;border-radius:10px;padding:13px 14px;margin:10px 0}
+        .task-month .task-day:nth-of-type(odd){background:#f6f7fd}
+        .task-month .task-day:nth-of-type(even){background:#edecfa}
+        .task-day>h3{font-size:14px;color:#373b62;padding:0 0 10px}
+        .task-day .task-row{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:8px 2px}
+        .task-day .task-row>.task-title{flex:1;line-height:1.35}
+        .task-day .task-actions{align-items:center;gap:10px;flex-shrink:0}
+        .task-day .task-actions form{display:flex;align-items:center;margin:0}
+        .task-day .task-actions button{height:40px;min-width:85px;display:inline-flex;align-items:center;justify-content:center}
+        .task-inline-edit{margin:8px 0 14px;border:1px solid #d9d6f4;background:#fff}
+        .task-inline-edit h3{margin:0 0 12px}
+        .task-edit-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0 18px}
+        .task-edit-controls button{min-width:98px;min-height:40px}
+        .task-delete{padding-top:14px;border-top:1px solid #edeaf9}
+        .task-delete button{background:#fff;color:#6c3345;border:1px solid #e1c2c9}
+        .task-delete button:hover{background:#fff1f2;color:#9d2e47}
+        .task-month>h2{margin-bottom:10px}
+        input[type="date"]{min-height:44px;padding-right:12px}
+        input[type="date"]::-webkit-calendar-picker-indicator{opacity:1;margin:0 1px 0 0;padding:7px;border-radius:7px;background-color:#ece8ff;cursor:pointer}
+        .source-choice .conditional-other{margin-top:7px}
+        @media(max-width:640px){
+          .task-day .task-row{flex-direction:column;align-items:stretch;gap:10px}
+          .task-day .task-actions{justify-content:flex-end;align-self:stretch}
+          .task-day .task-actions button{min-width:84px}
+        }
+
+        .analytics-filter{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+        .analytics-filter label{min-width:145px;display:grid;gap:5px}
+        .analytics-filter select{min-height:42px}
+        .analytics-filter button{min-height:42px}
+        .analytics-overview-title{display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;margin-bottom:15px}
+        .analytics-overview-title h2{margin:0}
+        .analytics-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+        .analytics-kpi{display:flex;flex-direction:column;gap:6px;min-width:0;padding:16px 18px;background:#f8f8ff;border-radius:12px;border:1px solid #e7e5fa}
+        .analytics-kpi>small{font-weight:650;color:#68748a}
+        .analytics-kpi>strong{font-size:clamp(18px,2.2vw,27px);line-height:1.2;overflow-wrap:anywhere}
+        .analytics-kpi>span{font-size:12px;color:#71809a}
+        .analytics-chart-row{display:grid;grid-template-columns:75px minmax(120px,1fr) 145px;gap:12px;align-items:center;margin:10px 0}
+        .analytics-chart-month{font-size:13px;font-weight:650;color:#535c7e}
+        .analytics-chart-track{display:grid;grid-template-rows:repeat(2,12px);gap:4px}
+        .analytics-chart-bar{height:12px;border-radius:2px 7px 7px 2px;min-width:0}
+        .analytics-chart-bar.billed{background:#5144bd}
+        .analytics-chart-bar.received{background:#77bde9}
+        .analytics-chart-label{font-size:12px;white-space:nowrap;text-align:right;color:#50607a}
+        .analytics-export{margin:0 0 28px}
+        @media(max-width:600px){.analytics-kpis{grid-template-columns:1fr 1fr;gap:8px}
+          .analytics-kpi{padding:12px}
+          .analytics-chart-row{grid-template-columns:60px minmax(90px,1fr);gap:8px}
+          .analytics-chart-label{grid-column:2;justify-self:end}
+          .analytics-filter label{flex:1;min-width:120px}}
+</style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script>
+(function(){
+  "use strict";
+  document.addEventListener("click",function(event){
+    var toggle=event.target.closest("[data-task-toggle]");
+    var close=event.target.closest("[data-task-close]");
+    if(!toggle&&!close)return;
+    var id=(toggle||close).getAttribute(toggle?"data-task-toggle":"data-task-close");
+    var target=document.getElementById(id);
+    if(!target)return;
+    var opened=toggle?!target.hidden:false;
+    target.hidden=!opened;
+    var button=document.querySelector("[data-task-toggle=\""+id+"\"]");
+    if(button)button.setAttribute("aria-expanded",opened?"true":"false");
+    if(opened){var title=target.querySelector("input[name=\"title\"]");if(title)title.focus({preventScroll:true});}
+  });
+})();
+</script></body></html>';
     exit;
 }
 
@@ -529,6 +641,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->commit();
             adc_flash('Доступ сотрудника отключён.');
             adc_redirect();
+        }
+
+        if ($action === 'activate_employee') {
+            adc_require_director($current);
+            $employeeId = filter_var(adc_input('employee_id'),FILTER_VALIDATE_INT);
+            if (!$employeeId || $employeeId < 1) {
+                throw new RuntimeException('Не выбран сотрудник.');
+            }
+            $db->beginTransaction();
+            $stmt=$db->prepare('UPDATE users SET is_active=1 WHERE id=? AND role="employee" AND is_active=0');
+            $stmt->execute([$employeeId]);
+            if ($stmt->rowCount() !== 1) {
+                throw new RuntimeException('Сотрудник не найден или уже включён.');
+            }
+            adc_audit($db,(int)$current['id'],'activate_employee','user',(int)$employeeId);
+            $db->commit();
+            adc_flash('Доступ сотрудника восстановлен.');
+            adc_redirect('?view=team');
         }
 
         throw new RuntimeException('Неизвестное действие.');
