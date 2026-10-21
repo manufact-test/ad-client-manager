@@ -62,6 +62,8 @@ try:
     check(status==303,"Director creates employee through form action")
     status,_,page=request("director","/?view=team")
     check("Fixture Hire" in page,"New employee is visible in directory")
+    check("Журнал изменений" in page and "Создание сотрудника" in page,
+          "Director may inspect audited employee creation")
 
     hire_token,page=login("hire","hire@example.test",TEMP_PASSWORD)
     check("Измените временный пароль" in page,"Temporary password requires reset")
@@ -85,6 +87,9 @@ try:
     check(status==200 and "Мои задачи" in page and "Измените временный пароль" not in page,
           "Password change enables authenticated actions")
     hire_token=csrf(page)
+    status,_,page=request("hire","/?view=team")
+    check("Журнал изменений" not in page and "Импорт истории из CSV" not in page,
+          "Employee cannot view director-only audit or CSV import")
     status,_,page=request("hire_second","/?view=tasks")
     check("Вход" in page and "Мои задачи" not in page,
           "A second session is revoked when user changes password")
