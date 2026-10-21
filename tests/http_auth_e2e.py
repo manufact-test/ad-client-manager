@@ -11,6 +11,7 @@ BASE="http://127.0.0.1:8085"
 OLD_PASSWORD="CI-only-fictional-password-12345"
 TEMP_PASSWORD="CI-temp-for-created-employee-123"
 NEW_HIRE_PASSWORD="CI-new-for-created-employee-567"
+RESET_HIRE_PASSWORD="CI-reset-temporary-password-357"
 DIRECTOR_NEW_PASSWORD="CI-new-director-password-98765"
 WORK=Path(tempfile.mkdtemp(prefix="adc-auth-"))
 JARS={name:WORK/(name+".jar") for name in
@@ -163,6 +164,29 @@ try:
     match=re.search(r'Fixture Hire.*?name="employee_id" value="(\d+)"',page,re.S)
     check(match is not None,"Employee ID available only in director settings")
     hire_id=match.group(1)
+    status,_,page=request("hire",payload={
+        "csrf":hire_token,"action":"reset_employee_password",
+        "employee_id":hire_id,"employee_new_password":RESET_HIRE_PASSWORD
+    })
+    check(status==403 and "Недостаточно прав" in page,
+          "Employee may not reset another account password")
+    status,_,_=request("director",payload={
+        "csrf":director_token,"action":"reset_employee_password",
+        "employee_id":hire_id,"employee_new_password":RESET_HIRE_PASSWORD
+    })
+    check(status==303,"Director resets employee password")
+    status,_,page=request("hire","/?view=clients")
+    check("Вход" in page,"Password reset immediately revokes active staff sessions")
+    hire_token,page=login("hire","hire@example.test",RESET_HIRE_PASSWORD)
+    check("Измените временный пароль" in page,"Reset forces a new permanent password")
+    status,_,page=request("hire",payload={
+        "csrf":hire_token,"action":"change_password",
+        "old_password":RESET_HIRE_PASSWORD,"new_password":NEW_HIRE_PASSWORD
+    })
+    check(status==303,"Employee completes second forced password change")
+    status,_,page=request("hire","/?view=tasks")
+    check("Worker monthly task" in page,"Reset preserves employee private task history")
+    hire_token=csrf(page)
     status,_,_=request("director",payload={
         "csrf":director_token,"action":"deactivate_employee","employee_id":hire_id
     })
