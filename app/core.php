@@ -93,12 +93,14 @@ function adc_schema(PDO $db): void {
             previous_name_text VARCHAR(240) NULL,
             requires_acts TINYINT(1) NOT NULL DEFAULT 0,
             requires_specs TINYINT(1) NOT NULL DEFAULT 0,
+            is_demo TINYINT(1) NOT NULL DEFAULT 0,
             comment_text TEXT NULL,
             created_by BIGINT UNSIGNED NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             INDEX idx_client_name(name),
-            INDEX idx_client_previous(previous_client_id)
+            INDEX idx_client_previous(previous_client_id),
+            INDEX idx_demo_client(is_demo)
         )',
         'CREATE TABLE IF NOT EXISTS engagements (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -113,7 +115,78 @@ function adc_schema(PDO $db): void {
             status ENUM("active", "archived") NOT NULL DEFAULT "active",
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_client_engagement(client_id, status),
-            CONSTRAINT fk_engagement_client FOREIGN KEY(client_id) REFERENCES clients(id)
+            CONSTRAINT fk_engagement_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE
+        )',
+        'CREATE TABLE IF NOT EXISTS personal_task_completions (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            task_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NOT NULL,
+            due_date DATE NOT NULL,
+            completed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_task_completion_user(user_id, completed_at),
+            CONSTRAINT fk_completion_task FOREIGN KEY(task_id) REFERENCES personal_tasks(id) ON DELETE CASCADE
+        )',
+        'CREATE TABLE IF NOT EXISTS billing_periods (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            engagement_id BIGINT UNSIGNED NOT NULL,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            period_note VARCHAR(400) NULL,
+            is_final TINYINT(1) NOT NULL DEFAULT 0,
+            UNIQUE KEY uq_engagement_period(engagement_id, period_start, period_end),
+            INDEX idx_period_start(period_start),
+            CONSTRAINT fk_period_engagement FOREIGN KEY(engagement_id) REFERENCES engagements(id) ON DELETE CASCADE
+        )',
+        'CREATE TABLE IF NOT EXISTS document_bundles (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            client_id BIGINT UNSIGNED NOT NULL,
+            period_id BIGINT UNSIGNED NULL,
+            storage_key VARCHAR(160) NULL,
+            original_filename VARCHAR(250) NULL,
+            content_sha256 CHAR(64) NULL,
+            needs_contract TINYINT(1) NOT NULL DEFAULT 0,
+            needs_spec TINYINT(1) NOT NULL DEFAULT 0,
+            needs_invoice TINYINT(1) NOT NULL DEFAULT 0,
+            needs_act TINYINT(1) NOT NULL DEFAULT 0,
+            transfer_due_on DATE NULL,
+            transferred_at DATETIME NULL,
+            uploaded_by BIGINT UNSIGNED NULL,
+            is_void TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_bundle_transfer(transfer_due_on, transferred_at),
+            CONSTRAINT fk_bundle_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
+            CONSTRAINT fk_bundle_period FOREIGN KEY(period_id) REFERENCES billing_periods(id) ON DELETE SET NULL
+        )',
+        'CREATE TABLE IF NOT EXISTS charge_lines (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            client_id BIGINT UNSIGNED NOT NULL,
+            period_id BIGINT UNSIGNED NULL,
+            bundle_id BIGINT UNSIGNED NULL,
+            category ENUM("advertising","development","other") NOT NULL,
+            label VARCHAR(240) NOT NULL,
+            amount DECIMAL(16,2) NOT NULL,
+            currency CHAR(3) NOT NULL,
+            reason VARCHAR(500) NULL,
+            is_void TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_charge_client(client_id, category),
+            CONSTRAINT fk_charge_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
+            CONSTRAINT fk_charge_period FOREIGN KEY(period_id) REFERENCES billing_periods(id) ON DELETE SET NULL,
+            CONSTRAINT fk_charge_bundle FOREIGN KEY(bundle_id) REFERENCES document_bundles(id) ON DELETE SET NULL
+        )',
+        'CREATE TABLE IF NOT EXISTS payment_events (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            client_id BIGINT UNSIGNED NOT NULL,
+            period_id BIGINT UNSIGNED NULL,
+            event_type ENUM("received","refund") NOT NULL,
+            amount DECIMAL(16,2) NOT NULL,
+            currency CHAR(3) NOT NULL,
+            occurred_on DATE NOT NULL,
+            note VARCHAR(500) NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_payment_client(client_id, occurred_on),
+            CONSTRAINT fk_payment_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
+            CONSTRAINT fk_payment_period FOREIGN KEY(period_id) REFERENCES billing_periods(id) ON DELETE SET NULL
         )'
     ];
     foreach ($statements as $sql) {
@@ -232,4 +305,19 @@ function adc_require_director(array $user): void {
         http_response_code(403);
         throw new RuntimeException('Недостаточно прав.');
     }
+}
+
+function adc_demo_analytics_predicate(string $clientAlias = 'c'): string {
+    if (!preg_match('/^[a-z][a-z0-9_]*$/iD', $clientAlias)) {
+        throw new InvalidArgumentException('Invalid SQL alias');
+    }
+    return $clientAlias . '.is_demo = 0';
+}
+
+function adc_validate_task_title(string $title): string {
+    $title = trim($title);
+    if ($title === '' || mb_strlen($title) > 240) {
+        throw new InvalidArgumentException('Укажите название задачи (до 240 символов).');
+    }
+    return $title;
 }
