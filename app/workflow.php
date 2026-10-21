@@ -607,6 +607,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     $clients = $db->query($sql)->fetchAll();
     $html = $archive ? '<h1>Архив</h1><p class="muted">Долги и документы сохраняются после закрытия сотрудничества.</p>'
         : '<h1>Клиенты</h1><p class="muted">Одна карточка для реальных и демонстрационных клиентов.</p>' . adc_w_client_form($db, null);
+    if (!$archive) $html .= adc_reminders_html($db,date('Y-m-d'));
     $html .= '<section class="card"><table><thead><tr><th>Клиент</th><th>Системы</th><th>Источник</th><th>Карточка</th></tr></thead><tbody>';
     foreach ($clients as $client) {
         $html .= '<tr><td><strong>' . adc_h($client['name']) . '</strong>' .
