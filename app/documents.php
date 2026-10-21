@@ -232,7 +232,8 @@ function adc_doc_panel(PDO $db, array $user, int $clientId): string {
         $html.='<div class="item"><div><strong>'.adc_h((string)$doc['original_filename']).'</strong><p class="muted">'.
             adc_h(implode(' · ',$types)).' · '.
             adc_h((string)($doc['period_start'] ?? 'Без периода')).' · '.
-            ($doc['transferred_at'] ? 'Передано '.adc_h($doc['transferred_at']) : 'Ожидает передачи') .
+            ($doc['transferred_at'] ? 'Передано '.adc_h($doc['transferred_at']) : 'Ожидает передачи / проверки PDF') .
+            ($doc['transfer_due_on'] ? ' · Передать до '.adc_h($doc['transfer_due_on']) : '') .
             '</p></div><div class="actions"><a class="btn secondary" href="/?download='.$id.'">Скачать</a>';
         if (!$doc['transferred_at']) {
             $html.=adc_w_form_start('transfer_document').adc_w_hidden('client_id',$clientId).
