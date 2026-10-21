@@ -186,8 +186,8 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $note = adc_input('source_note');
         $previousName = adc_input('previous_name_text');
         $comment = adc_input('comment_text');
-        foreach ([$platform => 400, $note => 240, $previousName => 240] as $v => $max) {
-            if (mb_strlen((string)$v) > $max) {
+        foreach ([[$platform, 400], [$note, 240], [$previousName, 240]] as [$v, $max]) {
+            if (mb_strlen($v) > $max) {
                 throw new InvalidArgumentException('Превышена допустимая длина поля.');
             }
         }
@@ -203,7 +203,11 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             }
         }
         if ($previous !== null) {
-            adc_w_client($db, $previous);
+            $linked=adc_w_client($db, $previous);
+            $targetDemo=$id === null ? (int)isset($_POST['is_demo']) : (int)$existing['is_demo'];
+            if ((int)$linked['is_demo'] !== $targetDemo) {
+                throw new RuntimeException('Нельзя связывать реальных и демонстрационных клиентов.');
+            }
         }
         $params = [
             $name, $platform, $legal, $source, $note, $previous, $previousName,
@@ -268,8 +272,10 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
                 (SELECT COUNT(*) FROM charge_lines ch JOIN billing_periods p ON p.id=ch.period_id
                     WHERE p.engagement_id=?)
               + (SELECT COUNT(*) FROM payment_events pe JOIN billing_periods p ON p.id=pe.period_id
-                    WHERE p.engagement_id=?)');
-            $stmt->execute([$eid,$eid]);
+                    WHERE p.engagement_id=?)
+              + (SELECT COUNT(*) FROM document_bundles d JOIN billing_periods p ON p.id=d.period_id
+                    WHERE p.engagement_id=? AND d.is_void=0)');
+            $stmt->execute([$eid,$eid,$eid]);
             if ((int)$stmt->fetchColumn()>0) {
                 throw new RuntimeException('Нельзя менять валюту после начислений или оплат.');
             }
