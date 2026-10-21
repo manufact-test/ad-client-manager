@@ -383,6 +383,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view): string
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '') .
         '</h2><a class="btn secondary" href="/?view=' . adc_h($view) . '">Закрыть ✕</a></div>';
     $html .= adc_w_client_form($db, $client);
+    $html .= adc_doc_panel($db, $user, $id);
     $stmt = $db->prepare('SELECT * FROM engagements WHERE client_id=? ORDER BY id DESC');
     $stmt->execute([$id]);
     $engagements = $stmt->fetchAll();
