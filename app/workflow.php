@@ -233,6 +233,21 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         if ($end < $e['started_on']) {
             throw new RuntimeException('Дата завершения раньше начала.');
         }
+        // Ending is inclusive; period_end is exclusive. Keep financial history,
+        // but shorten the last cycle rather than charging for unused future days.
+        $cutoff=(new DateTimeImmutable($end))->modify('+1 day')->format('Y-m-d');
+        $periodStmt=$db->prepare('SELECT id,period_start,period_end FROM billing_periods
+            WHERE engagement_id=? ORDER BY period_start FOR UPDATE');
+        $periodStmt->execute([$eid]);
+        foreach ($periodStmt->fetchAll() as $periodRow) {
+            if ($periodRow['period_start'] >= $cutoff) {
+                throw new RuntimeException('Есть периоды после даты завершения. Исправьте их перед архивированием.');
+            }
+            if ($periodRow['period_end'] > $cutoff) {
+                $db->prepare('UPDATE billing_periods SET period_end=?,is_final=1 WHERE id=?')
+                    ->execute([$cutoff,$periodRow['id']]);
+            }
+        }
         $stmt = $db->prepare('UPDATE engagements SET status="archived", ended_on=?, end_reason=? WHERE id=? AND client_id=? AND status="active"');
         $stmt->execute([$end, substr(adc_input('end_reason'), 0, 500), $eid, $clientId]);
         adc_audit($db, $actor, 'archive_engagement', 'engagement', $eid, ['date'=>$end]);
