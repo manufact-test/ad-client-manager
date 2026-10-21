@@ -106,7 +106,7 @@ try:
     status, _, page = request("director", "/?view=clients&client=" + str(client))
     check(status == 200 and "Disposable CI demo" in html(page) and "Загрузить PDF" in html(page),
           "Slide-out demo client and upload form present")
-    match = re.search(r'Сотрудничество #(\d+)', html(page))
+    match = re.search(r'name="engagement_id" value="(\d+)"', html(page))
     check(match is not None, "Engagement exists for HTTP demo")
     eng = int(match.group(1))
     # Use the exact hidden snapshot fields rendered to a browser.
