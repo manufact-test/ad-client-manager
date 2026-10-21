@@ -451,7 +451,7 @@ function adc_w_check(string $name, string $title, bool $checked): string {
 }
 
 function adc_w_money(string|float|int|null $amount, string $currency): string {
-    return number_format((float)($amount ?? 0), 2, ',', ' ') . ' ' . adc_h($currency);
+    return adc_fin_format(adc_fin_minor((string)($amount ?? '0.00')),$currency);
 }
 
 function adc_w_client_form(PDO $db, ?array $client): string {
@@ -531,9 +531,9 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view): string
             $stmt = $db->prepare('SELECT * FROM charge_lines WHERE period_id=? AND client_id=? AND is_void=0 ORDER BY id');
             $stmt->execute([$pid, $id]);
             $charges = $stmt->fetchAll();
-            $bill = 0.0;
+            $bill = 0;
             foreach ($charges as $row) {
-                $bill += (float)$row['amount'];
+                $bill = adc_fin_add($bill,adc_fin_minor((string)$row['amount']));
                 $html .= '<div class="item"><span>' . adc_h($row['label']) . ' <small>(' .
                     adc_h($row['category']) . ')</small></span><strong>' .
                     adc_w_money($row['amount'], $eng['currency']) . '</strong></div>';
@@ -543,20 +543,20 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view): string
                     adc_w_hidden('charge_id', (int)$row['id']) .
                     '<button class="secondary" type="submit">Аннулировать начисление</button></form></details>';
             }
-            $html .= '<p><strong>Начислено: ' . adc_w_money($bill, $eng['currency']) . '</strong></p>' .
+            $html .= '<p><strong>Начислено: ' . adc_fin_format($bill, $eng['currency']) . '</strong></p>' .
                 '<details><summary>＋ Строка начисления</summary>' . adc_w_charge_form($id, $pid) . '</details>';
             $stmt = $db->prepare('SELECT * FROM payment_events WHERE period_id=? AND client_id=? ORDER BY occurred_on DESC,id DESC');
             $stmt->execute([$pid, $id]);
-            $paid = 0.0;
+            $paid = 0;
             foreach ($stmt->fetchAll() as $pay) {
-                $paid += ($pay['event_type'] === 'received' ? 1 : -1) * (float)$pay['amount'];
+                $paid = adc_fin_add($paid,($pay['event_type'] === 'received' ? 1 : -1) * adc_fin_minor((string)$pay['amount']));
                 $html .= '<div class="item"><span>' . adc_h($pay['occurred_on']) . ' · ' .
                     ($pay['event_type'] === 'received' ? 'Оплата' : 'Возврат') .
                     ' · ' . adc_h((string)$pay['note']) . '</span><span>' .
                     adc_w_money($pay['amount'], $eng['currency']) . '</span></div>';
             }
             $html .= '<p>Получено за период (за вычетом возвратов): <strong>' .
-                adc_w_money($paid, $eng['currency']) . '</strong></p>' .
+                adc_fin_format($paid, $eng['currency']) . '</strong></p>' .
                 '<details><summary>＋ Оплата / возврат</summary>' .
                 adc_w_form_start('add_payment') . adc_w_hidden('client_id', $id) .
                 adc_w_hidden('period_id', $pid) .
