@@ -878,49 +878,58 @@ function adc_w_tasks(PDO $db, array $user): string {
     $stmt = $db->prepare('SELECT * FROM personal_tasks WHERE user_id=? AND is_done=0 ORDER BY due_date,id');
     $stmt->execute([(int)$user['id']]);
     $tasks = $stmt->fetchAll();
-    $html = '<h1>Мои задачи</h1><section class="card">' .
-        adc_w_form_start('create_task') .
-        '<div class="grid">' .
-        adc_w_field('Название','title','','text','maxlength="240" required') .
-        adc_w_field('Дата','due_date',date('Y-m-d'),'date','required') .
-        '</div>' . adc_w_check('repeat_monthly','Каждый месяц',false) .
-        '<button type="submit">Добавить задачу</button></form></section><section class="card">';
-    $last = '';
+    $selected = filter_var($_GET['task'] ?? null, FILTER_VALIDATE_INT);
+    $monthNames = [1=>'Январь',2=>'Февраль',3=>'Март',4=>'Апрель',5=>'Май',
+        6=>'Июнь',7=>'Июль',8=>'Август',9=>'Сентябрь',10=>'Октябрь',
+        11=>'Ноябрь',12=>'Декабрь'];
+    $html = '<h1>Мои задачи</h1><section class="card task-create">'.
+        adc_w_form_start('create_task').
+        '<div class="grid">'.
+        adc_w_field('Название','title','','text','maxlength="240" required').
+        adc_w_field('Когда напомнить','due_date',date('Y-m-d'),'date','required').
+        '</div>'.adc_w_check('repeat_monthly','Повторять каждый месяц',false).
+        '<button type="submit">Добавить задачу</button></form></section>';
+    $month = ''; $day = '';
     $today = date('Y-m-d');
     foreach ($tasks as $task) {
-        $day = $task['due_date'];
-        if ($day !== $last) {
-            $html .= '<h3>' . adc_h($day) . ' ' . ($day < $today ? '<span class="badge">Просрочено</span>' :
-                ($day === $today ? '<span class="badge good">Сегодня</span>' : '')) . '</h3>';
-            $last = $day;
+        $date = (string)$task['due_date'];
+        $taskMonth = substr($date,0,7);
+        if ($month!==$taskMonth) {
+            if ($month!=='') $html.='</div></section>';
+            $month=$taskMonth;$day='';
+            $parts=explode('-',$date);
+            $caption=$monthNames[(int)$parts[1]].' '.$parts[0];
+            $html.='<section class="card task-month"><h2>'.adc_h($caption).'</h2><div class="task-month-body">';
         }
-        $html .= '<div class="item"><div><strong>' . adc_h($task['title']) . '</strong>' .
-            ((int)$task['repeat_monthly'] === 1 ? ' <small>↻ Ежемесячно</small>' : '') . '</div><div class="actions">' .
-            '<a class="btn secondary" aria-label="Редактировать задачу" href="/?view=tasks&task=' .
-            (int)$task['id'] . '">✎</a>' .
-            adc_w_form_start('complete_task') . adc_w_hidden('task_id', (int)$task['id']) .
+        if ($day!==$date) {
+            if ($day!=='') $html.='</div>';
+            $day=$date;
+            $todayBadge = $date===$today ? ' <span class="badge good">Сегодня</span>'
+                : ($date<$today ? ' <span class="badge">Просрочено</span>' : '');
+            $html.='<div class="task-day"><h3>'.adc_h(date('d.m.Y',strtotime($date))).$todayBadge.'</h3>';
+        }
+        $id=(int)$task['id'];
+        $html.='<div class="task-row" id="task-'.$id.'"><div class="task-title"><strong>'.
+            adc_h((string)$task['title']).'</strong>'.
+            ((int)$task['repeat_monthly']===1?' <small>↻ Каждый месяц</small>':'').'</div>'.
+            '<div class="task-actions"><a class="btn secondary edit-btn" aria-label="Изменить задачу" href="/?view=tasks&amp;task='.$id.'#task-'.$id.'">Изменить</a>'.
+            adc_w_form_start('complete_task').adc_w_hidden('task_id',$id).
             '<button type="submit">Готово</button></form></div></div>';
-    }
-    if (!$tasks) {
-        $html .= '<p class="muted">Активных задач нет.</p>';
-    }
-    $html .= '</section>';
-    $editId = filter_var($_GET['task'] ?? null, FILTER_VALIDATE_INT);
-    if ($editId) {
-        $stmt = $db->prepare('SELECT * FROM personal_tasks WHERE id=? AND user_id=? AND is_done=0');
-        $stmt->execute([(int)$editId,(int)$user['id']]);
-        $task = $stmt->fetch();
-        if ($task) {
-            $html .= '<section class="card"><h2>Редактировать задачу</h2>' .
-                adc_w_form_start('edit_task') . adc_w_hidden('task_id', (int)$task['id']) .
-                adc_w_field('Название','title',$task['title'],'text','maxlength="240" required') .
-                adc_w_field('Дата','due_date',$task['due_date'],'date','required') .
-                adc_w_check('repeat_monthly','Повторять каждый месяц',(int)$task['repeat_monthly'] === 1) .
-                '<button type="submit">Сохранить</button></form>' .
-                adc_w_form_start('delete_task') . adc_w_hidden('task_id',(int)$task['id']) .
-                '<button class="secondary" type="submit">Удалить задачу</button></form></section>';
+        if ($selected===$id) {
+            $html.='<div class="task-inline-edit"><h3>Изменить задачу</h3>'.
+                adc_w_form_start('edit_task').adc_w_hidden('task_id',$id).
+                '<div class="grid">'.
+                adc_w_field('Название','title',(string)$task['title'],'text','maxlength="240" required').
+                adc_w_field('Когда напомнить','due_date',$date,'date','required').
+                '</div>'.adc_w_check('repeat_monthly','Повторять каждый месяц',(int)$task['repeat_monthly']===1).
+                '<div class="actions"><button type="submit">Сохранить</button>'.
+                '<a class="btn secondary" href="/?view=tasks#task-'.$id.'">Отмена</a></div></form>'.
+                adc_w_form_start('delete_task').adc_w_hidden('task_id',$id).
+                '<button class="secondary" type="submit">Удалить задачу</button></form></div>';
         }
     }
+    if ($month!=='') $html.='</div></div></section>';
+    if (!$tasks) $html.='<section class="card"><p class="muted">Пока нет задач.</p></section>';
     return $html;
 }
 
