@@ -75,9 +75,29 @@ try {
     $db = adc_db($config);
     $initialized = adc_has_users($db);
 } catch (Throwable $error) {
-    error_log('Ad Client Manager DB initialization error: ' . get_class($error));
+    // Public diagnostic code contains only a broad category: never expose SQL messages,
+    // hostnames, credentials, filenames or stack traces.
+    $code = 'ADC-DB-OTHER';
+    if (!extension_loaded('pdo_mysql')) {
+        $code = 'ADC-DB-DRIVER';
+    } elseif ($error instanceof PDOException) {
+        $mysqlCode = (int) ($error->errorInfo[1] ?? 0);
+        if (in_array($mysqlCode, [1044, 1045, 1698], true)) {
+            $code = 'ADC-DB-AUTH';
+        } elseif (in_array($mysqlCode, [1049, 1046], true)) {
+            $code = 'ADC-DB-NAME';
+        } elseif (in_array($mysqlCode, [2002, 2003, 2005, 2013], true)) {
+            $code = 'ADC-DB-HOST';
+        } elseif ((string) $error->getCode() === '42S02') {
+            $code = 'ADC-DB-SCHEMA';
+        }
+    }
+    error_log('Ad Client Manager DB initialization diagnostic: ' . $code);
     http_response_code(503);
-    adc_page('Обслуживание', '<section class="card narrow"><h1>Временно недоступно</h1><p>Не удалось подключиться к базе данных. Обратитесь к администратору.</p></section>');
+    adc_page('Обслуживание', '<section class="card narrow"><h1>Временно недоступно</h1>'
+        . '<p>Не удалось подключиться к базе данных.</p>'
+        . '<p class="muted">Код диагностики: <strong>' . adc_h($code) . '</strong></p>'
+        . '<small>Сообщите только код. Пароль, секрет и файл конфигурации отправлять не нужно.</small></section>');
 }
 
 $action = adc_input('action');
