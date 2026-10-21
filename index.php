@@ -132,27 +132,59 @@ function adc_staging_schema_upgrade_needed(PDO $db): bool {
     return false;
 }
 
-/** The browser path is only for the explicitly disposable, director-only setup.
- * Refuse the upgrade if any client/finance/document/employee data already exists.
- * More complex migrations must use the offline backup-and-restore procedure.
+/**
+ * The dedicated staging site contains earlier test clients and employees.
+ * Migration is additive (two nullable UNIQUE keys), so existing rows must
+ * be preserved, not deleted. Reject unfamiliar/broken schema or index shapes.
  */
 function adc_staging_schema_upgrade_eligible(PDO $db): bool {
-    $userCount = (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    $required = [
+        'users', 'login_attempts', 'audit_events', 'personal_tasks',
+        'personal_task_completions', 'clients', 'engagements', 'billing_periods',
+        'document_bundles', 'charge_lines', 'payment_events',
+    ];
+    $tables = $db->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+    if (array_diff($required, $tables)) {
+        return false;
+    }
     $directorCount = (int)$db->query(
         "SELECT COUNT(*) FROM users WHERE role='director' AND is_active=1"
     )->fetchColumn();
-    if ($userCount !== 1 || $directorCount !== 1) {
+    if ($directorCount < 1) {
         return false;
     }
     foreach ([
-        'clients', 'engagements', 'billing_periods', 'document_bundles',
-        'charge_lines', 'payment_events', 'personal_tasks', 'personal_task_completions',
-    ] as $table) {
-        if ((int)$db->query("SELECT COUNT(*) FROM `$table`")->fetchColumn() !== 0) {
+        ['payment_events', 'submission_key', 'uq_payment_submission'],
+        ['billing_periods', 'creation_key', 'uq_period_creation_key'],
+    ] as [$table, $column, $index]) {
+        // These identifiers are fixed in source, never supplied by the browser.
+        $col = $db->query("SHOW COLUMNS FROM `$table` LIKE '$column'")->fetch();
+        $idx = $db->query("SHOW INDEX FROM `$table` WHERE Key_name='$index'")->fetch();
+        if ($col !== false && ($col['Null'] !== 'YES' ||
+            strtolower((string)$col['Type']) !== 'char(64)')) {
+            return false;
+        }
+        if ($idx !== false && (!$col || (int)$idx['Non_unique'] !== 0 ||
+            $idx['Column_name'] !== $column)) {
             return false;
         }
     }
     return true;
+}
+
+/** Only numeric record counts, never private names, appear in the director's
+ * upgrade preview. This is a view of current data, not a substitute for backup.
+ */
+function adc_staging_existing_record_counts(PDO $db): array {
+    $result = [];
+    foreach ([
+        'users'=>'пользователей', 'clients'=>'клиентов',
+        'charge_lines'=>'начислений', 'payment_events'=>'платежей и возвратов',
+        'personal_tasks'=>'личных задач', 'document_bundles'=>'документов',
+    ] as $table=>$label) {
+        $result[] = $label.': '.(int)$db->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
+    }
+    return $result;
 }
 
 $schemaUpgradeRequired = $initialized && adc_staging_schema_upgrade_needed($db);
@@ -267,16 +299,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 !$schemaUpgradeRequired ||
                 adc_input('backup_confirmed') !== 'YES' ||
                 !adc_staging_schema_upgrade_eligible($db)) {
-                throw new RuntimeException('Обновление запрещено: проверьте резервную копию и тестовую базу.');
+                throw new RuntimeException('Обновление запрещено: проверьте SQL-резервную копию и структуру базы.');
             }
-            // The director explicitly confirmed a private SQL+files backup.
-            // DDL in MySQL implicitly commits; no false rollback guarantee.
-            adc_schema($db);
-            if (adc_staging_schema_upgrade_needed($db)) {
-                throw new RuntimeException('Структура базы не обновилась. Проверка остановлена.');
+            // MySQL DDL commits implicitly. Serialize simultaneous upgrades;
+            // repeat the schema checks after obtaining the database lock.
+            $lock = (int)$db->query("SELECT GET_LOCK('adclients-staging-schema', 8)")->fetchColumn();
+            if ($lock !== 1) {
+                throw new RuntimeException('Другое обновление базы выполняется. Повторите позже.');
             }
-            adc_audit($db, (int)$current['id'],
-                'staging_schema_upgrade', 'database', null);
+            try {
+                if (!adc_staging_schema_upgrade_eligible($db)) {
+                    throw new RuntimeException('Обнаружена несовместимая структура базы. Обновление остановлено.');
+                }
+                if (adc_staging_schema_upgrade_needed($db)) {
+                    adc_schema($db);
+                    if (adc_staging_schema_upgrade_needed($db)) {
+                        throw new RuntimeException('Структура базы не обновилась. Проверка остановлена.');
+                    }
+                    adc_audit($db, (int)$current['id'],
+                        'staging_schema_upgrade', 'database', null);
+                }
+            } finally {
+                $db->query("SELECT RELEASE_LOCK('adclients-staging-schema')");
+            }
             adc_flash('Тестовая база обновлена. Учётная запись директора сохранена.');
             adc_redirect();
         }
@@ -472,19 +517,22 @@ if ($schemaUpgradeRequired) {
         $body = '<section class="card narrow"><h1>Обновление тестовой базы</h1>'
             . $alert
             . '<p>Новая версия приложения требует добавить два защищающих от повторов поля. '
-            . 'Существующий директор и его пароль сохраняются.</p>'
+            . 'Директор, сотрудники, тестовые клиенты, задачи и финансовые записи сохраняются.</p>'
+            . '<p><strong>Сейчас в тестовой базе:</strong> '
+            . adc_h(implode('; ', adc_staging_existing_record_counts($db))) . '.</p>'
             . '<p><strong>Перед подтверждением:</strong> убедитесь, что в Hostinger '
-            . 'создана приватная резервная копия файлов и MySQL.</p>';
+            . 'сохранены резервные копии <strong>MySQL-базы и файлов сайта</strong>. '
+            . 'Автоматическое изменение структуры MySQL нельзя отменить обычной кнопкой.</p>';
         if ($eligible) {
             $body .= '<form method="post" class="stack">'
                 . '<input type="hidden" name="csrf" value="' . $csrf . '">'
                 . '<input type="hidden" name="action" value="staging_upgrade_schema">'
                 . '<label><input type="checkbox" name="backup_confirmed" value="YES" required>'
-                . ' Подтверждаю создание резервной копии тестового сайта и базы MySQL</label>'
+                . ' Проверил в Hostinger: сохранены резервные копии файлов и MySQL-базы</label>'
                 . '<button type="submit">Обновить тестовую базу</button></form>';
         } else {
             $body .= '<div class="error" role="alert">Автообновление недоступно: '
-                . 'в базе есть сотрудники, клиенты или финансовые записи. '
+                . 'схема базы несовместима либо отсутствует действующий директор. '
                 . 'Не изменяйте их. Требуется отдельная проверка резервной копии.</div>';
         }
         adc_page('Обновление тестовой базы', $body . '</section>', $user);
