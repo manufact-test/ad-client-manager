@@ -205,6 +205,30 @@ run_action($db,$director,'archive_engagement',[
 check($db->query("SELECT status FROM engagements WHERE id=$e")->fetchColumn()==='archived','Archived');
 $final=$db->query("SELECT period_end,is_final FROM billing_periods WHERE engagement_id=$e ORDER BY id DESC LIMIT 1")->fetch();
 check($final['period_end']==='2026-10-08' && (int)$final['is_final']===1,'Final billing period shortened on archive');
+try {
+    run_action($db,$director,'save_period',[
+        'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
+        'period_start'=>'2026-10-08','period_end'=>'2026-11-08'
+    ]);
+    throw new RuntimeException('Archived invoice after closure accepted');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'за даты сотрудничества'),
+        'Archived period cannot exceed closure date');
+    if ($db->inTransaction()) $db->rollBack();
+}
+try {
+    run_action($db,$director,'start_engagement',[
+        'client_id'=>(string)$realId,'started_on'=>'2026-10-07',
+        'billing_day'=>'14','payment_mode'=>'postpayment',
+        'currency'=>'BYN','quoted_amount'=>''
+    ]);
+    throw new RuntimeException('Overlapping archived engagement accepted');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'после последней даты архива'),
+        'New collaboration starts strictly after archived one');
+    if ($db->inTransaction()) $db->rollBack();
+}
+
 
 run_action($db,$director,'start_engagement',[
     'client_id'=>(string)$realId,'started_on'=>'2026-10-14',
@@ -212,6 +236,31 @@ run_action($db,$director,'start_engagement',[
     'currency'=>'BYN','quoted_amount'=>'',
 ]);
 check((int)$db->query("SELECT COUNT(*) FROM engagements WHERE client_id=$realId")->fetchColumn()===2,'New collaboration retains history');
+$newEng=(int)$db->query("SELECT MAX(id) FROM engagements WHERE client_id=$realId")->fetchColumn();
+try {
+    run_action($db,$director,'save_period',[
+        'client_id'=>(string)$realId,'engagement_id'=>(string)$newEng,
+        'period_start'=>'2026-10-01','period_end'=>'2026-10-06'
+    ]);
+    throw new RuntimeException('Backdated period before new engagement accepted');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'за даты сотрудничества'),
+        'Period cannot start before collaboration');
+    if ($db->inTransaction()) $db->rollBack();
+}
+try {
+    run_action($db,$director,'save_engagement',[
+        'client_id'=>(string)$realId,'engagement_id'=>(string)$newEng,
+        'started_on'=>'2026-10-05','billing_day'=>'14',
+        'payment_mode'=>'postpayment','currency'=>'BYN','quoted_amount'=>''
+    ]);
+    throw new RuntimeException('Backdating active contract into archive accepted');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'пересекается с архивом'),
+        'Active collaboration cannot overlap archived one');
+    if ($db->inTransaction()) $db->rollBack();
+}
+
 check((string)$db->query("SELECT SUM(amount) FROM charge_lines WHERE client_id=$realId AND is_void=0")->fetchColumn()==='1500.00','History preserved');
 $db->prepare('INSERT INTO personal_tasks(user_id,title,due_date) VALUES (?,?,?)')
     ->execute([$director['id'],'Task A','2026-10-31']);
