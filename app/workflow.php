@@ -99,7 +99,7 @@ function adc_w_collaboration_fields(): array {
         $day,
         adc_w_pick('payment_mode', ['prepayment', 'postpayment']),
         adc_w_currency(adc_input('currency')),
-        adc_input('quoted_amount') === '' ? '0.00' : adc_w_amount(adc_input('quoted_amount'), false),
+        in_array(adc_input('quoted_amount'), ['', '0', '0.0', '0.00'], true) ? '0.00' : adc_w_amount(adc_input('quoted_amount'), false),
     ];
 }
 
@@ -442,7 +442,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view): string
             adc_w_form_start('save_period') . adc_w_hidden('client_id', $id) .
             adc_w_hidden('engagement_id', $eid) .
             adc_w_field('Начало','period_start',date('Y-m-01'),'date','required') .
-            adc_w_field('Конец (не включая этот день)','period_end',date('Y-m-t',strtotime('first day of next month')),'date','required') .
+            adc_w_field('Конец (не включая этот день)','period_end',date('Y-m-d',strtotime('first day of next month')),'date','required') .
             adc_w_field('Примечание','period_note','','text','maxlength="400"') .
             adc_w_check('is_final','Заключительный период',false) .
             '<button type="submit">Добавить период</button></form></details>';
