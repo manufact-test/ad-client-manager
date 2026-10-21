@@ -102,6 +102,7 @@ function adc_fin_months(PDO $db): array {
 
 function adc_fin_render(PDO $db): string {
     $html='<h1>Аналитика</h1><p class="muted">Только реальные клиенты. Начисления и деньги получены из разных операций; все суммы и балансы считаются до копейки без смешивания валют.</p>';
+    $html.='<p><a class="btn secondary" href="/?export=balances">Скачать сверку реальных клиентов (CSV)</a></p>';
     $totals=adc_fin_groups($db);
     $html.='<section class="card"><h2>Начисления, поступления и задолженность</h2><table><thead><tr><th>Валюта</th><th>Реклама</th><th>Разработка</th><th>Прочее</th><th>Начислено</th><th>Получено нетто</th><th>Баланс</th></tr></thead><tbody>';
     foreach ($totals as $ccy=>$t) {
