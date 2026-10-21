@@ -74,6 +74,7 @@ require __DIR__ . '/app/finance.php';
 require __DIR__ . '/app/workflow.php';
 require __DIR__ . '/app/documents.php';
 require __DIR__ . '/app/reminders.php';
+require __DIR__ . '/app/import.php';
 
 $config = adc_config();
 if ($config === null) {
@@ -212,6 +213,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             adc_redirect();
         }
         if (adc_doc_action($db, $current, $action)) {
+            adc_redirect();
+        }
+        if (adc_import_action($db, $current, $action)) {
             adc_redirect();
         }
 
