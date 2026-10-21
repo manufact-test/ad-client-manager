@@ -149,8 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } finally {
                 $db->query("SELECT RELEASE_LOCK('adclients-director-bootstrap')");
             }
-            session_regenerate_id(true);
-            $_SESSION['user_id'] = $userId;
+            adc_auth_session_issue($userId,(string)$db->query('SELECT password_hash FROM users WHERE id='.(int)$userId)->fetchColumn());
             adc_flash('Учётная запись директора создана.');
             adc_redirect();
         }
@@ -170,8 +169,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Неверный email или пароль.');
             }
             $db->prepare('DELETE FROM login_attempts WHERE identity_hash = ?')->execute([$key]);
-            session_regenerate_id(true);
-            $_SESSION['user_id'] = (int) $candidate['id'];
+            adc_auth_session_issue((int)$candidate['id'],(string)$candidate['password_hash']);
             adc_flash('Вход выполнен.');
             adc_redirect();
         }
@@ -199,7 +197,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?')
                ->execute([password_hash($new, PASSWORD_DEFAULT), (int)$current['id']]);
             adc_audit($db, (int)$current['id'], 'change_password', 'user', (int)$current['id']);
-            session_regenerate_id(true);
+            adc_auth_session_issue((int)$current['id'],(string)$db->query('SELECT password_hash FROM users WHERE id='.(int)$current['id'])->fetchColumn());
             adc_flash('Пароль изменён.');
             adc_redirect();
         }
@@ -270,37 +268,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             adc_redirect('?view=tasks');
         }
 
+        /* Legacy demo-only action removed: the unified save_client form must
+           collect the same fields for test clients as for real clients. */
         if ($action === 'create_demo') {
-            $name = adc_input('client_name');
-            if ($name === '' || mb_strlen($name) > 240) {
-                throw new RuntimeException('Укажите название демо-клиента.');
-            }
-            $db->beginTransaction();
-            $stmt = $db->prepare('INSERT INTO clients(name, is_demo, created_by) VALUES (?,1,?)');
-            $stmt->execute([$name, (int)$current['id']]);
-            $clientId = (int)$db->lastInsertId();
-            $stmt = $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency,status) VALUES(?,CURDATE(),DAY(CURDATE()),"prepayment","BYN","active")');
-            $stmt->execute([$clientId]);
-            adc_audit($db, (int)$current['id'], 'create_demo_client', 'client', $clientId);
-            $db->commit();
-            adc_flash('Демонстрационный клиент создан. В реальную аналитику он не попадёт.');
-            adc_redirect();
-        }
-
-        if ($action === 'delete_demo') {
-            adc_require_director($current);
-            $clientId = filter_var(adc_input('client_id'), FILTER_VALIDATE_INT);
-            if (!$clientId) {
-                throw new RuntimeException('Неверный клиент.');
-            }
-            $stmt = $db->prepare('DELETE FROM clients WHERE id = ? AND is_demo = 1');
-            $stmt->execute([$clientId]);
-            if (!$stmt->rowCount()) {
-                throw new RuntimeException('Удалять можно только демонстрационных клиентов.');
-            }
-            adc_audit($db, (int)$current['id'], 'delete_demo_client', 'client', $clientId);
-            adc_flash('Демонстрационный клиент полностью удалён.');
-            adc_redirect();
+            throw new RuntimeException('Используйте общую форму добавления клиента с отметкой Демо.');
         }
 
         if ($action === 'create_employee') {
