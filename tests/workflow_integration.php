@@ -128,6 +128,25 @@ $demo['client_name'] = 'Fixture demo client';
 $demo['is_demo']='1';
 run_action($db,$employee,'save_client',$demo);
 $demoId=(int)$db->query('SELECT MAX(id) FROM clients WHERE name="Fixture demo client"')->fetchColumn();
+try {
+    run_action($db,$employee,'save_client',array_merge($default,[
+        'client_id'=>(string)$realId,'previous_client_id'=>(string)$demoId
+    ]));
+    throw new RuntimeException('Accepted cross demo/real client lineage');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'демонстрационных'),'Do not mix real and demo repeat-client links');
+    if ($db->inTransaction()) $db->rollBack();
+}
+try {
+    run_action($db,$employee,'save_client',array_merge($default,[
+        'client_id'=>(string)$realId,'source_note'=>str_repeat('z',241)
+    ]));
+    throw new RuntimeException('Accepted oversized acquisition note');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'длина'),'Check source note length independently');
+    if ($db->inTransaction()) $db->rollBack();
+}
+
 $demoE=(int)$db->query("SELECT id FROM engagements WHERE client_id=$demoId")->fetchColumn();
 run_action($db,$employee,'save_period',[
     'client_id'=>(string)$demoId,'engagement_id'=>(string)$demoE,
