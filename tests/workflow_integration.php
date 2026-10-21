@@ -19,6 +19,14 @@ function run_action(PDO $db, array $user, string $action, array $data): string {
     }
     // Simulate server-rendered snapshot fields for ordinary fixture actions.
     // Tests can supply an older snapshot explicitly to exercise stale tabs.
+    if ($action==='save_client' && !empty($data['client_id']) && !isset($data['expected_revision'])) {
+        $row=adc_w_client($db,(int)$data['client_id']);
+        $data['expected_revision']=adc_w_client_revision($row);
+    }
+    if ($action==='save_engagement' && !empty($data['engagement_id']) && !isset($data['expected_revision'])) {
+        $row=adc_w_engagement($db,(int)$data['client_id'],(int)$data['engagement_id']);
+        $data['expected_revision']=adc_w_engagement_revision($row);
+    }
     if (in_array($action,['save_charge','void_charge'],true) &&
         !isset($data['expected_revision']) && !empty($data['charge_id'])) {
         $snapshot=$db->prepare('SELECT * FROM charge_lines WHERE id=?');
@@ -79,11 +87,25 @@ $realId=(int)$db->query('SELECT MAX(id) FROM clients WHERE name="Fixture real cl
 check($realId>0,'Real client created');
 $e=(int)$db->query("SELECT id FROM engagements WHERE client_id=$realId")->fetchColumn();
 check($e>0,'Engagement created');
+$oldEngRevision=adc_w_engagement_revision(adc_w_engagement($db,$realId,$e));
 run_action($db,$employee,'save_engagement',[
     'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
     'started_on'=>'2026-09-07','billing_day'=>'7','payment_mode'=>'postpayment',
     'currency'=>'BYN','quoted_amount'=>'1200.00',
 ]);
+try {
+    run_action($db,$director,'save_engagement',[
+        'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
+        'started_on'=>'2026-09-07','billing_day'=>'1','payment_mode'=>'prepayment',
+        'currency'=>'BYN','quoted_amount'=>'900.00',
+        'expected_revision'=>$oldEngRevision
+    ]);
+    throw new RuntimeException('Old tab overwrote engagement conditions');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'изменены в другой вкладке'),
+        'Stale engagement terms cannot replace newer billing conditions');
+    if ($db->inTransaction()) $db->rollBack();
+}
 $engCheck=$db->query("SELECT * FROM engagements WHERE id=$e")->fetch();
 check($engCheck['payment_mode']==='postpayment' && $engCheck['quoted_amount']==='1200.00','Edit financial terms');
 
@@ -199,6 +221,25 @@ try {
     if ($db->inTransaction()) $db->rollBack();
 }
 
+$originalClient=adc_w_client($db,$realId);
+$oldClientRev=adc_w_client_revision($originalClient);
+run_action($db,$employee,'save_client',array_merge($default,[
+    'client_id'=>(string)$realId,'client_name'=>'Fixture real client updated'
+]));
+try {
+    run_action($db,$director,'save_client',array_merge($default,[
+        'client_id'=>(string)$realId,
+        'client_name'=>'Old client name from stale tab',
+        'expected_revision'=>$oldClientRev
+    ]));
+    throw new RuntimeException('Old tab overwrote client name');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'изменена в другой вкладке'),
+        'Stale client edit cannot overwrite changed name and source');
+    if ($db->inTransaction()) $db->rollBack();
+}
+check(adc_w_client($db,$realId)['name']==='Fixture real client updated',
+    'Latest client card survives stale edits');
 $demo = $default;
 $demo['client_name'] = 'Fixture demo client';
 $demo['is_demo']='1';

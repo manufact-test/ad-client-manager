@@ -179,6 +179,26 @@ function adc_w_period_tail(?array $period): string {
     return $period ? (string)$period['id'].':'.(string)$period['period_end'] : 'none';
 }
 
+/** Snapshot only editable client fields; used to reject stale browser tabs. */
+function adc_w_client_revision(array $row): string {
+    return hash('sha256', json_encode([
+        (string)$row['id'],(string)$row['name'],(string)($row['platform_text']??''),
+        (string)$row['legal_type'],(string)($row['source_kind']??''),
+        (string)($row['source_note']??''),(string)($row['previous_client_id']??''),
+        (string)($row['previous_name_text']??''),(int)$row['requires_acts'],
+        (int)$row['requires_specs'],(string)($row['comment_text']??'')
+    ],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR));
+}
+
+/** Don't silently overwrite financial conditions changed by another employee. */
+function adc_w_engagement_revision(array $row): string {
+    return hash('sha256',json_encode([
+        (string)$row['id'],(string)$row['started_on'],(int)$row['billing_day'],
+        (string)$row['payment_mode'],(string)$row['currency'],
+        (string)$row['quoted_amount'],(string)$row['status']
+    ],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR));
+}
+
 function adc_w_action(PDO $db, array $user, string $action): bool {
     $supported = [
         'save_client', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
@@ -244,6 +264,11 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $db->beginTransaction();
         if ($id !== null) {
             $existing = adc_w_client($db, $id, true);
+            $expected=adc_input('expected_revision');
+            if (!preg_match('/^[a-f0-9]{64}$/D',$expected) ||
+                !hash_equals(adc_w_client_revision($existing),$expected)) {
+                throw new RuntimeException('Карточка клиента изменена в другой вкладке. Обновите страницу перед сохранением.');
+            }
             if ($previous === $id) {
                 throw new InvalidArgumentException('Клиент не может ссылаться на себя.');
             }
@@ -313,6 +338,11 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         }
         $fields=adc_w_collaboration_fields();
         [$started,$day,$mode,$currency,$quote]=$fields;
+        $expected=adc_input('expected_revision');
+        if (!preg_match('/^[a-f0-9]{64}$/D',$expected) ||
+            !hash_equals(adc_w_engagement_revision($old),$expected)) {
+            throw new RuntimeException('Условия сотрудничества изменены в другой вкладке. Обновите страницу перед сохранением.');
+        }
         $prevStmt=$db->prepare('SELECT MAX(ended_on) FROM engagements WHERE client_id=? AND status="archived"');
         $prevStmt->execute([$clientId]);
         $previousEnd=$prevStmt->fetchColumn();
@@ -589,7 +619,8 @@ function adc_w_client_form(PDO $db, ?array $client): string {
         ($edit ? 'Редактировать клиента' : '＋ Добавить клиента') . '</summary>' .
         adc_w_form_start('save_client');
     if ($edit) {
-        $html .= adc_w_hidden('client_id', (int)$client['id']);
+        $html .= adc_w_hidden('client_id', (int)$client['id']) .
+            adc_w_hidden('expected_revision',adc_w_client_revision($client));
     }
     $html .= '<div class="grid">' .
         adc_w_field('Название', 'client_name', (string)($client['name'] ?? ''), 'text', 'required maxlength="240"') .
@@ -662,7 +693,9 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         if ($eng['status'] === 'active') {
             $html .= '<details><summary>✎ Изменить условия и ориентировочную стоимость</summary>' .
                 adc_w_form_start('save_engagement') . adc_w_hidden('client_id',$id) .
-                adc_w_hidden('engagement_id',$eid) . adc_w_engagement_fields($eng) .
+                adc_w_hidden('engagement_id',$eid) .
+                adc_w_hidden('expected_revision',adc_w_engagement_revision($eng)) .
+                adc_w_engagement_fields($eng) .
                 '<button type="submit">Сохранить условия</button></form></details>';
         }
         $stmt = $db->prepare('SELECT * FROM billing_periods WHERE engagement_id=? ORDER BY period_start DESC,id DESC');

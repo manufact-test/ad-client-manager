@@ -109,6 +109,52 @@ try:
     match = re.search(r'Сотрудничество #(\d+)', html(page))
     check(match is not None, "Engagement exists for HTTP demo")
     eng = int(match.group(1))
+    # Use the exact hidden snapshot fields rendered to a browser.
+    forms = re.findall(r'<form\b[^>]*>.*?</form>', html(page), flags=re.S)
+    def field_from_action(action, field):
+        form = next((f for f in forms if 'name="action" value="' + action + '"' in f), None)
+        check(form is not None, action + " form is available")
+        found = re.search(r'name="' + field + r'" value="([a-f0-9]{64})"', form)
+        check(found is not None, action + " form carries its current revision")
+        return found.group(1)
+
+    old_client_version = field_from_action("save_client", "expected_revision")
+    old_terms_version = field_from_action("save_engagement", "expected_revision")
+    status, _, _ = request("employee", payload={
+        "csrf": employee_csrf, "action": "save_client",
+        "client_id": client, "expected_revision": old_client_version,
+        "client_name": "Disposable CI demo", "platform_text": "Fictional Ads updated",
+        "source_kind": "inbound", "legal_type": "legal"
+    })
+    check(status == 303, "Normal client edit from a browser form is saved")
+    status, _, response = request("director", payload={
+        "csrf": director_csrf, "action": "save_client",
+        "client_id": client, "expected_revision": old_client_version,
+        "client_name": "Stale client overwrites newer details",
+        "platform_text": "Old platform", "source_kind": "other", "legal_type": "legal"
+    })
+    check(status == 200 and "Карточка клиента изменена в другой вкладке" in html(response),
+          "Old client form cannot overwrite a newer edit")
+    status, _, _ = request("employee", payload={
+        "csrf": employee_csrf, "action": "save_engagement",
+        "client_id": client, "engagement_id": eng,
+        "expected_revision": old_terms_version, "started_on": "2026-10-21",
+        "billing_day": "31", "payment_mode": "prepayment",
+        "currency": "BYN", "quoted_amount": "124.00"
+    })
+    check(status == 303, "Current engagement conditions can be edited")
+    status, _, response = request("director", payload={
+        "csrf": director_csrf, "action": "save_engagement",
+        "client_id": client, "engagement_id": eng,
+        "expected_revision": old_terms_version, "started_on": "2026-10-21",
+        "billing_day": "7", "payment_mode": "postpayment",
+        "currency": "BYN", "quoted_amount": "500.00"
+    })
+    check(status == 200 and "Условия сотрудничества изменены в другой вкладке" in html(response),
+          "Old conditions form cannot overwrite newer payment mode or quote")
+    status, _, page = request("director", "/?view=clients&client=" + str(client))
+    check("Fictional Ads updated" in html(page) and "124.00" in html(page),
+          "Valid edits survive rejected stale browser requests")
     status, _, _ = request("director", payload={
         "csrf": director_csrf, "action": "save_period",
         "client_id": client, "engagement_id": eng,
