@@ -1,0 +1,73 @@
+name: Verify and deploy Ad Client Manager
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ad-client-manager-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: PHP syntax and smoke checks
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Check PHP runtime
+        run: |
+          php -v
+          php -r 'if (PHP_MAJOR_VERSION !== 8 || PHP_MINOR_VERSION < 3) { fwrite(STDERR, "PHP 8.3+ required\\n"); exit(1); }'
+
+      - name: Check PHP syntax
+        run: |
+          find . -type f -name '*.php' -not -path './.git/*' -print0 | xargs -0 -r -n 1 php -l
+
+      - name: Check deployment baseline
+        run: |
+          test -f index.php
+          test -f .htaccess
+          test ! -f .env
+          grep -q 'DirectoryIndex index.php' .htaccess
+
+      - name: HTTP smoke test
+        run: |
+          php -S 127.0.0.1:8083 -t . >/tmp/adclients-php.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in 1 2 3 4 5; do
+            if curl -fsS http://127.0.0.1:8083/ -o /tmp/adclients-response.html; then break; fi
+            sleep 1
+          done
+          grep -q 'Ad Client Manager' /tmp/adclients-response.html
+
+  deploy:
+    name: Promote verified web files to deploy
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout source and deploy branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Promote only approved web files
+        run: |
+          git fetch origin main deploy
+          git switch --detach origin/deploy
+          git restore --source=origin/main --staged --worktree -- index.php .htaccess
+          if git diff --cached --quiet; then
+            echo "No deployment changes needed."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "deploy: promote verified main build"
+          git push origin HEAD:deploy
