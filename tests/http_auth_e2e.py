@@ -130,7 +130,7 @@ try:
     })
     check(status==303,"Employee completes recurring task")
     status,_,page=request("hire","/?view=tasks")
-    check("Worker monthly task" in page and "2026-11-30" in page,
+    check("Worker monthly task" in page and "30.11.2026" in page,
           "Recurrence clamps 31st to November 30")
     check("Director confidential task" not in page,"Task isolation remains intact")
     status,_,page=request("director","/?view=tasks")
