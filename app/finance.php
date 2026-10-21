@@ -196,8 +196,8 @@ function adc_fin_render(PDO $db): string {
     $yearList=array_unique($yearList);
     rsort($yearList);
     foreach ($yearList as $year) {
-        $html.='<option value="'.adc_h($year).'"'.($selected===$year?' selected':'').'>'.
-            adc_h($year).' год</option>';
+        $html.='<option value="'.adc_h((string)$year).'"'.($selected===$year?' selected':'').'>'.
+            adc_h((string)$year).' год</option>';
     }
     $monthList=array_keys($history);
     rsort($monthList);
