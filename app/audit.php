@@ -58,7 +58,7 @@ function adc_audit_panel(PDO $db, array $user): string {
     $html='<details class="card"><summary>Журнал изменений</summary>'.
         '<p class="muted">Показаны последние 50 действий. Более ранние записи доступны ниже.</p>';
     foreach ($rows as $item) {
-        $label=$labels[$item['action']]??$item['action'];
+        $label=$labels[$item['action']]??'Действие системы';
         $html.='<div class="item"><div><strong>'.adc_h($label).'</strong>'.
             '<p class="muted">'.adc_h($item['occurred_at']).' UTC · '.
             adc_h($item['actor']).' · '.adc_h([
