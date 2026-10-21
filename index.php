@@ -37,6 +37,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
        .demo{background:#fff0c7;color:#735016}.good{background:#e4f6eb;color:#176739}.notice{border-left:3px solid #5147bc;background:#f0effe;padding:12px;border-radius:5px;margin:12px 0}
        .error{border-left:3px solid #c73333;background:#fff1f1;padding:11px;border-radius:5px;margin:12px 0}
        .months{display:flex;gap:10px;justify-content:space-between;align-items:center;margin-bottom:16px}
+       .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 23px}.tabs a{padding:9px 13px;color:#48465c;text-decoration:none;border-radius:8px}.tabs a.active{background:#eae8ff;color:#3025a7;font-weight:700}
+       textarea{width:100%;padding:10px;border:1px solid #cfd5df;border-radius:8px;font:inherit;resize:vertical}.field{min-width:0}
+       details{margin:10px 0}summary{cursor:pointer;color:#4239a9;font-weight:650;padding:8px 0}.period{border:1px solid #e6e9f1;border-radius:10px;padding:12px;margin:10px 0}.period>summary{color:#232c44}
+       h3{font-size:16px;margin:14px 0 10px}.drawer{position:fixed;right:0;top:0;bottom:0;width:min(740px,100vw);background:#f7f8fb;padding:18px;overflow:auto;z-index:20;box-shadow:-20px 0 70px #1921392e}.drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.drawer-head h2{margin:0}.drawer-shade{position:fixed;inset:0;background:#0b133c38;z-index:19}.drawer .card{margin-top:14px}
+       
        table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #edf0f3;padding:9px 4px;text-align:left;font-size:14px}
        @media(max-width:560px){header{padding:12px 16px}.item{align-items:flex-start;flex-direction:column}.card{padding:16px}h1{font-size:23px}}
        </style></head><body><header><div class="brand">Ad Client Manager</div>' . $menu . '</header><main>' . $body . '</main></body></html>';
@@ -64,6 +69,8 @@ function adc_notice(): string {
 function adc_flash(string $message): void {
     $_SESSION['flash'] = $message;
 }
+
+require __DIR__ . '/app/workflow.php';
 
 $config = adc_config();
 if ($config === null) {
@@ -197,6 +204,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException('Сначала измените временный пароль.');
         }
 
+        // Connected workflow actions share the established authentication and CSRF gates.
+        if (adc_w_action($db, $current, $action)) {
+            adc_redirect();
+        }
+
         if ($action === 'create_task') {
             $title = adc_validate_task_title(adc_input('title'));
             $dueDate = adc_input('due_date');
@@ -208,7 +220,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $db->prepare('INSERT INTO personal_tasks(user_id,title,due_date,repeat_monthly,anchor_day) VALUES(?,?,?,?,?)');
             $stmt->execute([(int)$current['id'], $title, $dueDate, $monthly, $anchor]);
             adc_flash('Задача добавлена.');
-            adc_redirect('?month=' . substr($dueDate, 0, 7));
+            adc_redirect('?view=tasks');
         }
 
         if ($action === 'complete_task' || $action === 'delete_task') {
@@ -245,7 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $db->commit();
             adc_flash('Готово. Задача отмечена.');
-            adc_redirect('?month=' . substr((string)$task['due_date'], 0, 7));
+            adc_redirect('?view=tasks');
         }
 
         if ($action === 'create_demo') {
@@ -362,105 +374,5 @@ if ((int)$user['must_change_password'] === 1) {
     adc_page('Пароль', $html, $user);
 }
 
-$month = is_string($_GET['month'] ?? null) ? $_GET['month'] : date('Y-m');
-if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D', $month)) {
-    $month = date('Y-m');
-}
-$start = $month . '-01';
-$next = (new DateTimeImmutable($start))->modify('first day of next month')->format('Y-m-d');
-$previousMonth = (new DateTimeImmutable($start))->modify('-1 month')->format('Y-m');
-$nextMonth = substr($next, 0, 7);
-
-$stmt = $db->prepare('SELECT * FROM personal_tasks WHERE user_id = ? AND due_date >= ? AND due_date < ? ORDER BY due_date, id');
-$stmt->execute([(int)$user['id'], $start, $next]);
-$tasks = $stmt->fetchAll();
-
-$stmt = $db->prepare('SELECT c.due_date,c.completed_at,t.title FROM personal_task_completions c
-JOIN personal_tasks t ON t.id = c.task_id WHERE c.user_id = ? AND c.due_date >= ? AND c.due_date < ?
-ORDER BY c.due_date');
-$stmt->execute([(int)$user['id'], $start, $next]);
-$completions = $stmt->fetchAll();
-
-$stmt = $db->query('SELECT id, name FROM clients WHERE is_demo = 1 ORDER BY id DESC LIMIT 100');
-$demoClients = $stmt->fetchAll();
-
-$realCount = (int)$db->query('SELECT COUNT(*) FROM clients c WHERE ' . adc_demo_analytics_predicate('c'))->fetchColumn();
-
-$body = '<h1>Рабочий стол</h1>' . $alert
-      . '<div class="notice">Фундамент системы: вход, роли, личные задачи и демо-клиенты. Реальные клиентские данные пока не вводим — функциональные разделы ещё разрабатываются.</div>'
-      . '<div class="grid"><section class="card"><h2>Мои задачи</h2>'
-      . '<div class="months"><a href="/?month=' . adc_h($previousMonth) . '" class="btn secondary">←</a><strong>' . adc_h($month) . '</strong><a href="/?month=' . adc_h($nextMonth) . '" class="btn secondary">→</a></div>';
-
-if (!$tasks && !$completions) {
-    $body .= '<p class="muted">На выбранный месяц задач пока нет.</p>';
-}
-foreach ($tasks as $task) {
-    $done = (int)$task['is_done'] === 1;
-    $body .= '<div class="item"><div><div class="item-title">' . adc_h($task['title']) . '</div>'
-          . '<small>' . adc_h($task['due_date']) . ((int)$task['repeat_monthly'] === 1 ? ' · Каждый месяц' : ' · Один раз') . '</small></div>'
-          . '<div class="actions">';
-    if (!$done) {
-        $body .= '<form method="post" class="inline"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="complete_task">'
-            . '<input type="hidden" name="task_id" value="' . (int)$task['id'] . '"><button type="submit">Готово</button></form>';
-    }
-    $body .= '<form method="post" class="inline"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="delete_task">'
-          . '<input type="hidden" name="task_id" value="' . (int)$task['id'] . '"><button class="secondary" type="submit">Удалить</button></form></div></div>';
-}
-foreach ($completions as $completion) {
-    $body .= '<div class="item"><div><div class="item-title">' . adc_h($completion['title']) . '</div><small>'
-          . adc_h($completion['due_date']) . '</small></div><span class="badge good">Выполнено</span></div>';
-}
-
-$body .= '<h2 style="margin-top:20px">Добавить задачу</h2><form method="post">'
-      . '<input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="create_task">'
-      . '<div class="field"><label>Название</label><input name="title" maxlength="240" placeholder="Что нужно сделать?" required></div>'
-      . '<div class="field"><label>Когда напомнить?</label><input type="date" name="due_date" value="' . date('Y-m-d') . '" required></div>'
-      . '<label class="check"><input type="checkbox" name="repeat_monthly" value="1"> Повторять каждый месяц</label>'
-      . '<button type="submit">Добавить</button></form></section>';
-
-$body .= '<section class="card"><h2>Демо-клиенты</h2>'
-      . '<p class="muted">Можно показывать сотрудникам и удалять. Эти записи всегда исключены из реальной аналитики.</p>';
-foreach ($demoClients as $client) {
-    $body .= '<div class="item"><div class="item-title">' . adc_h($client['name']) . ' <span class="badge demo">Демо</span></div>';
-    if ($user['role'] === 'director') {
-        $body .= '<form method="post" class="inline"><input type="hidden" name="csrf" value="' . $csrf . '">'
-              . '<input type="hidden" name="action" value="delete_demo"><input type="hidden" name="client_id" value="' . (int)$client['id'] . '">'
-              . '<button class="secondary" type="submit">Удалить</button></form>';
-    }
-    $body .= '</div>';
-}
-$body .= '<h2 style="margin-top:20px">Новый демо-клиент</h2><form method="post"><input type="hidden" name="csrf" value="' . $csrf . '">'
-      . '<input type="hidden" name="action" value="create_demo"><div class="field"><label>Название</label>'
-      . '<input name="client_name" placeholder="Например, Тестовый клиент" maxlength="240" required></div>'
-      . '<button type="submit">Создать демо-клиента</button></form>'
-      . '<div class="notice"><strong>Реальных клиентов в аналитике:</strong> ' . $realCount
-      . '<p class="muted" style="margin:4px 0 0">Счётчик не включает демонстрационные записи.</p></div></section></div>';
-
-if ($user['role'] === 'director') {
-    $users = $db->query('SELECT id,email,display_name,role,is_active FROM users ORDER BY id')->fetchAll();
-    $body .= '<section class="card"><h2>Пользователи</h2><table><thead><tr><th>Имя</th><th>Email</th><th>Роль</th><th></th></tr></thead><tbody>';
-    foreach ($users as $member) {
-        $body .= '<tr><td>' . adc_h($member['display_name']) . '</td><td>' . adc_h($member['email']) . '</td><td>'
-            . ($member['role'] === 'director' ? 'Директор' : 'Сотрудник') . ((int)$member['is_active'] === 0 ? ' · Отключён' : '') . '</td><td>';
-        if ($member['role'] === 'employee' && (int)$member['is_active'] === 1) {
-            $body .= '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="deactivate_employee">'
-                . '<input type="hidden" name="employee_id" value="' . (int)$member['id'] . '"><button type="submit" class="secondary">Отключить</button></form>';
-        }
-        $body .= '</td></tr>';
-    }
-    $body .= '</tbody></table><h2 style="margin-top:20px">Добавить сотрудника</h2>'
-        . '<form method="post" class="grid"><input type="hidden" name="csrf" value="' . $csrf . '">'
-        . '<input type="hidden" name="action" value="create_employee">'
-        . '<div class="field"><label>Имя</label><input name="employee_name" required></div>'
-        . '<div class="field"><label>Email</label><input type="email" name="employee_email" required></div>'
-        . '<div class="field"><label>Временный пароль (от 12 символов)</label><input type="password" minlength="12" name="employee_password" autocomplete="new-password" required></div>'
-        . '<div class="actions"><button type="submit">Добавить сотрудника</button></div></form></section>';
-}
-
-$body .= '<section class="card"><h2>Пароль учётной записи</h2><form method="post" class="grid">'
-    . '<input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="change_password">'
-    . '<div class="field"><label>Текущий пароль</label><input type="password" name="old_password" required></div>'
-    . '<div class="field"><label>Новый пароль</label><input type="password" name="new_password" minlength="12" required></div>'
-    . '<div class="actions"><button type="submit" class="secondary">Изменить пароль</button></div></form></section>';
-
-adc_page('Рабочий стол', $body, $user);
+// The old demo-only and month-switching dashboard has been superseded.
+adc_w_page($db, $user, $alert);
