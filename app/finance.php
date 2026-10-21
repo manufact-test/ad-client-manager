@@ -106,14 +106,16 @@ function adc_fin_months(PDO $db): array {
  * Cross-currency amounts are never added together.
  */
 function adc_fin_render(PDO $db): string {
-    $allowedCurrencies=['BYN','RUB','EUR','USD','KZT'];
+    $totals=adc_fin_groups($db);
+    $allowedCurrencies=array_values(array_unique(array_merge(
+        ['BYN','RUB','EUR','USD','KZT'],array_filter(array_keys($totals),
+        static fn($x)=>is_string($x) && (bool)preg_match('/^[A-Z]{3}$/D',$x)))));
     $requested=is_string($_GET['currency']??null)?strtoupper($_GET['currency']):'BYN';
     $currency=in_array($requested,$allowedCurrencies,true)?$requested:'BYN';
     $selected=is_string($_GET['period']??null)?$_GET['period']:'all';
     if ($selected!=='all' && !preg_match('/^20[0-9]{2}(?:-(?:0[1-9]|1[0-2]))?$/D',$selected)) {
         $selected='all';
     }
-    $totals=adc_fin_groups($db);
     $months=adc_fin_months($db);
     $history=[];
     $filtered=['advertising'=>0,'development'=>0,'other'=>0,'billed'=>0,'paid'=>0];
@@ -216,6 +218,8 @@ function adc_fin_render(PDO $db): string {
         ['Начислено за период',$filtered['billed'],'Реклама, разработка и прочие работы'],
         ['Получено за период',$filtered['paid'],'Поступления за вычетом возвратов'],
         ['Начислено за рекламу',$filtered['advertising'],'Отдельно от разработки'],
+        ['Начислено за разработку',$filtered['development'],'Дополнительные работы'],
+        ['Начислено за прочее',$filtered['other'],'Другие услуги'],
         ['Остаток за всё время',$balance,'Начисления минус полученные деньги'],
     ];
     $html.='<section class="card analytics-overview"><div class="analytics-overview-title">'.
@@ -264,7 +268,7 @@ function adc_fin_render(PDO $db): string {
         '<div class="analytics-kpi"><small>Получено за всё время</small><strong>'.adc_fin_format($allPaid,$currency).'</strong></div>'.
         '<div class="analytics-kpi"><small>Средний LTV</small><strong>'.adc_fin_format($average,$currency).
         '</strong><span>Среди '.$payerCount.' клиентов с оплатами</span></div>'.
-        '</div><h3>Финансы по клиентам</h3><div class="table-scroll"><table><thead><tr>'.
+        '</div><h3>Финансы по клиентам</h3><div class="table-scroll" tabindex="0" role="region" aria-label="Финансы по клиентам"><table><thead><tr>'.
         '<th>Клиент</th><th>Начислено</th><th>Получено (LTV)</th><th>Баланс</th><th>Карточка</th>'.
         '</tr></thead><tbody>';
     uasort($groups,static fn($a,$b)=>(($b['paid'][$currency]??0)<=>($a['paid'][$currency]??0)));
