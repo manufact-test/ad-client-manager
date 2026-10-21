@@ -226,6 +226,12 @@ function adc_schema(PDO $db): void {
     foreach ($statements as $sql) {
         $db->exec($sql . $options);
     }
+    // Migrate existing documents into the unified list without fabricating money.
+    // Backfill is idempotent: one linked entry per existing PDF.
+    $db->exec('INSERT INTO client_entries(client_id,document_id,entry_kind,sent_at,created_at)
+        SELECT d.client_id,d.id,"document",d.transferred_at,d.created_at
+        FROM document_bundles d LEFT JOIN client_entries e ON e.document_id=d.id
+        WHERE d.is_void=0 AND e.id IS NULL');
     // Legacy test installations can have payment_events without the nullable
     // idempotency key. Never rewrite existing payments or generate keys for
     // historic imports: MySQL UNIQUE permits multiple NULL legacy rows.

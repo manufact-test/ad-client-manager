@@ -290,7 +290,7 @@ function adc_doc_upload_form(PDO $db,int $clientId,?int $replaceId=null): string
       adc_w_check('needs_invoice','Счёт',(bool)($existing['needs_invoice']??false)).
       adc_w_check('needs_act','Акт',(bool)($existing['needs_act']??false)).
       '<div class="ledger-money-toggle">'.adc_w_check('has_amount','Указать сумму к оплате',($current['amount']??null)!==null).
-      '<div class="ledger-money-fields">'.adc_ledger_form_money($current?:[]).'</div></div>'.
+      '<div class="ledger-money-fields">'.str_replace(' required','',adc_ledger_form_money($current?:[])).'</div></div>'.
       adc_w_field('Комментарий','note',(string)($current['note']??''),'text','maxlength="500"').
       adc_w_field('Передать до (необязательно)','transfer_due_on',(string)($existing['transfer_due_on']??''),'date').
       '<details><summary>Привязать к старому периоду (необязательно)</summary>'.

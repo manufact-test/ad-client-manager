@@ -736,6 +736,17 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
     $html .= '</section>';
 
     $html .= adc_ledger_panel($db,$user,$id);
+    $historic=adc_w_client_balances($db,$id);
+    if ($historic) {
+        $html.='<details class="card"><summary>История прежнего учёта</summary>'.
+            '<p class="muted">Ранее внесённые начисления и платежи сохранены и учитываются в аналитике.</p>';
+        foreach ($historic as $balance) {
+            $html.='<p>'.adc_h($balance['currency']).': выставлено '.
+                adc_fin_format($balance['billed'],$balance['currency']).', получено '.
+                adc_fin_format($balance['net'],$balance['currency']).'</p>';
+        }
+        $html.='</details>';
+    }
 
     $html .= '<section class="card customer-more"><h3>Дополнительные действия</h3>'.
         adc_w_client_form($db,$client);

@@ -68,6 +68,17 @@ function adc_fin_groups(PDO $db): array {
         $totals[$ccy] ??= $init();
         $totals[$ccy][$row['event_type']]=adc_fin_minor((string)$row['total']);
     }
+    $extra=$db->query('SELECT e.currency,e.category,
+        SUM(e.amount) billed,SUM(CASE WHEN e.received_at IS NULL THEN 0 ELSE e.amount END) paid
+        FROM client_entries e JOIN clients c ON c.id=e.client_id
+        WHERE e.is_void=0 AND e.amount IS NOT NULL AND '.adc_demo_analytics_predicate('c').'
+        GROUP BY e.currency,e.category');
+    foreach($extra as $r) {
+        $ccy=$r['currency'];$cat=$r['category'];
+        $totals[$ccy]??=$init();
+        $totals[$ccy][$cat]=adc_fin_add($totals[$ccy][$cat],adc_fin_minor((string)$r['billed']));
+        $totals[$ccy]['received']=adc_fin_add($totals[$ccy]['received'],adc_fin_minor((string)$r['paid']));
+    }
     ksort($totals);
     return $totals;
 }
@@ -95,6 +106,26 @@ function adc_fin_months(PDO $db): array {
         $out[$k] ??= ['currency'=>$r['currency'],'month'=>$r['mon'],'advertising'=>0,'development'=>0,'other'=>0,'billed'=>0,'paid'=>0];
         $v=adc_fin_minor((string)$r['total']);
         $out[$k]['paid']=adc_fin_add($out[$k]['paid'],$r['event_type']==='received'?$v:-$v);
+    }
+    $extra=$db->query('SELECT e.currency,SUBSTR(e.created_at,1,7) mon,e.category,SUM(e.amount) billed
+        FROM client_entries e JOIN clients c ON c.id=e.client_id
+        WHERE e.is_void=0 AND e.amount IS NOT NULL AND '.adc_demo_analytics_predicate('c').'
+        GROUP BY e.currency,mon,e.category');
+    foreach($extra as $r) {
+        $k=$r['currency'].'|'.$r['mon'];
+        $out[$k]??=['currency'=>$r['currency'],'month'=>$r['mon'],'advertising'=>0,'development'=>0,'other'=>0,'billed'=>0,'paid'=>0];
+        $value=adc_fin_minor((string)$r['billed']);
+        $out[$k][$r['category']]=adc_fin_add($out[$k][$r['category']],$value);
+        $out[$k]['billed']=adc_fin_add($out[$k]['billed'],$value);
+    }
+    $paid=$db->query('SELECT e.currency,SUBSTR(e.received_at,1,7) mon,SUM(e.amount) paid
+        FROM client_entries e JOIN clients c ON c.id=e.client_id
+        WHERE e.is_void=0 AND e.amount IS NOT NULL AND e.received_at IS NOT NULL AND '.adc_demo_analytics_predicate('c').'
+        GROUP BY e.currency,mon');
+    foreach($paid as $r) {
+        $k=$r['currency'].'|'.$r['mon'];
+        $out[$k]??=['currency'=>$r['currency'],'month'=>$r['mon'],'advertising'=>0,'development'=>0,'other'=>0,'billed'=>0,'paid'=>0];
+        $out[$k]['paid']=adc_fin_add($out[$k]['paid'],adc_fin_minor((string)$r['paid']));
     }
     uasort($out,static fn($a,$b)=>[$b['month'],$a['currency']] <=> [$a['month'],$b['currency']]);
     return $out;
@@ -185,6 +216,18 @@ function adc_fin_render(PDO $db): string {
             adc_fin_minor((string)$r['billed']));
         $groups[$root]['paid'][$ccy]=adc_fin_add($groups[$root]['paid'][$ccy]??0,
             adc_fin_minor((string)$r['paid']));
+    }
+    $more=$db->query('SELECT e.client_id,e.currency,
+        SUM(e.amount) billed,SUM(CASE WHEN e.received_at IS NULL THEN 0 ELSE e.amount END) paid
+        FROM client_entries e JOIN clients c ON c.id=e.client_id
+        WHERE e.is_void=0 AND e.amount IS NOT NULL AND '.adc_demo_analytics_predicate('c').'
+        GROUP BY e.client_id,e.currency');
+    foreach($more as $r) {
+        $id=(int)$r['client_id'];$root=$rootOf[$id]??$id;
+        if(!isset($groups[$root])) continue;
+        $ccy=$r['currency'];
+        $groups[$root]['billed'][$ccy]=adc_fin_add($groups[$root]['billed'][$ccy]??0,adc_fin_minor((string)$r['billed']));
+        $groups[$root]['paid'][$ccy]=adc_fin_add($groups[$root]['paid'][$ccy]??0,adc_fin_minor((string)$r['paid']));
     }
     $payerCount=0;
     foreach ($groups as $g)if(($g['paid'][$currency]??0)>0)$payerCount++;

@@ -89,17 +89,36 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
         SUM(CASE WHEN sent_at IS NULL THEN 1 ELSE 0 END) unsent,
         SUM(CASE WHEN amount IS NOT NULL AND sent_at IS NOT NULL AND received_at IS NULL THEN 1 ELSE 0 END) unpaid,
         SUM(CASE WHEN amount IS NOT NULL AND received_at IS NULL AND sent_at IS NOT NULL
-                 AND created_at < DATE_SUB(?,INTERVAL 3 DAY) THEN 1 ELSE 0 END) late,
+                 AND sent_at < DATE_SUB(?,INTERVAL 3 DAY) THEN 1 ELSE 0 END) late,
         SUM(CASE WHEN received_at IS NOT NULL THEN 1 ELSE 0 END) paid
         FROM client_entries WHERE client_id=? AND is_void=0');
     $q->execute([$today,$clientId]);$s=$q->fetch();
     if ((int)$s['unsent']>0) return ['Отправить документы · '.$s['unsent'],'warning'];
-    if ((int)$s['unpaid']>0) return [(int)$s['late']>0?'Ждём оплату · '.$s['unpaid'].' (есть просрочка)':'Ждём оплату · '.$s['unpaid'],(int)$s['late']>0?'danger':'warning'];
-    if ((int)$s['paid']>0) return ['Оплачено','good'];
-    // The contracted monthly cycle is an information reminder, never a monetary accrual.
+    // The monthly contract is only a reminder to prepare documents, not a charge.
+    // Three days on either side of the anchor are treated as the same cycle.
     $e=$db->prepare('SELECT started_on,billing_day FROM engagements WHERE client_id=? AND status="active" ORDER BY id DESC LIMIT 1');
     $e->execute([$clientId]);$r=$e->fetch();
-    if ($r && $r['started_on']<=$today) return ['Ожидаем документы','warning'];
+    $needsDocument=false;
+    if($r && $r['started_on']<=$today) {
+        $now=new DateTimeImmutable($today);
+        $anchor=$now->modify('first day of this month');
+        $billingDay=min((int)$r['billing_day'],(int)$anchor->format('t'));
+        $due=$anchor->setDate((int)$anchor->format('Y'),(int)$anchor->format('m'),$billingDay);
+        if($due>$now->modify('+3 days')) {
+            $prev=$anchor->modify('-1 month');
+            $due=$prev->setDate((int)$prev->format('Y'),(int)$prev->format('m'),
+                min((int)$r['billing_day'],(int)$prev->format('t')));
+        }
+        if($now >= $due->modify('-3 days') && $due->format('Y-m-d') >= $r['started_on']) {
+            $q=$db->prepare('SELECT COUNT(*) FROM client_entries
+                WHERE client_id=? AND is_void=0 AND created_at>=?');
+            $q->execute([$clientId,$due->modify('-3 days')->format('Y-m-d')]);
+            $needsDocument=(int)$q->fetchColumn()===0;
+        }
+    }
+    if($needsDocument) return ['Подготовить документы','warning'];
+    if ((int)$s['unpaid']>0) return [(int)$s['late']>0?'Ждём оплату · '.$s['unpaid'].' (просрочка)':'Ждём оплату · '.$s['unpaid'],(int)$s['late']>0?'danger':'warning'];
+    if ((int)$s['paid']>0) return ['Оплачено','good'];
     return ['В работе',''];
 }
 function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
@@ -111,7 +130,7 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
       '<p class="muted">Каждый документ и каждая оплата на карту учитываются отдельно. Никаких автоматических начислений.</p>';
     $pending=[];$done=[];
     foreach ($rows as $r) {if ($r['received_at']===null) $pending[]=$r;else $done[]=$r;}
-    $render=static function (array $r) use($clientId,$user): string {
+    $render=static function (array $r) use($db,$clientId,$user): string {
         $id=(int)$r['id'];$doc=$r['entry_kind']==='document';
         $title=$doc?(string)$r['original_filename']:'Оплата на карту';
         $money=$r['amount']===null?'Без суммы':adc_w_money($r['amount'],$r['currency']);
@@ -139,7 +158,7 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
         if ($user['role']==='director') {
             if ($doc) {
                 $h.='<details class="ledger-edit"><summary>Изменить</summary>'.
-                    adc_doc_upload_form($GLOBALS['db'],$clientId,(int)$r['document_id']).
+                    adc_doc_upload_form($db,$clientId,(int)$r['document_id']).
                     '</details>';
                 $h.=adc_w_form_start('void_document').adc_w_hidden('client_id',$clientId).
                     adc_w_hidden('document_id',(int)$r['document_id']).

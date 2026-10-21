@@ -4,6 +4,7 @@ require __DIR__ . '/../app/core.php';
 require __DIR__ . '/../app/finance.php';
 require __DIR__ . '/../app/workflow.php';
 require __DIR__ . '/../app/documents.php';
+require __DIR__ . '/../app/ledger.php';
 
 class Redirected extends RuntimeException {}
 function adc_input(string $key): string { return is_string($_POST[$key] ?? null) ? trim($_POST[$key]) : ''; }
