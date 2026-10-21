@@ -2,8 +2,7 @@ name: Verify and deploy Ad Client Manager
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -15,7 +14,7 @@ concurrency:
 
 jobs:
   verify:
-    name: PHP syntax and smoke checks
+    name: PHP, MySQL, security and HTTP smoke tests
     runs-on: ubuntu-24.04
     services:
       mysql:
@@ -34,78 +33,40 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Check PHP runtime
+      - name: Check PHP version
         run: |
           php -v
-          php -r 'if (PHP_MAJOR_VERSION !== 8 || PHP_MINOR_VERSION < 3) { fwrite(STDERR, "PHP 8.3+ required\\n"); exit(1); }'
+          php -r 'if (PHP_MAJOR_VERSION !== 8 || PHP_MINOR_VERSION < 3) { fwrite(STDERR, "PHP 8.3+ required\n"); exit(1); }'
 
-      - name: Check PHP syntax
+      - name: Check PHP syntax and private file rules
         run: |
           find . -type f -name '*.php' -not -path './.git/*' -print0 | xargs -0 -r -n 1 php -l
-
-      - name: Check deployment baseline
-        run: |
           test -f index.php
           test -f .htaccess
           test -f app/core.php
           test -f app/.htaccess
           grep -q 'Require all denied' app/.htaccess
-          test ! -f .env
           grep -q 'DirectoryIndex index.php' .htaccess
+          test ! -f .env
+          test ! -f adclients-config.php
 
-      - name: Test business logic without a database
+      - name: Test recurrence and demo filter without database
         run: php tests/smoke.php
 
-      - name: Run MySQL integration tests
+      - name: Test MySQL migrations and demo finance exclusion
         env:
           TEST_DB_HOST: 127.0.0.1
           TEST_DB_NAME: adclients_test
           TEST_DB_USER: root
           TEST_DB_PASSWORD: ci-only-root
         run: |
-          if ! php -m | grep -qi '^pdo_mysql
-        run: |
-          php -S 127.0.0.1:8083 -t . >/tmp/adclients-php.log 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          for i in 1 2 3 4 5; do
-            code=$(curl -sS -o /tmp/adclients-response.html -w '%{http_code}' http://127.0.0.1:8083/ || true)
-            if [ "$code" = "503" ]; then break; fi
-            sleep 1
-          done
-          test "$code" = "503"
-          grep -q 'Конфигурация базы данных ещё не установлена' /tmp/adclients-response.html
-
-  deploy:
-    name: Promote verified web files to deploy
-    needs: verify
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout source and deploy branch
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Promote only approved web files
-        run: |
-          git fetch origin main deploy
-          git switch --detach origin/deploy
-          git restore --source=origin/main --staged --worktree -- index.php .htaccess app
-          if git diff --cached --quiet; then
-            echo "No deployment changes needed."
-            exit 0
-          fi
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "deploy: promote verified main build"
-          git push origin HEAD:deploy
-; then
+          if ! php -m | grep -qi '^pdo_mysql$'; then
             sudo apt-get update -qq
             sudo apt-get install -y php8.3-mysql
           fi
           php tests/mysql_integration.php
 
-      - name: HTTP smoke test (unconfigured instance stays locked)
+      - name: HTTP smoke test (unconfigured server stays locked)
         run: |
           php -S 127.0.0.1:8083 -t . >/tmp/adclients-php.log 2>&1 &
           server_pid=$!
@@ -119,18 +80,18 @@ jobs:
           grep -q 'Конфигурация базы данных ещё не установлена' /tmp/adclients-response.html
 
   deploy:
-    name: Promote verified web files to deploy
+    name: Publish verified server application files only
     needs: verify
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - name: Checkout source and deploy branch
+      - name: Checkout source and deployment branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Promote only approved web files
+      - name: Promote tested files to Hostinger branch
         run: |
           git fetch origin main deploy
           git switch --detach origin/deploy
@@ -139,5 +100,5 @@ jobs:
             echo "No deployment changes needed."
             exit 0
           fi
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "deploy: promote verified main build"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "deploy: verified application release"
           git push origin HEAD:deploy
