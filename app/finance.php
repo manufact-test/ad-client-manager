@@ -101,7 +101,7 @@ function adc_fin_months(PDO $db): array {
 }
 
 function adc_fin_render(PDO $db): string {
-    $html='<h1>Аналитика</h1><p class="muted">Только реальные клиенты. Начисления и деньги получены из разных операций; все суммы и балансы считаются до копейки без смешивания валют.</p>';
+    $html='<h1>Аналитика</h1>';
     $html.='<p><a class="btn secondary" href="/?export=balances">Скачать сверку реальных клиентов (CSV)</a></p>';
     $totals=adc_fin_groups($db);
     $html.='<section class="card"><h2>Начисления, поступления и задолженность</h2><div class="table-scroll" tabindex="0" role="region" aria-label="Финансовая сводка: горизонтальная прокрутка"><table><thead><tr><th>Валюта</th><th>Реклама</th><th>Разработка</th><th>Прочее</th><th>Начислено</th><th>Получено нетто</th><th>Баланс</th></tr></thead><tbody>';
@@ -129,22 +129,33 @@ function adc_fin_render(PDO $db): string {
     if (!$months) $html.='<tr><td colspan="7">Нет операций по месяцам.</td></tr>';
     $html.='</tbody></table></div></section>';
 
-    $counts=$db->query('SELECT COUNT(*) count_clients,
-        COALESCE(SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")),0) active_clients,
-        COALESCE(SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="archived")),0) ever_archived,
-        COALESCE(SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="archived")
-          AND NOT EXISTS(SELECT 1 FROM engagements x WHERE x.client_id=c.id AND x.status="active")),0) churned,
-        COALESCE(SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="archived")
-          AND EXISTS(SELECT 1 FROM engagements x WHERE x.client_id=c.id AND x.status="active")),0) resumed,
-        COALESCE(SUM(c.previous_client_id IS NOT NULL OR (c.previous_name_text IS NOT NULL AND c.previous_name_text<>"")),0) returning
-        FROM clients c WHERE '.adc_demo_analytics_predicate('c'))->fetch();
+    // Avoid SUM(EXISTS(correlated ...)) which is rejected on some
+    // MariaDB/MySQL Hostinger versions and caused an HTTP 500 with demo-only
+    // databases. Count each client's engagement status in plain PHP instead.
+    $counts=['count_clients'=>0,'active_clients'=>0,'ever_archived'=>0,
+        'churned'=>0,'resumed'=>0,'returning'=>0];
+    $clientRows=$db->query('SELECT c.previous_client_id,c.previous_name_text,
+        EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active") AS has_active,
+        EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="archived") AS has_archived
+        FROM clients c WHERE '.adc_demo_analytics_predicate('c'));
+    foreach ($clientRows as $clientRow) {
+        $counts['count_clients']++;
+        $active=(int)$clientRow['has_active']===1;
+        $archived=(int)$clientRow['has_archived']===1;
+        if ($active) $counts['active_clients']++;
+        if ($archived) $counts['ever_archived']++;
+        if ($archived && !$active) $counts['churned']++;
+        if ($archived && $active) $counts['resumed']++;
+        if ($clientRow['previous_client_id']!==null ||
+            trim((string)$clientRow['previous_name_text'])!=='') $counts['returning']++;
+    }
     $html.='<section class="card"><h2>Клиентская база</h2><p>Клиентов: <strong>'.(int)$counts['count_clients'].
         '</strong> · активных: <strong>'.(int)$counts['active_clients'].
         '</strong> · были в архиве: <strong>'.(int)$counts['ever_archived'].
         '</strong> · вернулись из архива: <strong>'.(int)$counts['resumed'].
         '</strong> · пришли по прежним контактам: <strong>'.(int)$counts['returning'].
         '</strong> · закрыты без возобновления: <strong>'.(int)$counts['churned'].'</strong></p>'.
-        '<p class="muted">Отток: ранее архивированные без активного сотрудничества. Повторный приход по ссылке на прошлую запись считается отдельно.</p>';
+        '';
     foreach ($db->query('SELECT COALESCE(NULLIF(source_kind,""),"unknown") kind,COUNT(*) qty
         FROM clients c WHERE '.adc_demo_analytics_predicate('c').'
         GROUP BY source_kind ORDER BY qty DESC') as $row) {
