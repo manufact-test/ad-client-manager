@@ -84,6 +84,7 @@ try:
     status,_,page=request("hire","/?view=tasks")
     check(status==200 and "Мои задачи" in page and "Измените временный пароль" not in page,
           "Password change enables authenticated actions")
+    hire_token=csrf(page)
     status,_,page=request("hire_second","/?view=tasks")
     check("Вход" in page and "Мои задачи" not in page,
           "A second session is revoked when user changes password")
@@ -151,7 +152,7 @@ try:
     status,_,page=request("director",payload={
         "csrf":director_token,"action":"deactivate_employee","employee_id":"-100"
     })
-    check(status in [200,303],"Unrelated deactivation test harmless")
+    check(status==200 and "Не выбран сотрудник" in page,"Invalid employee deactivation rejected")
     # Resolve hire ID from settings row using markup: exact fixture name and id
     status,_,page=request("director","/?view=team")
     match=re.search(r'Fixture Hire.*?name="employee_id" value="(\d+)"',page,re.S)
