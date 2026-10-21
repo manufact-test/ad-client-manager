@@ -725,6 +725,7 @@ function adc_w_team(PDO $db, array $user): string {
             adc_w_field('Временный пароль','employee_password','','password','required minlength="12"') .
             '<button type="submit">Создать сотрудника</button></form></details></section>';
     }
+    $html .= adc_import_panel($user);
     return $html;
 }
 
