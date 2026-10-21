@@ -176,6 +176,31 @@ jobs:
           cp -p "$tempdir/backup-pdfs/"*.pdf "$tempdir/restored-pdfs/"
           TEST_DB_NAME=adclients_restore_test ADC_RESTORE_PDF_DIR="$tempdir/restored-pdfs" php tests/restore_fixture.php verify
 
+
+  staging_package:
+    name: Tested ZIP for manual Hostinger acceptance (no deployment)
+    needs: verify
+    # Only package the trusted same-repository feature PR. No branch writes,
+    # no Hostinger access and no credentials or customer data are involved.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/integrated-client-workflow'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact tested feature commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Build allowlisted test-site archive
+        run: |
+          python3 scripts/staging_package.py /tmp/ad-client-manager-staging.zip
+          unzip -l /tmp/ad-client-manager-staging.zip
+      - name: Publish staging ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: adclient-staging-${{ github.event.pull_request.head.sha }}
+          path: /tmp/ad-client-manager-staging.zip
+          if-no-files-found: error
+          retention-days: 7
+
   deploy:
     name: Manual release of verified application files only
     needs: verify
