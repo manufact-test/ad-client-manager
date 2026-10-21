@@ -27,7 +27,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
        main{max-width:980px;margin:28px auto;padding:0 16px 48px}.brand{font-weight:750;font-size:19px}nav{display:flex;gap:16px;align-items:center;font-size:13px;color:#526071}
        h1{font-size:27px;margin:4px 0 12px}h2{font-size:19px;margin:0 0 14px}p{margin:0 0 12px}small,.muted{color:#667285}
        .card{background:#fff;border:1px solid #e5e8ef;border-radius:14px;padding:22px;margin:0 0 16px}
-       .narrow{max-width:475px;margin:55px auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px}.stack{display:grid;gap:10px}
+       .narrow{max-width:475px;margin:55px auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:16px}.stack{display:grid;gap:10px}
        .field{display:grid;gap:5px;margin:0 0 13px}label{font-weight:600;font-size:13px}input,select{width:100%;padding:10px 11px;border:1px solid #cfd5df;border-radius:8px;font:inherit;background:white;color:inherit}
        input[type=checkbox]{width:auto;accent-color:#4d46cb}.check{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:14px}
        button,.btn{font:inherit;border:1px solid #3b35a8;border-radius:8px;background:#493fbc;color:white;padding:9px 13px;cursor:pointer;text-decoration:none;display:inline-block}
@@ -37,8 +37,13 @@ function adc_page(string $title, string $body, ?array $user = null): never {
        .demo{background:#fff0c7;color:#735016}.good{background:#e4f6eb;color:#176739}.notice{border-left:3px solid #5147bc;background:#f0effe;padding:12px;border-radius:5px;margin:12px 0}
        .error{border-left:3px solid #c73333;background:#fff1f1;padding:11px;border-radius:5px;margin:12px 0}
        .months{display:flex;gap:10px;justify-content:space-between;align-items:center;margin-bottom:16px}
-       table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #edf0f3;padding:9px 4px;text-align:left;font-size:14px}
-       @media(max-width:560px){header{padding:12px 16px}.item{align-items:flex-start;flex-direction:column}.card{padding:16px}h1{font-size:23px}}
+       .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 23px}.tabs a{padding:9px 13px;color:#48465c;text-decoration:none;border-radius:8px}.tabs a.active{background:#eae8ff;color:#3025a7;font-weight:700}
+       textarea{width:100%;padding:10px;border:1px solid #cfd5df;border-radius:8px;font:inherit;resize:vertical}.field{min-width:0}
+       details{margin:10px 0}summary{cursor:pointer;color:#4239a9;font-weight:650;padding:8px 0}.period{border:1px solid #e6e9f1;border-radius:10px;padding:12px;margin:10px 0}.period>summary{color:#232c44}
+       h3{font-size:16px;margin:14px 0 10px}.drawer{position:fixed;right:0;top:0;bottom:0;width:min(740px,100vw);background:#f7f8fb;padding:18px;overflow:auto;z-index:20;box-shadow:-20px 0 70px #1921392e}.drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.drawer-head h2{margin:0}.drawer-shade{position:fixed;inset:0;background:#0b133c38;z-index:19}.drawer .card{margin-top:14px}
+       
+       .table-scroll{overflow-x:auto;max-width:100%} :is(a,button,input,select,textarea,summary,.table-scroll):focus-visible{outline:3px solid #c17b08;outline-offset:3px}table{border-collapse:collapse;width:100%;min-width:480px}td,th{border-bottom:1px solid #edf0f3;padding:9px 6px;text-align:left;font-size:14px}tr:hover td{background:#fafaff}td:last-child,th:last-child{white-space:nowrap}
+       @media(max-width:560px){header{padding:12px 16px}.item{align-items:flex-start;flex-direction:column}.card{padding:16px}h1{font-size:23px}.drawer{padding:12px}.drawer .actions{width:100%}.drawer-head{align-items:flex-start}}
        </style></head><body><header><div class="brand">Ad Client Manager</div>' . $menu . '</header><main>' . $body . '</main></body></html>';
     exit;
 }
@@ -58,12 +63,20 @@ function adc_notice(): string {
     }
     $value = (string) $_SESSION['flash'];
     unset($_SESSION['flash']);
-    return '<div class="notice">' . adc_h($value) . '</div>';
+    return '<div class="notice" role="status">' . adc_h($value) . '</div>';
 }
 
 function adc_flash(string $message): void {
     $_SESSION['flash'] = $message;
 }
+
+require __DIR__ . '/app/finance.php';
+require __DIR__ . '/app/export.php';
+require __DIR__ . '/app/workflow.php';
+require __DIR__ . '/app/documents.php';
+require __DIR__ . '/app/reminders.php';
+require __DIR__ . '/app/import.php';
+require __DIR__ . '/app/audit.php';
 
 $config = adc_config();
 if ($config === null) {
@@ -100,6 +113,53 @@ try {
         . '<small>Сообщите только код. Пароль, секрет и файл конфигурации отправлять не нужно.</small></section>');
 }
 
+/**
+ * Release acceptance: the existing dedicated Hostinger test site has an older
+ * MySQL schema. Never attempt implicit DDL on login or ordinary page requests.
+ */
+function adc_staging_schema_upgrade_needed(PDO $db): bool {
+    foreach ([
+        ['payment_events', 'submission_key', 'uq_payment_submission'],
+        ['billing_periods', 'creation_key', 'uq_period_creation_key'],
+    ] as [$table, $column, $index]) {
+        $col = $db->query("SHOW COLUMNS FROM `$table` LIKE '$column'")->fetch();
+        $key = $db->query("SHOW INDEX FROM `$table` WHERE Key_name='$index'")->fetch();
+        if (!$col || $col['Null'] !== 'YES' || !$key ||
+            (int)$key['Non_unique'] !== 0 || $key['Column_name'] !== $column) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** The browser path is only for the explicitly disposable, director-only setup.
+ * Refuse the upgrade if any client/finance/document/employee data already exists.
+ * More complex migrations must use the offline backup-and-restore procedure.
+ */
+function adc_staging_schema_upgrade_eligible(PDO $db): bool {
+    $userCount = (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    $directorCount = (int)$db->query(
+        "SELECT COUNT(*) FROM users WHERE role='director' AND is_active=1"
+    )->fetchColumn();
+    if ($userCount !== 1 || $directorCount !== 1) {
+        return false;
+    }
+    foreach ([
+        'clients', 'engagements', 'billing_periods', 'document_bundles',
+        'charge_lines', 'payment_events', 'personal_tasks', 'personal_task_completions',
+    ] as $table) {
+        if ((int)$db->query("SELECT COUNT(*) FROM `$table`")->fetchColumn() !== 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+$schemaUpgradeRequired = $initialized && adc_staging_schema_upgrade_needed($db);
+$dedicatedStagingHost =
+    strtolower((string)preg_replace('/:\\d+$/', '', $_SERVER['HTTP_HOST'] ?? '')) ===
+    'darkred-crow-882796.hostingersite.com';
+
 $action = adc_input('action');
 $errorMessage = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -131,15 +191,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (adc_has_users($db)) {
                     throw new RuntimeException('Учётная запись директора уже создана.');
                 }
+                $passwordHash=password_hash($password,PASSWORD_DEFAULT);
+                $db->beginTransaction();
                 $stmt = $db->prepare('INSERT INTO users(email, display_name, password_hash, role) VALUES (?, ?, ?, "director")');
-                $stmt->execute([$email, $displayName, password_hash($password, PASSWORD_DEFAULT)]);
+                $stmt->execute([$email, $displayName, $passwordHash]);
                 $userId = (int) $db->lastInsertId();
                 adc_audit($db, $userId, 'bootstrap_director', 'user', $userId);
+                $db->commit();
             } finally {
+                if ($db->inTransaction()) $db->rollBack();
                 $db->query("SELECT RELEASE_LOCK('adclients-director-bootstrap')");
             }
-            session_regenerate_id(true);
-            $_SESSION['user_id'] = $userId;
+            adc_auth_session_issue($userId,$passwordHash);
             adc_flash('Учётная запись директора создана.');
             adc_redirect();
         }
@@ -159,8 +222,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Неверный email или пароль.');
             }
             $db->prepare('DELETE FROM login_attempts WHERE identity_hash = ?')->execute([$key]);
-            session_regenerate_id(true);
-            $_SESSION['user_id'] = (int) $candidate['id'];
+            adc_auth_session_issue((int)$candidate['id'],(string)$candidate['password_hash']);
             adc_flash('Вход выполнен.');
             adc_redirect();
         }
@@ -185,16 +247,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!password_verify($old, (string)$stmt->fetchColumn()) || strlen($new) < 12) {
                 throw new RuntimeException('Проверьте старый пароль и новый пароль (не менее 12 символов).');
             }
+            $newHash=password_hash($new,PASSWORD_DEFAULT);
+            $db->beginTransaction();
             $db->prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?')
-               ->execute([password_hash($new, PASSWORD_DEFAULT), (int)$current['id']]);
+               ->execute([$newHash, (int)$current['id']]);
             adc_audit($db, (int)$current['id'], 'change_password', 'user', (int)$current['id']);
-            session_regenerate_id(true);
+            $db->commit();
+            adc_auth_session_issue((int)$current['id'],$newHash);
             adc_flash('Пароль изменён.');
             adc_redirect();
         }
 
         if ((int)$current['must_change_password'] === 1) {
             throw new RuntimeException('Сначала измените временный пароль.');
+        }
+
+        if ($action === 'staging_upgrade_schema') {
+            if ($current['role'] !== 'director' || !$dedicatedStagingHost ||
+                !$schemaUpgradeRequired ||
+                adc_input('backup_confirmed') !== 'YES' ||
+                !adc_staging_schema_upgrade_eligible($db)) {
+                throw new RuntimeException('Обновление запрещено: проверьте резервную копию и тестовую базу.');
+            }
+            // The director explicitly confirmed a private SQL+files backup.
+            // DDL in MySQL implicitly commits; no false rollback guarantee.
+            adc_schema($db);
+            if (adc_staging_schema_upgrade_needed($db)) {
+                throw new RuntimeException('Структура базы не обновилась. Проверка остановлена.');
+            }
+            adc_audit($db, (int)$current['id'],
+                'staging_schema_upgrade', 'database', null);
+            adc_flash('Тестовая база обновлена. Учётная запись директора сохранена.');
+            adc_redirect();
+        }
+
+        if ($schemaUpgradeRequired) {
+            throw new RuntimeException('Сначала директор должен обновить тестовую базу.');
+        }
+
+        // Connected workflow actions share the established authentication and CSRF gates.
+        if (adc_w_action($db, $current, $action)) {
+            adc_redirect();
+        }
+        if (adc_doc_action($db, $current, $action)) {
+            adc_redirect();
+        }
+        if (adc_import_action($db, $current, $action)) {
+            adc_redirect();
         }
 
         if ($action === 'create_task') {
@@ -205,10 +304,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $monthly = isset($_POST['repeat_monthly']) ? 1 : 0;
             $anchor = $monthly ? (int)(new DateTimeImmutable($dueDate))->format('j') : null;
+            $db->beginTransaction();
             $stmt = $db->prepare('INSERT INTO personal_tasks(user_id,title,due_date,repeat_monthly,anchor_day) VALUES(?,?,?,?,?)');
             $stmt->execute([(int)$current['id'], $title, $dueDate, $monthly, $anchor]);
+            adc_audit($db,(int)$current['id'],'create_task','personal_task',(int)$db->lastInsertId());
+            $db->commit();
             adc_flash('Задача добавлена.');
-            adc_redirect('?month=' . substr($dueDate, 0, 7));
+            adc_redirect('?view=tasks');
         }
 
         if ($action === 'complete_task' || $action === 'delete_task') {
@@ -243,42 +345,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $db->prepare('UPDATE personal_tasks SET is_done = 1, completed_at = UTC_TIMESTAMP() WHERE id = ? AND user_id = ?')
                    ->execute([$taskId, (int)$current['id']]);
             }
+            adc_audit($db,(int)$current['id'],'complete_task','personal_task',$taskId,
+                ['due_date'=>$task['due_date'],'recurring'=>(int)$task['repeat_monthly']===1]);
             $db->commit();
             adc_flash('Готово. Задача отмечена.');
-            adc_redirect('?month=' . substr((string)$task['due_date'], 0, 7));
+            adc_redirect('?view=tasks');
         }
 
+        /* Legacy demo-only action removed: the unified save_client form must
+           collect the same fields for test clients as for real clients. */
         if ($action === 'create_demo') {
-            $name = adc_input('client_name');
-            if ($name === '' || mb_strlen($name) > 240) {
-                throw new RuntimeException('Укажите название демо-клиента.');
-            }
-            $db->beginTransaction();
-            $stmt = $db->prepare('INSERT INTO clients(name, is_demo, created_by) VALUES (?,1,?)');
-            $stmt->execute([$name, (int)$current['id']]);
-            $clientId = (int)$db->lastInsertId();
-            $stmt = $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency,status) VALUES(?,CURDATE(),DAY(CURDATE()),"prepayment","BYN","active")');
-            $stmt->execute([$clientId]);
-            adc_audit($db, (int)$current['id'], 'create_demo_client', 'client', $clientId);
-            $db->commit();
-            adc_flash('Демонстрационный клиент создан. В реальную аналитику он не попадёт.');
-            adc_redirect();
-        }
-
-        if ($action === 'delete_demo') {
-            adc_require_director($current);
-            $clientId = filter_var(adc_input('client_id'), FILTER_VALIDATE_INT);
-            if (!$clientId) {
-                throw new RuntimeException('Неверный клиент.');
-            }
-            $stmt = $db->prepare('DELETE FROM clients WHERE id = ? AND is_demo = 1');
-            $stmt->execute([$clientId]);
-            if (!$stmt->rowCount()) {
-                throw new RuntimeException('Удалять можно только демонстрационных клиентов.');
-            }
-            adc_audit($db, (int)$current['id'], 'delete_demo_client', 'client', $clientId);
-            adc_flash('Демонстрационный клиент полностью удалён.');
-            adc_redirect();
+            throw new RuntimeException('Используйте общую форму добавления клиента с отметкой Демо.');
         }
 
         if ($action === 'create_employee') {
@@ -289,22 +366,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!filter_var($email, FILTER_VALIDATE_EMAIL) || mb_strlen($name) < 2 || mb_strlen($name) > 120 || strlen($password) < 12) {
                 throw new RuntimeException('Укажите имя, email и временный пароль от 12 символов.');
             }
+            $db->beginTransaction();
             $stmt = $db->prepare('INSERT INTO users(email, display_name, password_hash, role, must_change_password) VALUES (?,?,?,"employee",1)');
             $stmt->execute([$email, $name, password_hash($password, PASSWORD_DEFAULT)]);
             adc_audit($db, (int)$current['id'], 'create_employee', 'user', (int)$db->lastInsertId());
+            $db->commit();
             adc_flash('Сотрудник добавлен. Передайте временный пароль безопасным способом.');
             adc_redirect();
+        }
+
+        if ($action === 'reset_employee_password') {
+            adc_require_director($current);
+            $employeeId=filter_var(adc_input('employee_id'),FILTER_VALIDATE_INT);
+            $password=adc_input('employee_new_password');
+            if (!$employeeId || $employeeId<1 || strlen($password)<12 || strlen($password)>1024) {
+                throw new RuntimeException('Укажите сотрудника и временный пароль от 12 до 1024 символов.');
+            }
+            $db->beginTransaction();
+            $stmt=$db->prepare('UPDATE users SET password_hash=?,must_change_password=1
+                WHERE id=? AND role="employee" AND is_active=1');
+            $stmt->execute([password_hash($password,PASSWORD_DEFAULT),$employeeId]);
+            if ($stmt->rowCount()!==1) {
+                throw new RuntimeException('Сотрудник не найден или уже отключён.');
+            }
+            adc_audit($db,(int)$current['id'],'reset_employee_password','user',(int)$employeeId);
+            $db->commit();
+            adc_flash('Временный пароль установлен. Старые сеансы сотрудника отозваны; передайте пароль безопасным способом.');
+            adc_redirect('?view=team');
         }
 
         if ($action === 'deactivate_employee') {
             adc_require_director($current);
             $employeeId = filter_var(adc_input('employee_id'), FILTER_VALIDATE_INT);
-            if (!$employeeId) {
+            if (!$employeeId || $employeeId < 1) {
                 throw new RuntimeException('Не выбран сотрудник.');
             }
-            $stmt = $db->prepare('UPDATE users SET is_active = 0 WHERE id = ? AND role = "employee"');
+            $db->beginTransaction();
+            $stmt = $db->prepare('UPDATE users SET is_active = 0 WHERE id = ? AND role = "employee" AND is_active=1');
             $stmt->execute([$employeeId]);
+            if (!$stmt->rowCount()) {
+                throw new RuntimeException('Сотрудник не найден или уже отключён.');
+            }
             adc_audit($db, (int)$current['id'], 'deactivate_employee', 'user', (int)$employeeId);
+            $db->commit();
             adc_flash('Доступ сотрудника отключён.');
             adc_redirect();
         }
@@ -323,7 +427,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$alert = $errorMessage ? '<div class="error">' . adc_h($errorMessage) . '</div>' : adc_notice();
+$alert = $errorMessage ? '<div class="error" role="alert">' . adc_h($errorMessage) . '</div>' : adc_notice();
 $csrf = adc_csrf();
 
 if (!$initialized) {
@@ -362,105 +466,45 @@ if ((int)$user['must_change_password'] === 1) {
     adc_page('Пароль', $html, $user);
 }
 
-$month = is_string($_GET['month'] ?? null) ? $_GET['month'] : date('Y-m');
-if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D', $month)) {
-    $month = date('Y-m');
-}
-$start = $month . '-01';
-$next = (new DateTimeImmutable($start))->modify('first day of next month')->format('Y-m-d');
-$previousMonth = (new DateTimeImmutable($start))->modify('-1 month')->format('Y-m');
-$nextMonth = substr($next, 0, 7);
-
-$stmt = $db->prepare('SELECT * FROM personal_tasks WHERE user_id = ? AND due_date >= ? AND due_date < ? ORDER BY due_date, id');
-$stmt->execute([(int)$user['id'], $start, $next]);
-$tasks = $stmt->fetchAll();
-
-$stmt = $db->prepare('SELECT c.due_date,c.completed_at,t.title FROM personal_task_completions c
-JOIN personal_tasks t ON t.id = c.task_id WHERE c.user_id = ? AND c.due_date >= ? AND c.due_date < ?
-ORDER BY c.due_date');
-$stmt->execute([(int)$user['id'], $start, $next]);
-$completions = $stmt->fetchAll();
-
-$stmt = $db->query('SELECT id, name FROM clients WHERE is_demo = 1 ORDER BY id DESC LIMIT 100');
-$demoClients = $stmt->fetchAll();
-
-$realCount = (int)$db->query('SELECT COUNT(*) FROM clients c WHERE ' . adc_demo_analytics_predicate('c'))->fetchColumn();
-
-$body = '<h1>Рабочий стол</h1>' . $alert
-      . '<div class="notice">Фундамент системы: вход, роли, личные задачи и демо-клиенты. Реальные клиентские данные пока не вводим — функциональные разделы ещё разрабатываются.</div>'
-      . '<div class="grid"><section class="card"><h2>Мои задачи</h2>'
-      . '<div class="months"><a href="/?month=' . adc_h($previousMonth) . '" class="btn secondary">←</a><strong>' . adc_h($month) . '</strong><a href="/?month=' . adc_h($nextMonth) . '" class="btn secondary">→</a></div>';
-
-if (!$tasks && !$completions) {
-    $body .= '<p class="muted">На выбранный месяц задач пока нет.</p>';
-}
-foreach ($tasks as $task) {
-    $done = (int)$task['is_done'] === 1;
-    $body .= '<div class="item"><div><div class="item-title">' . adc_h($task['title']) . '</div>'
-          . '<small>' . adc_h($task['due_date']) . ((int)$task['repeat_monthly'] === 1 ? ' · Каждый месяц' : ' · Один раз') . '</small></div>'
-          . '<div class="actions">';
-    if (!$done) {
-        $body .= '<form method="post" class="inline"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="complete_task">'
-            . '<input type="hidden" name="task_id" value="' . (int)$task['id'] . '"><button type="submit">Готово</button></form>';
-    }
-    $body .= '<form method="post" class="inline"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="delete_task">'
-          . '<input type="hidden" name="task_id" value="' . (int)$task['id'] . '"><button class="secondary" type="submit">Удалить</button></form></div></div>';
-}
-foreach ($completions as $completion) {
-    $body .= '<div class="item"><div><div class="item-title">' . adc_h($completion['title']) . '</div><small>'
-          . adc_h($completion['due_date']) . '</small></div><span class="badge good">Выполнено</span></div>';
-}
-
-$body .= '<h2 style="margin-top:20px">Добавить задачу</h2><form method="post">'
-      . '<input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="create_task">'
-      . '<div class="field"><label>Название</label><input name="title" maxlength="240" placeholder="Что нужно сделать?" required></div>'
-      . '<div class="field"><label>Когда напомнить?</label><input type="date" name="due_date" value="' . date('Y-m-d') . '" required></div>'
-      . '<label class="check"><input type="checkbox" name="repeat_monthly" value="1"> Повторять каждый месяц</label>'
-      . '<button type="submit">Добавить</button></form></section>';
-
-$body .= '<section class="card"><h2>Демо-клиенты</h2>'
-      . '<p class="muted">Можно показывать сотрудникам и удалять. Эти записи всегда исключены из реальной аналитики.</p>';
-foreach ($demoClients as $client) {
-    $body .= '<div class="item"><div class="item-title">' . adc_h($client['name']) . ' <span class="badge demo">Демо</span></div>';
-    if ($user['role'] === 'director') {
-        $body .= '<form method="post" class="inline"><input type="hidden" name="csrf" value="' . $csrf . '">'
-              . '<input type="hidden" name="action" value="delete_demo"><input type="hidden" name="client_id" value="' . (int)$client['id'] . '">'
-              . '<button class="secondary" type="submit">Удалить</button></form>';
-    }
-    $body .= '</div>';
-}
-$body .= '<h2 style="margin-top:20px">Новый демо-клиент</h2><form method="post"><input type="hidden" name="csrf" value="' . $csrf . '">'
-      . '<input type="hidden" name="action" value="create_demo"><div class="field"><label>Название</label>'
-      . '<input name="client_name" placeholder="Например, Тестовый клиент" maxlength="240" required></div>'
-      . '<button type="submit">Создать демо-клиента</button></form>'
-      . '<div class="notice"><strong>Реальных клиентов в аналитике:</strong> ' . $realCount
-      . '<p class="muted" style="margin:4px 0 0">Счётчик не включает демонстрационные записи.</p></div></section></div>';
-
-if ($user['role'] === 'director') {
-    $users = $db->query('SELECT id,email,display_name,role,is_active FROM users ORDER BY id')->fetchAll();
-    $body .= '<section class="card"><h2>Пользователи</h2><table><thead><tr><th>Имя</th><th>Email</th><th>Роль</th><th></th></tr></thead><tbody>';
-    foreach ($users as $member) {
-        $body .= '<tr><td>' . adc_h($member['display_name']) . '</td><td>' . adc_h($member['email']) . '</td><td>'
-            . ($member['role'] === 'director' ? 'Директор' : 'Сотрудник') . ((int)$member['is_active'] === 0 ? ' · Отключён' : '') . '</td><td>';
-        if ($member['role'] === 'employee' && (int)$member['is_active'] === 1) {
-            $body .= '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="deactivate_employee">'
-                . '<input type="hidden" name="employee_id" value="' . (int)$member['id'] . '"><button type="submit" class="secondary">Отключить</button></form>';
+if ($schemaUpgradeRequired) {
+    if ($user['role'] === 'director' && $dedicatedStagingHost) {
+        $eligible = adc_staging_schema_upgrade_eligible($db);
+        $body = '<section class="card narrow"><h1>Обновление тестовой базы</h1>'
+            . $alert
+            . '<p>Новая версия приложения требует добавить два защищающих от повторов поля. '
+            . 'Существующий директор и его пароль сохраняются.</p>'
+            . '<p><strong>Перед подтверждением:</strong> убедитесь, что в Hostinger '
+            . 'создана приватная резервная копия файлов и MySQL.</p>';
+        if ($eligible) {
+            $body .= '<form method="post" class="stack">'
+                . '<input type="hidden" name="csrf" value="' . $csrf . '">'
+                . '<input type="hidden" name="action" value="staging_upgrade_schema">'
+                . '<label><input type="checkbox" name="backup_confirmed" value="YES" required>'
+                . ' Подтверждаю создание резервной копии тестового сайта и базы MySQL</label>'
+                . '<button type="submit">Обновить тестовую базу</button></form>';
+        } else {
+            $body .= '<div class="error" role="alert">Автообновление недоступно: '
+                . 'в базе есть сотрудники, клиенты или финансовые записи. '
+                . 'Не изменяйте их. Требуется отдельная проверка резервной копии.</div>';
         }
-        $body .= '</td></tr>';
+        adc_page('Обновление тестовой базы', $body . '</section>', $user);
     }
-    $body .= '</tbody></table><h2 style="margin-top:20px">Добавить сотрудника</h2>'
-        . '<form method="post" class="grid"><input type="hidden" name="csrf" value="' . $csrf . '">'
-        . '<input type="hidden" name="action" value="create_employee">'
-        . '<div class="field"><label>Имя</label><input name="employee_name" required></div>'
-        . '<div class="field"><label>Email</label><input type="email" name="employee_email" required></div>'
-        . '<div class="field"><label>Временный пароль (от 12 символов)</label><input type="password" minlength="12" name="employee_password" autocomplete="new-password" required></div>'
-        . '<div class="actions"><button type="submit">Добавить сотрудника</button></div></form></section>';
+    http_response_code(503);
+    adc_page('Требуется обновление базы',
+        '<section class="card narrow"><h1>База ожидает обновления</h1>'
+        . '<p>Операции временно закрыты. Обратитесь к директору.</p></section>',
+        $user);
 }
 
-$body .= '<section class="card"><h2>Пароль учётной записи</h2><form method="post" class="grid">'
-    . '<input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="change_password">'
-    . '<div class="field"><label>Текущий пароль</label><input type="password" name="old_password" required></div>'
-    . '<div class="field"><label>Новый пароль</label><input type="password" name="new_password" minlength="12" required></div>'
-    . '<div class="actions"><button type="submit" class="secondary">Изменить пароль</button></div></form></section>';
+// Financial downloads follow the same session and temporary-password gates.
+if (isset($_GET['export']) && is_string($_GET['export'])) {
+    adc_export_csv($db,$user,$_GET['export']);
+}
 
-adc_page('Рабочий стол', $body, $user);
+// Only authenticated users who have changed a temporary password can retrieve PDFs.
+if (isset($_GET['download'])) {
+    adc_doc_download($db, $user);
+}
+
+// The old demo-only and month-switching dashboard has been superseded.
+adc_w_page($db, $user, $alert);
