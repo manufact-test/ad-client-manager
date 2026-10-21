@@ -763,6 +763,7 @@ function adc_w_team(PDO $db, array $user): string {
             '<button type="submit">Создать сотрудника</button></form></details></section>';
     }
     $html .= adc_import_panel($user);
+    $html .= adc_audit_panel($db,$user);
     return $html;
 }
 
