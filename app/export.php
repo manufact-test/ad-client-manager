@@ -115,8 +115,11 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
             ? ((int)$line['is_void']===1?'Начисление аннулировано':'Начисление')
             : ($line['category']==='refund'?'Возврат':'Поступление');
         $amount=adc_fin_minor((string)$line['amount']);
-        // Net cash decreases on refunds; voided charge has zero effective
-        // billed amount in balance reports but original amount remains audit.
+        if ($line['entry_type']==='payment' && $line['category']==='refund') {
+            $amount=-$amount; // Show a refund as a negative cash movement.
+        }
+        // Voided charge remains visible as historical evidence; it is
+        // explicitly labeled and excluded from the effective billed totals.
         $rows[]=[(int)$clientId,(string)$client['name'],(int)$client['is_demo'],
             (int)$line['engagement_id'],(int)$line['period_id'],
             (string)($line['period_start']??''),(string)($line['period_end']??''),
