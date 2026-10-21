@@ -124,8 +124,8 @@ function adc_doc_action(PDO $db,array $user,string $action): bool {
             $db->commit();adc_flash('Документ уже отправлен.');
             adc_redirect(adc_w_client_location($db,$clientId));
         }
+        if (adc_doc_requires_replacement($db,$docId)) throw new RuntimeException('Суммы изменены: директор должен заменить PDF перед передачей.');
         if (adc_doc_verified_path($existing)===null) throw new RuntimeException('Не удалось проверить PDF.');
-        if (adc_doc_requires_replacement($db,$docId)) throw new RuntimeException('Сначала замените устаревший PDF.');
         $db->prepare('UPDATE document_bundles SET transferred_at=UTC_TIMESTAMP() WHERE id=?')->execute([$docId]);
         $db->prepare('UPDATE client_entries SET sent_at=UTC_TIMESTAMP() WHERE document_id=? AND is_void=0')->execute([$docId]);
         adc_audit($db,$actor,'transfer_document','document_bundle',$docId);
