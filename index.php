@@ -72,6 +72,7 @@ function adc_flash(string $message): void {
 
 require __DIR__ . '/app/workflow.php';
 require __DIR__ . '/app/documents.php';
+require __DIR__ . '/app/reminders.php';
 
 $config = adc_config();
 if ($config === null) {
