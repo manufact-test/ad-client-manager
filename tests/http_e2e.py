@@ -446,7 +446,7 @@ try:
     status, _, page = history("director", "commit_history_csv")
     check(status == 200 and "уже был импортирован" in html(page),
           "Repeated identical CSV blocked against duplicates")
-    status, _, page = request("director", "/?view=analytics")
+    status, _, page = request("director", "/?view=analytics&currency=USD")
     check("Imported CI client" in html(page) and "0,30 USD" in html(page),
           "Historical imported charges and payments shown precisely in analytics")
 
