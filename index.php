@@ -143,14 +143,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (adc_has_users($db)) {
                     throw new RuntimeException('Учётная запись директора уже создана.');
                 }
+                $passwordHash=password_hash($password,PASSWORD_DEFAULT);
+                $db->beginTransaction();
                 $stmt = $db->prepare('INSERT INTO users(email, display_name, password_hash, role) VALUES (?, ?, ?, "director")');
-                $stmt->execute([$email, $displayName, password_hash($password, PASSWORD_DEFAULT)]);
+                $stmt->execute([$email, $displayName, $passwordHash]);
                 $userId = (int) $db->lastInsertId();
                 adc_audit($db, $userId, 'bootstrap_director', 'user', $userId);
+                $db->commit();
             } finally {
+                if ($db->inTransaction()) $db->rollBack();
                 $db->query("SELECT RELEASE_LOCK('adclients-director-bootstrap')");
             }
-            adc_auth_session_issue($userId,(string)$db->query('SELECT password_hash FROM users WHERE id='.(int)$userId)->fetchColumn());
+            adc_auth_session_issue($userId,$passwordHash);
             adc_flash('Учётная запись директора создана.');
             adc_redirect();
         }
