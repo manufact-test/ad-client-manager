@@ -687,7 +687,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         $html.='<tr><td><strong>'.adc_h($client['name']).'</strong>'.
             ((int)$client['is_demo']===1?' <span class="badge demo">Демо</span>':'').
             '</td><td>'.adc_h((string)$client['platform_text']).'</td><td>'.
-            adc_h((string)$client['source_kind']).'</td><td><a href="'.
+            adc_h(adc_source_label((string)$client['source_kind'])).'</td><td><a href="'.
             adc_h($returnUrl.'&client='.(int)$client['id']).'">Открыть →</a></td></tr>';
     }
     if (!$clients) {
