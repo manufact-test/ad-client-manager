@@ -122,10 +122,7 @@ function adc_w_invalidate_period_documents(PDO $db,int $actor,int $periodId): vo
 
 function adc_w_collaboration_fields(): array {
     $date = adc_w_date(adc_input('started_on'));
-    $day = filter_var(adc_input('billing_day'), FILTER_VALIDATE_INT);
-    if (!$day || $day < 1 || $day > 31) {
-        throw new InvalidArgumentException('Расчётный день — от 1 до 31.');
-    }
+    $day = (int)substr($date, 8, 2); // next month follows the start date
     return [
         $date,
         $day,
@@ -615,8 +612,8 @@ function adc_w_money(string|float|int|null $amount, string $currency): string {
 
 function adc_w_client_form(PDO $db, ?array $client): string {
     $edit = $client !== null;
-    $html = '<details class="card"' . (!$edit ? '' : ' open') . '><summary>' .
-        ($edit ? 'Редактировать клиента' : '＋ Добавить клиента') . '</summary>' .
+    $html = '<details class="card customer-edit"><summary>' .
+        ($edit ? 'Изменить данные клиента' : 'Добавить клиента') . '</summary>' .
         adc_w_form_start('save_client');
     if ($edit) {
         $html .= adc_w_hidden('client_id', (int)$client['id']) .
@@ -624,18 +621,24 @@ function adc_w_client_form(PDO $db, ?array $client): string {
     }
     $html .= '<div class="grid">' .
         adc_w_field('Название', 'client_name', (string)($client['name'] ?? ''), 'text', 'required maxlength="240"') .
-        adc_w_field('Рекламные системы', 'platform_text', (string)($client['platform_text'] ?? ''), 'text', 'maxlength="400"') .
+        adc_w_field('Что делаем для клиента', 'platform_text', (string)($client['platform_text'] ?? ''), 'text', 'maxlength="400"') .
         adc_w_select('Тип клиента', 'legal_type', ['legal'=>'Юридическое лицо','individual'=>'Физическое лицо'], (string)($client['legal_type'] ?? 'legal')) .
-        adc_w_select('Источник', 'source_kind', ['advertising'=>'Реклама','referral'=>'Рекомендация','old_contact'=>'Старые контакты','inbound'=>'Сам обратился','other'=>'Другое'], (string)($client['source_kind'] ?? 'inbound')) .
-        adc_w_field('Комментарий об источнике', 'source_note', (string)($client['source_note'] ?? ''), 'text', 'maxlength="240"');
+        '<div class="source-choice">'.adc_w_select('Откуда пришёл клиент','source_kind',
+         ['advertising'=>'Реклама','referral'=>'Рекомендация','old_contact'=>'Старые контакты',
+          'inbound'=>'Сам обратился','other'=>'Другое'],(string)($client['source_kind'] ?? 'inbound')).
+         '<div class="conditional-other">'.adc_w_field('Укажите источник','source_note',
+         (string)($client['source_note'] ?? ''),'text','maxlength="240"').'</div></div>';
     $previous = [''=>'Ранее не сотрудничали'];
-    foreach ($db->query('SELECT id,name FROM clients WHERE id IN (SELECT client_id FROM engagements WHERE status="archived") ORDER BY name LIMIT 500') as $row) {
+    foreach ($db->query('SELECT id,name FROM clients ORDER BY name LIMIT 500') as $row) {
         if (!$edit || (int)$row['id'] !== (int)$client['id']) {
             $previous[$row['id']] = $row['name'];
         }
     }
-    $html .= adc_w_select('Повторный клиент: прежняя запись', 'previous_client_id', $previous, (string)($client['previous_client_id'] ?? '')) .
-        adc_w_field('Или прежнее название вручную', 'previous_name_text', (string)($client['previous_name_text'] ?? ''), 'text', 'maxlength="240"') . '</div>' .
+    $hasPrevious=!empty($client['previous_client_id']) || trim((string)($client['previous_name_text'] ?? ''))!=='';
+    $html .= '</div><details class="repeat-choice"'.($hasPrevious?' open':'').'><summary>Повторное обращение</summary>'.
+        '<div class="grid">'.adc_w_select('Выбрать из списка','previous_client_id',$previous,(string)($client['previous_client_id'] ?? '')).
+        adc_w_field('Или прежнее название вручную','previous_name_text',
+            (string)($client['previous_name_text'] ?? ''),'text','maxlength="240"').'</div></details>' .
         adc_w_check('requires_acts','Нужны акты', (bool)($client['requires_acts'] ?? false)) .
         adc_w_check('requires_specs','Нужны спецификации', (bool)($client['requires_specs'] ?? false)) .
         '<label class="field">Примечания<textarea name="comment_text" rows="2">' . adc_h((string)($client['comment_text'] ?? '')) . '</textarea></label>';
@@ -643,7 +646,7 @@ function adc_w_client_form(PDO $db, ?array $client): string {
         $html .= adc_w_check('is_demo', 'Демонстрационный клиент (не учитывается в реальной аналитике)', false) .
             '<h3>Первое сотрудничество</h3>' . adc_w_engagement_fields();
     } else {
-        $html .= '<small>Статус «Демо» после создания не меняется. Финансы редактируются отдельно по периодам.</small>';
+        $html .= '';
     }
     return $html . '<p><button type="submit">Сохранить клиента</button></p></form></details>';
 }
@@ -651,10 +654,11 @@ function adc_w_client_form(PDO $db, ?array $client): string {
 function adc_w_engagement_fields(?array $current = null): string {
     return '<div class="grid">' .
         adc_w_field('Дата начала','started_on',(string)($current['started_on'] ?? date('Y-m-d')),'date','required') .
-        adc_w_field('Расчётный день (1–31)','billing_day',(string)($current['billing_day'] ?? (int)date('j')),'number','min="1" max="31" required') .
+        '' .
         adc_w_select('Оплата','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)($current['payment_mode'] ?? 'prepayment')) .
-        adc_w_field('Валюта','currency',(string)($current['currency'] ?? 'BYN'),'text','maxlength="3" required') .
-        adc_w_field('Ориентировочная сумма (не начисление)','quoted_amount',(string)($current['quoted_amount'] ?? ''),'number','min="0" step="0.01" placeholder="0.00"') .
+        adc_w_select('Валюта','currency',['BYN'=>'BYN — белорусский рубль','RUB'=>'RUB — российский рубль',
+         'EUR'=>'EUR — евро','USD'=>'USD — доллар США','KZT'=>'KZT — тенге'],(string)($current['currency'] ?? 'BYN')) .
+        adc_w_field('Стоимость услуг за месяц','quoted_amount',(string)($current['quoted_amount'] ?? ''),'number','min="0" step="0.01" placeholder="0.00"') .
         '</div>';
 }
 
@@ -663,22 +667,19 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
     $html = '<aside class="drawer" id="client" role="region" aria-labelledby="client-heading"><div class="drawer-head"><h2 id="client-heading">' . adc_h($client['name']) .
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '') .
         '</h2><a class="btn secondary" href="' . adc_h($returnUrl) . '">Закрыть ✕</a></div>';
-    $html .= adc_w_client_form($db, $client);
+    $profileForm = adc_w_client_form($db, $client);
     $balances=adc_w_client_balances($db,$id);
-    $html.='<section class="card"><h3>Финансовая сверка клиента</h3>'.
-        '<p class="muted">Все сотрудничества, включая архив и операции без периода. По каждой валюте отдельно; ориентировочная стоимость сюда не входит.'.
-        ((int)$client['is_demo']===1?' Демо не учитывается в общей реальной аналитике.':'').'</p>';
+    $html.='<section class="card"><h3>Финансы</h3><div class="summary-grid">';
     if (!$balances) $html.='<p class="muted">Финансовых операций пока нет.</p>';
     foreach ($balances as $row) {
         $ccy=$row['currency'];
-        $html.='<div class="item"><div><strong>'.adc_h($ccy).'</strong>'.
-            '<p class="muted">Начислено: '.adc_fin_format($row['billed'],$ccy).
-            ' · Получено нетто: '.adc_fin_format($row['net'],$ccy).'</p></div>'.
-            '<div><strong>'.adc_fin_format($row['balance'],$ccy).'</strong>'.
-            '<p class="muted">'.($row['balance']>0?'Долг':($row['balance']<0?'Аванс':'Расчёты закрыты')).'</p></div></div>';
+        foreach (['Начислено'=>'billed','Оплачено'=>'net','Долг / аванс'=>'balance'] as $label=>$key) {
+            $html.='<div class="summary-metric"><small>'.adc_h($label).' · '.adc_h($ccy).
+                '</small><strong>'.adc_fin_format($row[$key],$ccy).'</strong></div>';
+        }
     }
-    $html.='</section>';
-    $html .= '<p><a class="btn secondary" href="/?export=client&amp;client_id='.(int)$id.'">Скачать историю операций CSV</a></p>';
+    $html.='</div></section>';
+    $html .= '<p><a class="btn secondary" href="/?export=client&amp;client_id='.(int)$id.'">Выгрузить операции</a></p>';
     $html .= adc_doc_panel($db, $user, $id);
     $stmt = $db->prepare('SELECT * FROM engagements WHERE client_id=? ORDER BY id DESC');
     $stmt->execute([$id]);
@@ -783,6 +784,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
             adc_w_form_start('delete_demo') . adc_w_hidden('client_id', $id) .
             '<button type="submit">Удалить демо-клиента</button></form></details>';
     }
+    $html .= $profileForm;
     return $html . '</aside><a href="' . adc_h($returnUrl) . '" class="drawer-shade" aria-label="Закрыть карточку"></a>';
 }
 
@@ -829,14 +831,14 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     $stmt->execute($args);
     $clients=$stmt->fetchAll();
     $html=$archive
-        ? '<h1>Архив</h1><p class="muted">Закрытые сотрудничества сохраняют долги и документы.</p>'
-        : '<h1>Клиенты</h1><p class="muted">Одна карточка для реальных и демонстрационных клиентов.</p>'.
+        ? '<h1>Архив</h1>'
+        : '<h1>Клиенты</h1>'.
           adc_w_client_form($db,null);
-    if (!$archive && $query==='' && $demo==='') $html.=adc_reminders_html($db,date('Y-m-d'));
+    // Automatically computed events are shown only within a relevant client, not as tasks in the directory.
     $html.='<form class="card" method="get" role="search">'.
         adc_w_hidden('view',$view).
-        '<div class="grid"><label class="field">Поиск клиента или площадки'.
-        '<input type="search" name="q" maxlength="80" placeholder="Название клиента или рекламная система" value="'.
+        '<div class="grid"><label class="field">Поиск клиентов и услуг'.
+        '<input type="search" name="q" maxlength="80" placeholder="Название клиента или услуга" value="'.
         adc_h($query).'"></label><label class="field">Тип клиента<select name="demo">'.
         '<option value="">Все</option>'.
         '<option value="0"'.($demo==='0'?' selected':'').'>Реальные</option>'.
@@ -846,7 +848,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '</form><section class="card"><p class="muted">Найдено в списке: '.count($clients).
         (count($clients)===300?' (показаны последние 300, уточните поиск)':'').'</p>'.
         '<div class="table-scroll" tabindex="0" role="region" aria-label="Список клиентов: таблицу можно прокручивать по горизонтали"><table><thead><tr>'.
-        '<th>Клиент</th><th>Системы</th><th>Источник</th><th>Карточка</th>'.
+        '<th>Клиент</th><th>Услуги</th><th>Источник</th><th>Карточка</th>'.
         '</tr></thead><tbody>';
     foreach ($clients as $client) {
         $html.='<tr><td><strong>'.adc_h($client['name']).'</strong>'.
@@ -966,12 +968,7 @@ function adc_w_page(PDO $db, array $user, string $alert): never {
     if (!in_array($view,['clients','tasks','archive','analytics','team'],true)) {
         $view='clients';
     }
-    $nav = '<div class="tabs">';
-    foreach (['clients'=>'Клиенты','tasks'=>'Мои задачи','archive'=>'Архив','analytics'=>'Аналитика','team'=>'Настройки'] as $id=>$label) {
-        $nav .= '<a class="' . ($view===$id ? 'active' : '') . '" href="/?view=' . $id . '">' . $label . '</a>';
-    }
-    $nav .= '</div>';
-    $body = $nav . $alert;
+    $body = $alert;
     $body .= match ($view) {
         'clients','archive' => adc_w_clients($db, $user, $view),
         'tasks' => adc_w_tasks($db, $user),
