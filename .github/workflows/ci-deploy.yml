@@ -228,9 +228,16 @@ jobs:
         # Informational only: cannot prove database, login or restore correctness.
         # Discard response bodies to avoid printing content from the target.
         run: |
-          for path in / /app/core.php /scripts/staging_migrate.php; do
+          for path in / /app/core.php /scripts/staging_migrate.php /.git/HEAD /.git/config /.htaccess /.env; do
             status=$(curl -sS --max-time 15 --connect-timeout 8 -o /dev/null -w '%{http_code}' "https://darkred-crow-882796.hostingersite.com$path") || status="000"
-            echo "Hostinger test route $path returned HTTP $status (informational, no writes)"
+            echo "Hostinger test route $path returned HTTP $status (read-only, body discarded)"
+            case "$path" in
+              /.git/*|/.htaccess|/.env)
+                if test "$status" = "200"; then
+                  echo "::warning title=Private metadata route reachable::HTTP 200 for a private test-site route"
+                fi
+                ;;
+            esac
           done
       - name: Publish staging ZIP artifact
         uses: actions/upload-artifact@v4
