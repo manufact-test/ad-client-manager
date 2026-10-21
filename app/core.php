@@ -133,6 +133,8 @@ function adc_schema(PDO $db): void {
             period_end DATE NOT NULL,
             period_note VARCHAR(400) NULL,
             is_final TINYINT(1) NOT NULL DEFAULT 0,
+            creation_key CHAR(64) NULL,
+            UNIQUE KEY uq_period_creation_key(creation_key),
             UNIQUE KEY uq_engagement_period(engagement_id, period_start, period_end),
             INDEX idx_period_start(period_start),
             CONSTRAINT fk_period_engagement FOREIGN KEY(engagement_id) REFERENCES engagements(id) ON DELETE CASCADE
@@ -205,6 +207,17 @@ function adc_schema(PDO $db): void {
     } else {
         $idx=$db->query("SHOW INDEX FROM payment_events WHERE Key_name='uq_payment_submission'")->fetch();
         if (!$idx) $db->exec('ALTER TABLE payment_events ADD UNIQUE KEY uq_payment_submission(submission_key)');
+    }
+    // Existing periods and historical imports retain NULL. A nullable UNIQUE
+    // key safely recognizes repeated automatic creation requests.
+    $hasPeriodKey=$db->query("SHOW COLUMNS FROM billing_periods LIKE 'creation_key'")->fetch();
+    if (!$hasPeriodKey) {
+        $db->exec('ALTER TABLE billing_periods
+            ADD COLUMN creation_key CHAR(64) NULL,
+            ADD UNIQUE KEY uq_period_creation_key(creation_key)');
+    } else {
+        $periodIndex=$db->query("SHOW INDEX FROM billing_periods WHERE Key_name='uq_period_creation_key'")->fetch();
+        if (!$periodIndex) $db->exec('ALTER TABLE billing_periods ADD UNIQUE KEY uq_period_creation_key(creation_key)');
     }
 }
 

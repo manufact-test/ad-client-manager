@@ -17,6 +17,24 @@ function run_action(PDO $db, array $user, string $action, array $data): string {
     if ($action==='add_payment' && !isset($data['submission_key'])) {
         $data['submission_key']=bin2hex(random_bytes(32));
     }
+    // Simulate server-rendered snapshot fields for ordinary fixture actions.
+    // Tests can supply an older snapshot explicitly to exercise stale tabs.
+    if (in_array($action,['save_charge','void_charge'],true) &&
+        !isset($data['expected_revision']) && !empty($data['charge_id'])) {
+        $snapshot=$db->prepare('SELECT * FROM charge_lines WHERE id=?');
+        $snapshot->execute([(int)$data['charge_id']]);
+        $current=$snapshot->fetch();
+        if ($current) $data['expected_revision']=adc_w_charge_revision($current);
+    }
+    if ($action==='create_next_period') {
+        $data['submission_key']??=bin2hex(random_bytes(32));
+        if (!isset($data['expected_tail'])) {
+            $last=$db->prepare('SELECT id,period_end FROM billing_periods
+                WHERE engagement_id=? ORDER BY period_end DESC,id DESC LIMIT 1');
+            $last->execute([(int)$data['engagement_id']]);
+            $data['expected_tail']=adc_w_period_tail($last->fetch() ?: null);
+        }
+    }
     $_POST = $data;
     try {
         $handled = adc_w_action($db, $user, $action) || adc_doc_action($db, $user, $action);
@@ -81,10 +99,30 @@ run_action($db,$employee,'save_charge',[
 ]);
 $cid=(int)$db->query("SELECT id FROM charge_lines WHERE client_id=$realId")->fetchColumn();
 check($cid>0,'Charge created');
+$oldCharge=$db->query("SELECT * FROM charge_lines WHERE id=$cid")->fetch();
+$oldRevision=adc_w_charge_revision($oldCharge);
 run_action($db,$employee,'save_charge',[
     'client_id'=>(string)$realId,'period_id'=>(string)$p,'charge_id'=>(string)$cid,
     'category'=>'advertising','label'=>'Adjusted ads','amount'=>'1100.00','reason'=>'Change of scope',
 ]);
+$chargeEditAudits=(int)$db->query("SELECT COUNT(*) FROM audit_events WHERE action='edit_charge' AND object_id=$cid")->fetchColumn();
+foreach (['save_charge','void_charge'] as $staleAction) {
+    try {
+        run_action($db,$employee,$staleAction,[
+            'client_id'=>(string)$realId,'period_id'=>(string)$p,'charge_id'=>(string)$cid,
+            'category'=>'advertising','label'=>'Stale tab overwrite','amount'=>'2000.00',
+            'reason'=>'stale','expected_revision'=>$oldRevision
+        ]);
+        throw new RuntimeException('Stale charge edit accepted');
+    } catch (RuntimeException $expected) {
+        check(str_contains($expected->getMessage(),'изменено в другой вкладке'),
+            'Stale edited charge cannot be overwritten or voided using old version');
+        if ($db->inTransaction()) $db->rollBack();
+    }
+}
+check($db->query("SELECT amount FROM charge_lines WHERE id=$cid")->fetchColumn()==='1100.00' &&
+    (int)$db->query("SELECT COUNT(*) FROM audit_events WHERE action='edit_charge' AND object_id=$cid")->fetchColumn()===$chargeEditAudits,
+    'Stale charge requests never mutate amount or audit');
 run_action($db,$employee,'save_charge',[
     'client_id'=>(string)$realId,'period_id'=>(string)$p,
     'category'=>'development','label'=>'Landing page','amount'=>'400.00',
@@ -219,11 +257,45 @@ try {
 check(adc_w_next_cycle_end('2026-01-31',31)==='2026-02-28','January 31 clamp');
 check(adc_w_next_cycle_end('2028-02-29',31)==='2028-03-31','Leap-year clamp and anchor');
 check(adc_w_next_cycle_end('2026-10-02',7)==='2026-10-07','Before billing day');
-run_action($db,$director,'create_next_period',[
-    'client_id'=>(string)$realId,'engagement_id'=>(string)$e
-]);
+$autoTail=adc_w_period_tail(['id'=>$p,'period_end'=>'2026-10-07']);
+$autoKey=bin2hex(random_bytes(32));
+$autoPayload=[
+    'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
+    'submission_key'=>$autoKey,'expected_tail'=>$autoTail
+];
+run_action($db,$director,'create_next_period',$autoPayload);
+$periodCount=(int)$db->query("SELECT COUNT(*) FROM billing_periods WHERE engagement_id=$e")->fetchColumn();
+$periodAuditCount=(int)$db->query("SELECT COUNT(*) FROM audit_events WHERE action='create_next_period'")->fetchColumn();
+run_action($db,$director,'create_next_period',$autoPayload);
+check((int)$db->query("SELECT COUNT(*) FROM billing_periods WHERE engagement_id=$e")->fetchColumn()===$periodCount &&
+    (int)$db->query("SELECT COUNT(*) FROM audit_events WHERE action='create_next_period'")->fetchColumn()===$periodAuditCount,
+    'Repeated auto-period POST does not generate a second month or audit');
+try {
+    run_action($db,$director,'create_next_period',[
+        'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
+        'submission_key'=>bin2hex(random_bytes(32)),'expected_tail'=>$autoTail
+    ]);
+    throw new RuntimeException('Outdated second-tab period created an extra month');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'изменился в другой вкладке'),
+        'Different open tab with old last-period boundary is rejected');
+    if ($db->inTransaction()) $db->rollBack();
+}
 $nextPeriod=$db->query("SELECT period_start,period_end FROM billing_periods WHERE engagement_id=$e ORDER BY id DESC LIMIT 1")->fetch();
 check($nextPeriod['period_start']==='2026-10-07' && $nextPeriod['period_end']==='2026-11-07','Automatically generated next period');
+$autoPeriodId=(int)$db->query("SELECT MAX(id) FROM billing_periods WHERE engagement_id=$e")->fetchColumn();
+$db->prepare('UPDATE billing_periods SET is_final=1 WHERE id=?')->execute([$autoPeriodId]);
+try {
+    run_action($db,$director,'create_next_period',[
+        'client_id'=>(string)$realId,'engagement_id'=>(string)$e
+    ]);
+    throw new RuntimeException('Automatic period created after final period');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'Заключительный период'),
+        'Auto-generation stops at an explicitly final period');
+    if ($db->inTransaction()) $db->rollBack();
+}
+$db->prepare('UPDATE billing_periods SET is_final=0 WHERE id=?')->execute([$autoPeriodId]);
 try {
     run_action($db,$director,'save_period',[
         'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
@@ -408,6 +480,30 @@ try {
     if ($db->inTransaction()) $db->rollBack();
 }
 
+
+// A fresh Edit/Void snapshot still allows a legitimate void exactly once.
+$voidId=(int)$db->query("SELECT id FROM charge_lines WHERE client_id=$demoId AND label='Another amendment'")->fetchColumn();
+$voidSnapshot=$db->query("SELECT * FROM charge_lines WHERE id=$voidId")->fetch();
+$voidRevision=adc_w_charge_revision($voidSnapshot);
+run_action($db,$employee,'void_charge',[
+    'client_id'=>(string)$demoId,'charge_id'=>(string)$voidId,
+    'expected_revision'=>$voidRevision
+]);
+check((int)$db->query("SELECT is_void FROM charge_lines WHERE id=$voidId")->fetchColumn()===1,
+    'Current revision can be voided successfully');
+$voidAudits=(int)$db->query("SELECT COUNT(*) FROM audit_events WHERE action='void_charge' AND object_id=$voidId")->fetchColumn();
+try {
+    run_action($db,$employee,'void_charge',[
+        'client_id'=>(string)$demoId,'charge_id'=>(string)$voidId,
+        'expected_revision'=>$voidRevision
+    ]);
+    throw new RuntimeException('Voided charge twice');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'не найдено'),'Voided charge cannot be voided again');
+    if ($db->inTransaction()) $db->rollBack();
+}
+check($voidAudits===1 && (int)$db->query("SELECT COUNT(*) FROM audit_events WHERE action='void_charge' AND object_id=$voidId")->fetchColumn()===1,
+    'Voiding a charge exactly once also keeps audit unique');
 
 try {
     run_action($db,$employee,'delete_demo',['client_id'=>(string)$demoId]);

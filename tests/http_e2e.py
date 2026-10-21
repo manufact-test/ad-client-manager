@@ -120,6 +120,35 @@ try:
     check(match is not None, "New period available in PDF upload selector")
     period_id = int(match.group(1))
 
+    # Two stale browser tabs must not advance the billing cycle twice.
+    forms = re.findall(r'<form\b[^>]*>.*?</form>', html(page), flags=re.S)
+    auto_form = next((f for f in forms if 'name="action" value="create_next_period"' in f), None)
+    check(auto_form is not None, "Auto period button has its own form")
+    auto_key = re.search(r'name="submission_key" value="([a-f0-9]{64})"', auto_form)
+    auto_tail = re.search(r'name="expected_tail" value="([^"]+)"', auto_form)
+    check(auto_key is not None and auto_tail is not None,
+          "Auto period form has a unique key and last-period snapshot")
+    auto_payload = {
+        "csrf": director_csrf, "action": "create_next_period",
+        "client_id": client, "engagement_id": eng,
+        "submission_key": auto_key.group(1), "expected_tail": auto_tail.group(1)
+    }
+    status, _, _ = request("director", payload=auto_payload)
+    check(status == 303, "First automatic billing period is created")
+    status, _, _ = request("director", payload=auto_payload)
+    check(status == 303, "Repeating the exact auto-period POST is harmless")
+    status, _, page = request("director", "/?view=clients&client=" + str(client))
+    check(html(page).count('class="period"') == 2,
+          "Repeat of auto-period POST never adds an additional billing month")
+    status, _, error = request("director", payload={
+        **auto_payload, "submission_key": "a" * 64
+    })
+    check(status == 200 and "изменился в другой вкладке" in html(error),
+          "Separate old tab cannot auto-create an unintended next-next month")
+    status, _, page = request("director", "/?view=clients&client=" + str(client))
+    check(html(page).count('class="period"') == 2,
+          "Rejected stale auto-period request does not mutate periods")
+
     # Real browser-generated nonce: repeat POSTs cannot double-count money.
     nonce_match = re.search(r'name="submission_key" value="([a-f0-9]{64})"', html(page))
     check(nonce_match is not None, "Payment form has a cryptographically random one-use key")
@@ -216,6 +245,27 @@ try:
     })
     check(status == 303, "Employee may change financial amount")
     status, _, page = request("employee", "/?view=clients&client=" + str(client))
+    previous_revision = re.search(r'name="expected_revision" value="([a-f0-9]{64})"', html(page))
+    charge_id_match = re.search(r'name="charge_id" value="(\d+)"', html(page))
+    check(previous_revision is not None and charge_id_match is not None,
+          "Edit and void actions have immutable charge version snapshots")
+    charge_id = int(charge_id_match.group(1))
+    status, _, _ = request("employee", payload={
+        "csrf": employee_csrf, "action": "save_charge",
+        "client_id": client, "period_id": period_id, "charge_id": charge_id,
+        "category": "advertising", "label": "Changed fee",
+        "amount": "160.00", "reason": "Updated cost",
+        "expected_revision": previous_revision.group(1)
+    })
+    check(status == 303, "Editing with the latest charge revision succeeds")
+    status, _, stale = request("employee", payload={
+        "csrf": employee_csrf, "action": "void_charge", "client_id": client,
+        "charge_id": charge_id, "expected_revision": previous_revision.group(1)
+    })
+    check(status == 200 and "изменено в другой вкладке" in html(stale),
+          "Old browser tab cannot void a charge edited by another tab")
+    status, _, page = request("employee", "/?view=clients&client=" + str(client))
+    check("160,00 BYN" in html(page), "Charge survives stale void without data loss")
     check("Требуется замена PDF" in html(page), "Stale financial PDF flagged visibly")
     status, _, page = request("employee", "/?download=" + str(old_id))
     check(status == 409 and not page.startswith(b"%PDF-"),

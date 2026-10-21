@@ -165,6 +165,20 @@ function adc_w_client_balances(PDO $db, int $clientId): array {
     return $rows;
 }
 
+/** Snapshot shared by Edit and Void so stale tabs cannot silently overwrite changes. */
+function adc_w_charge_revision(array $row): string {
+    return hash('sha256',json_encode([
+        (string)$row['id'],(string)$row['period_id'],(string)$row['category'],
+        (string)$row['label'],(string)$row['amount'],
+        (string)($row['reason']??''),(string)$row['is_void']
+    ],JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+}
+
+/** Boundary captured when the automatic period button was rendered. */
+function adc_w_period_tail(?array $period): string {
+    return $period ? (string)$period['id'].':'.(string)$period['period_end'] : 'none';
+}
+
 function adc_w_action(PDO $db, array $user, string $action): bool {
     $supported = [
         'save_client', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
@@ -364,17 +378,39 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
     } elseif ($action === 'create_next_period') {
         $eid = adc_w_id('engagement_id');
         $eng = adc_w_engagement($db,$clientId,$eid);
+        $key=adc_input('submission_key');
+        if (!preg_match('/^[a-f0-9]{64}$/D',$key)) {
+            throw new RuntimeException('Форма периода устарела. Обновите карточку клиента.');
+        }
+        // Parent client FOR UPDATE serializes all writes to this customer.
+        $already=$db->prepare('SELECT engagement_id FROM billing_periods WHERE creation_key=?');
+        $already->execute([$key]);
+        $savedEngagement=$already->fetchColumn();
+        if ($savedEngagement!==false) {
+            if ((int)$savedEngagement!==$eid) {
+                throw new RuntimeException('Форма периода уже использована для другого сотрудничества.');
+            }
+            $db->commit();
+            adc_flash('Период уже был создан. Повторная запись не добавлена.');
+            adc_redirect(adc_w_client_location($db,$clientId));
+        }
         if ($eng['status'] !== 'active') {
             throw new RuntimeException('Автоматические периоды создаются только для активного сотрудничества.');
         }
-        $stmt=$db->prepare('SELECT period_end FROM billing_periods WHERE engagement_id=?
+        $stmt=$db->prepare('SELECT id,period_end,is_final FROM billing_periods WHERE engagement_id=?
             ORDER BY period_end DESC,id DESC LIMIT 1 FOR UPDATE');
         $stmt->execute([$eid]);
-        $latest=$stmt->fetchColumn();
-        $start=$latest ?: $eng['started_on'];
+        $latest=$stmt->fetch() ?: null;
+        if (adc_input('expected_tail')!==adc_w_period_tail($latest)) {
+            throw new RuntimeException('Список периодов изменился в другой вкладке. Обновите карточку клиента.');
+        }
+        if ($latest && (int)$latest['is_final']===1) {
+            throw new RuntimeException('Заключительный период уже создан. Новый автоматический период невозможен.');
+        }
+        $start=$latest ? $latest['period_end'] : $eng['started_on'];
         $end=adc_w_next_cycle_end($start,(int)$eng['billing_day']);
-        $stmt=$db->prepare('INSERT INTO billing_periods(engagement_id,period_start,period_end) VALUES (?,?,?)');
-        $stmt->execute([$eid,$start,$end]);
+        $stmt=$db->prepare('INSERT INTO billing_periods(engagement_id,period_start,period_end,creation_key) VALUES (?,?,?,?)');
+        $stmt->execute([$eid,$start,$end,$key]);
         adc_audit($db,$actor,'create_next_period','billing_period',(int)$db->lastInsertId(),
             ['from'=>$start,'to'=>$end]);
     } elseif ($action === 'save_period') {
@@ -417,12 +453,17 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $chargeText = adc_input('charge_id');
         if ($chargeText !== '') {
             $cid = adc_w_id('charge_id');
-            $s = $db->prepare('SELECT id,category,label,amount,reason FROM charge_lines
+            $s = $db->prepare('SELECT id,period_id,category,label,amount,reason,is_void FROM charge_lines
                 WHERE id=? AND client_id=? AND period_id=? AND is_void=0 FOR UPDATE');
             $s->execute([$cid, $clientId, $pid]);
             $oldCharge=$s->fetch();
             if (!$oldCharge) {
                 throw new RuntimeException('Строка начисления не найдена.');
+            }
+            $revision=adc_input('expected_revision');
+            if (!preg_match('/^[a-f0-9]{64}$/D',$revision) ||
+                !hash_equals(adc_w_charge_revision($oldCharge),$revision)) {
+                throw new RuntimeException('Начисление изменено в другой вкладке. Обновите карточку перед сохранением.');
             }
             $same=$oldCharge['category']===$category && $oldCharge['label']===$label &&
                 (string)$oldCharge['amount']===$amount && (string)($oldCharge['reason']??'')===$reason;
@@ -444,15 +485,20 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         }
     } elseif ($action === 'void_charge') {
         $cid = adc_w_id('charge_id');
-        $s = $db->prepare('UPDATE charge_lines SET is_void=1 WHERE id=? AND client_id=? AND is_void=0');
-        $s->execute([$cid, $clientId]);
-        if (!$s->rowCount()) {
-            throw new RuntimeException('Начисление не найдено.');
+        $s = $db->prepare('SELECT id,period_id,category,label,amount,reason,is_void
+            FROM charge_lines WHERE id=? AND client_id=? AND is_void=0 FOR UPDATE');
+        $s->execute([$cid,$clientId]);
+        $previous=$s->fetch();
+        if (!$previous) throw new RuntimeException('Начисление не найдено.');
+        $revision=adc_input('expected_revision');
+        if (!preg_match('/^[a-f0-9]{64}$/D',$revision) ||
+            !hash_equals(adc_w_charge_revision($previous),$revision)) {
+            throw new RuntimeException('Начисление изменено в другой вкладке. Обновите карточку перед аннулированием.');
         }
+        $db->prepare('UPDATE charge_lines SET is_void=1 WHERE id=? AND client_id=? AND is_void=0')
+            ->execute([$cid,$clientId]);
         adc_audit($db, $actor, 'void_charge', 'charge_line', $cid);
-        $periodStmt=$db->prepare('SELECT period_id FROM charge_lines WHERE id=? AND client_id=?');
-        $periodStmt->execute([$cid,$clientId]);
-        $affected=(int)$periodStmt->fetchColumn();
+        $affected=(int)$previous['period_id'];
         if ($affected > 0) adc_w_invalidate_period_documents($db,$actor,$affected);
     } elseif ($action === 'add_payment') {
         $pid = adc_w_id('period_id');
@@ -639,6 +685,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
                     adc_w_charge_form($id, $pid, $row) .
                     adc_w_form_start('void_charge') . adc_w_hidden('client_id', $id) .
                     adc_w_hidden('charge_id', (int)$row['id']) .
+                    adc_w_hidden('expected_revision',adc_w_charge_revision($row)) .
                     '<button class="secondary" type="submit">Аннулировать начисление</button></form></details>';
             }
             $html .= '<p><strong>Начислено: ' . adc_fin_format($bill, $eng['currency']) . '</strong></p>' .
@@ -668,6 +715,8 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         if ($eng['status'] === 'active') {
             $html .= adc_w_form_start('create_next_period') . adc_w_hidden('client_id',$id) .
                 adc_w_hidden('engagement_id',$eid) .
+                adc_w_hidden('expected_tail',adc_w_period_tail($periods[0]??null)) .
+                adc_w_hidden('submission_key',bin2hex(random_bytes(32))) .
                 '<button type="submit" class="secondary">＋ Следующий период автоматически</button></form>';
         }
         $html .= '<details><summary>＋ Расчётный период вручную (включая историю)</summary>' .
@@ -708,7 +757,8 @@ function adc_w_charge_form(int $clientId, int $pid, ?array $charge = null): stri
     $html = adc_w_form_start('save_charge') . adc_w_hidden('client_id', $clientId) .
         adc_w_hidden('period_id', $pid);
     if ($charge) {
-        $html .= adc_w_hidden('charge_id', (int)$charge['id']);
+        $html .= adc_w_hidden('charge_id', (int)$charge['id']) .
+            adc_w_hidden('expected_revision',adc_w_charge_revision($charge));
     }
     return $html .
         adc_w_select('Категория','category',['advertising'=>'Реклама','development'=>'Разработка','other'=>'Прочее'],(string)($charge['category'] ?? 'advertising')) .
