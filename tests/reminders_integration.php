@@ -61,6 +61,15 @@ try {
         static fn($row)=>$row['client_id']===$clientId));
     require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='handover'))===0,
         'Transferred documents no longer require handover');
+    $db->prepare('INSERT INTO audit_events(action,object_type,object_id)
+        VALUES ("invalidate_document","document_bundle",?)')->execute([$docId]);
+    $events=array_values(array_filter(adc_client_reminders($db,'2026-10-21'),
+        static fn($row)=>$row['client_id']===$clientId));
+    require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='replace'))===1,
+        'Finance edit makes an explicit replacement reminder');
+    require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='handover'))===0,
+        'Stale PDF must not produce a transferable reminder');
+
     $db->prepare('UPDATE document_bundles SET is_void=1 WHERE id=?')->execute([$docId]);
     $events=array_values(array_filter(adc_client_reminders($db,'2026-10-21'),
         static fn($row)=>$row['client_id']===$clientId));
