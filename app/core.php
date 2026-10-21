@@ -285,19 +285,58 @@ function adc_login_failure(PDO $db, string $key): void {
     $stmt->execute([$key]);
 }
 
+/**
+ * A session is valid only for the exact password hash used when it was issued.
+ * Password changes revoke all other sessions without adding a new database
+ * migration. Older sessions without a binding intentionally require re-login.
+ */
+function adc_auth_binding(string $passwordHash): string {
+    return hash('sha256', 'ad-client-manager-auth-v1:' . $passwordHash);
+}
+
+function adc_auth_session_issue(int $userId, string $passwordHash): void {
+    // Never carry pending import approvals or old CSRF tokens across logins.
+    $_SESSION = [];
+    session_regenerate_id(true);
+    $_SESSION['user_id']=$userId;
+    $_SESSION['auth_binding']=adc_auth_binding($passwordHash);
+    $_SESSION['auth_issued_at']=time();
+    $_SESSION['auth_last_seen_at']=time();
+}
+
+function adc_auth_session_clear(): void {
+    unset($_SESSION['user_id'],$_SESSION['auth_binding'],
+        $_SESSION['auth_issued_at'],$_SESSION['auth_last_seen_at'],
+        $_SESSION['history_import_preview']);
+}
+
+function adc_auth_session_timely(array $session, int $now): bool {
+    $issued=$session['auth_issued_at'] ?? null;
+    $last=$session['auth_last_seen_at'] ?? null;
+    return is_int($issued) && is_int($last) && $issued>0 && $last>0 &&
+        $issued<=$now && $last<=$now && $last>=$issued &&
+        ($now-$issued)<=12*3600 && ($now-$last)<=30*60;
+}
+
 function adc_current_user(PDO $db): ?array {
     $id = $_SESSION['user_id'] ?? null;
-    if (!is_int($id) || $id < 1) {
+    if (!is_int($id) || $id < 1 || !adc_auth_session_timely($_SESSION,time())) {
+        adc_auth_session_clear();
         return null;
     }
-    $stmt = $db->prepare('SELECT id, email, display_name, role, is_active, must_change_password FROM users WHERE id = ?');
+    $stmt=$db->prepare('SELECT id,email,display_name,role,is_active,must_change_password,password_hash
+        FROM users WHERE id=?');
     $stmt->execute([$id]);
-    $user = $stmt->fetch();
-    if (!$user || (int)$user['is_active'] !== 1) {
-        unset($_SESSION['user_id']);
+    $row=$stmt->fetch();
+    $provided=$_SESSION['auth_binding'] ?? null;
+    if (!$row || (int)$row['is_active']!==1 ||
+        !is_string($provided) || !hash_equals(adc_auth_binding((string)$row['password_hash']),$provided)) {
+        adc_auth_session_clear();
         return null;
     }
-    return $user;
+    $_SESSION['auth_last_seen_at']=time();
+    unset($row['password_hash']);
+    return $row;
 }
 
 function adc_require_director(array $user): void {
