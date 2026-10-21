@@ -224,6 +224,49 @@ try:
     check(not list(DOCS.glob("*.pdf")), "Demo deletes stored PDF bytes too")
     status, _, page = request("director", "/?view=clients")
     check("Disposable CI demo" not in html(page), "Deleted demo removed from client table")
+
+    # Historical canonical CSV is previewed and then committed in a
+    # director-only HTTP multipart flow. No raw CSV is persisted on server.
+    header = ("external_client_id,client_name,is_demo,started_on,billing_day,"
+              "payment_mode,currency,period_start,period_end,category,work_name,"
+              "billed,received,refunded,payment_date,archived_on,platform_text,source_kind")
+    rows = [
+        "legacy-ci-1,Imported CI client,0,2026-09-01,7,prepayment,USD,"
+        "2026-09-01,2026-10-01,advertising,Ads,0.10,0.10,,2026-09-15,,Fictional,inbound",
+        "legacy-ci-1,Imported CI client,0,2026-09-01,7,prepayment,USD,"
+        "2026-09-01,2026-10-01,development,Landing,0.20,0.20,,2026-09-16,,Fictional,inbound",
+    ]
+    csv_file = WORK / "synthetic-history.csv"
+    csv_file.write_text(header + "\n" + "\n".join(rows) + "\n")
+    def history(role, action):
+        return request(role, fields={
+            "csrf": director_csrf if role == "director" else employee_csrf,
+            "action": action,
+            "history_csv": "@" + str(csv_file) + ";filename=synthetic-history.csv;type=text/csv"
+        })
+    status, _, page = history("employee", "preview_history_csv")
+    check(status == 403 and "Недостаточно прав" in html(page),
+          "Employee has no access to history import")
+    status, _, _ = history("director", "commit_history_csv")
+    check(status == 200, "Import cannot commit without preview")
+    status, _, page = history("director", "preview_history_csv")
+    check(status == 303, "Director preview checks canonical CSV without writing")
+    status, _, page = request("director", "/?view=team")
+    check("Проверено: 1 клиентов / 1 периодов / 2 строк" in html(page),
+          "Preview count visible in settings")
+    status, _, _ = history("director", "commit_history_csv")
+    check(status == 303, "Director confirms exact same CSV")
+    status, _, page = request("director", "/?view=clients")
+    check("Imported CI client" in html(page), "Historical client materializes in actual client table")
+    status, _, page = history("director", "preview_history_csv")
+    check(status == 303, "Duplicate CSV can be previewed")
+    status, _, page = history("director", "commit_history_csv")
+    check(status == 200 and "уже был импортирован" in html(page),
+          "Repeated identical CSV blocked against duplicates")
+    status, _, page = request("director", "/?view=analytics")
+    check("Imported CI client" in html(page) and "0,30 USD" in html(page),
+          "Historical imported charges and payments shown precisely in analytics")
+
     print("HTTP E2E passed: authentication, client form, PDF upload/download, roles, CSRF, replacement, transfer, cascade")
 finally:
     for file in WORK.iterdir():
