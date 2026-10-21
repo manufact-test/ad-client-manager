@@ -49,6 +49,21 @@ function adc_w_currency(string $value): string {
     return $currency;
 }
 
+function adc_w_next_cycle_end(string $start, int $billingDay): string {
+    adc_w_date($start);
+    if ($billingDay < 1 || $billingDay > 31) {
+        throw new InvalidArgumentException('Неверный расчётный день.');
+    }
+    $date = new DateTimeImmutable($start);
+    $monthStart = $date->modify('first day of this month');
+    $boundary = $monthStart->setDate((int)$date->format('Y'), (int)$date->format('m'),
+        min($billingDay,(int)$monthStart->format('t')));
+    if ($boundary->format('Y-m-d') <= $start) {
+        return adc_next_month($boundary->format('Y-m-d'), $billingDay);
+    }
+    return $boundary->format('Y-m-d');
+}
+
 function adc_w_pick(string $field, array $allowed): string {
     $value = adc_input($field);
     if (!in_array($value, $allowed, true)) {
@@ -105,7 +120,7 @@ function adc_w_collaboration_fields(): array {
 
 function adc_w_action(PDO $db, array $user, string $action): bool {
     $supported = [
-        'save_client', 'start_engagement', 'archive_engagement', 'save_period',
+        'save_client', 'start_engagement', 'archive_engagement', 'save_period', 'create_next_period',
         'save_charge', 'void_charge', 'add_payment', 'edit_task',
     ];
     if (!in_array($action, $supported, true)) {
@@ -221,6 +236,22 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $stmt = $db->prepare('UPDATE engagements SET status="archived", ended_on=?, end_reason=? WHERE id=? AND client_id=? AND status="active"');
         $stmt->execute([$end, substr(adc_input('end_reason'), 0, 500), $eid, $clientId]);
         adc_audit($db, $actor, 'archive_engagement', 'engagement', $eid, ['date'=>$end]);
+    } elseif ($action === 'create_next_period') {
+        $eid = adc_w_id('engagement_id');
+        $eng = adc_w_engagement($db,$clientId,$eid);
+        if ($eng['status'] !== 'active') {
+            throw new RuntimeException('Автоматические периоды создаются только для активного сотрудничества.');
+        }
+        $stmt=$db->prepare('SELECT period_end FROM billing_periods WHERE engagement_id=?
+            ORDER BY period_end DESC,id DESC LIMIT 1 FOR UPDATE');
+        $stmt->execute([$eid]);
+        $latest=$stmt->fetchColumn();
+        $start=$latest ?: $eng['started_on'];
+        $end=adc_w_next_cycle_end($start,(int)$eng['billing_day']);
+        $stmt=$db->prepare('INSERT INTO billing_periods(engagement_id,period_start,period_end) VALUES (?,?,?)');
+        $stmt->execute([$eid,$start,$end]);
+        adc_audit($db,$actor,'create_next_period','billing_period',(int)$db->lastInsertId(),
+            ['from'=>$start,'to'=>$end]);
     } elseif ($action === 'save_period') {
         $eid = adc_w_id('engagement_id');
         adc_w_engagement($db, $clientId, $eid);
@@ -232,6 +263,12 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $note = adc_input('period_note');
         if (mb_strlen($note) > 400) {
             throw new RuntimeException('Слишком длинное примечание.');
+        }
+        $check=$db->prepare('SELECT id FROM billing_periods WHERE engagement_id=?
+            AND period_start < ? AND period_end > ? LIMIT 1 FOR UPDATE');
+        $check->execute([$eid,$end,$start]);
+        if ($check->fetch()) {
+            throw new RuntimeException('Период пересекается с уже существующим.');
         }
         $stmt = $db->prepare('INSERT INTO billing_periods(engagement_id,period_start,period_end,period_note,is_final)
             VALUES (?,?,?,?,?)');
@@ -439,7 +476,12 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view): string
                 adc_w_field('Примечание','note','','text','maxlength="500"') .
                 '<button type="submit">Записать операцию</button></form></details></details>';
         }
-        $html .= '<details><summary>＋ Расчётный период</summary>' .
+        if ($eng['status'] === 'active') {
+            $html .= adc_w_form_start('create_next_period') . adc_w_hidden('client_id',$id) .
+                adc_w_hidden('engagement_id',$eid) .
+                '<button type="submit" class="secondary">＋ Следующий период автоматически</button></form>';
+        }
+        $html .= '<details><summary>＋ Расчётный период вручную (включая историю)</summary>' .
             adc_w_form_start('save_period') . adc_w_hidden('client_id', $id) .
             adc_w_hidden('engagement_id', $eid) .
             adc_w_field('Начало','period_start',date('Y-m-01'),'date','required') .
