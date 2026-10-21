@@ -113,6 +113,35 @@ jobs:
           test "$code" = "200"
           python3 tests/http_e2e.py || { tail -n 75 /tmp/adclients-http-e2e.log; exit 1; }
 
+
+      - name: Verify backup/restore of SQL and private PDFs in a second database
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_NAME: adclients_test
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: ci-only-root
+          ADC_RESTORE_TEST_FIXTURE: isolated-github-actions
+          MYSQL_PWD: ci-only-root
+        run: |
+          set -euo pipefail
+          if ! command -v mysqldump >/dev/null || ! command -v mysql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y default-mysql-client
+          fi
+          tempdir=$(mktemp -d)
+          trap 'php tests/restore_fixture.php cleanup; rm -rf "$tempdir"' EXIT
+          php tests/restore_fixture.php seed
+          private_dir=$(php -r 'require "app/core.php"; require "app/documents.php"; echo adc_doc_directory();')
+          test -d "$private_dir"
+          test ! -d "$tempdir/restored-pdfs"
+          mysqldump -h 127.0.0.1 -u root --single-transaction --no-tablespaces adclients_test > "$tempdir/backup.sql"
+          mkdir "$tempdir/backup-pdfs" "$tempdir/restored-pdfs"
+          cp -p "$private_dir"/*.pdf "$tempdir/backup-pdfs/"
+          mysql -h 127.0.0.1 -u root -e 'CREATE DATABASE adclients_restore_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
+          mysql -h 127.0.0.1 -u root adclients_restore_test < "$tempdir/backup.sql"
+          cp -p "$tempdir/backup-pdfs/"*.pdf "$tempdir/restored-pdfs/"
+          TEST_DB_NAME=adclients_restore_test ADC_RESTORE_PDF_DIR="$tempdir/restored-pdfs" php tests/restore_fixture.php verify
+
   deploy:
     name: Publish verified server application files only
     needs: verify
