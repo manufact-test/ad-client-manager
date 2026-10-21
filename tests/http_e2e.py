@@ -79,7 +79,7 @@ def create_demo(token):
     check(code == 303 and m is not None, "Created demo through actual client HTTP form")
     return int(m.group(1))
 
-def uploaded(role, action, token, client, pdf, doc_id=None, attachment_type="application/pdf"):
+def uploaded(role, action, token, client, pdf, doc_id=None, attachment_type="application/pdf", period_id=None):
     fields = {
         "csrf": token, "action": action, "client_id": client,
         "needs_invoice": "1", "needs_act": "1",
@@ -88,6 +88,8 @@ def uploaded(role, action, token, client, pdf, doc_id=None, attachment_type="app
     }
     if doc_id is not None:
         fields["document_id"] = doc_id
+    if period_id is not None:
+        fields["period_id"] = period_id
     return request(role, fields=fields)
 
 def document_ids(text):
@@ -104,19 +106,33 @@ try:
     status, _, page = request("director", "/?view=clients&client=" + str(client))
     check(status == 200 and "Disposable CI demo" in html(page) and "Загрузить PDF" in html(page),
           "Slide-out demo client and upload form present")
+    match = re.search(r'Сотрудничество #(\d+)', html(page))
+    check(match is not None, "Engagement exists for HTTP demo")
+    eng = int(match.group(1))
+    status, _, _ = request("director", payload={
+        "csrf": director_csrf, "action": "save_period",
+        "client_id": client, "engagement_id": eng,
+        "period_start": "2026-10-21", "period_end": "2026-11-21"
+    })
+    check(status == 303, "Create a real period through form action")
+    status, _, page = request("director", "/?view=clients&client=" + str(client))
+    match = re.search(r'<option value="(\d+)">2026-10-21', html(page))
+    check(match is not None, "New period available in PDF upload selector")
+    period_id = int(match.group(1))
+
 
     pdf = WORK / "test.pdf"
     pdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")
     bad = WORK / "not-a-pdf.pdf"
     bad.write_text("<html>This is not PDF</html>")
 
-    status, _, page = uploaded("employee", "upload_document", employee_csrf, client, pdf)
+    status, _, page = uploaded("employee", "upload_document", employee_csrf, client, pdf, period_id=period_id)
     check(status == 403 and "Недостаточно прав" in html(page), "Employee forbidden to upload original PDF")
-    status, _, page = uploaded("director", "upload_document", director_csrf, client, bad)
+    status, _, page = uploaded("director", "upload_document", director_csrf, client, bad, period_id=period_id)
     check(status == 200 and "Разрешены только PDF" in html(page), "Reject fake PDF before storage")
     check(not DOCS.exists() or not list(DOCS.glob("*.pdf")), "Invalid PDF wrote no file")
 
-    status, headers, _ = uploaded("director", "upload_document", director_csrf, client, pdf)
+    status, headers, _ = uploaded("director", "upload_document", director_csrf, client, pdf, period_id=period_id)
     check(status == 303, "Director PDF upload accepted: " + str(status))
     status, _, page = request("director", "/?view=clients&client=" + str(client))
     ids = document_ids(html(page))
@@ -142,6 +158,30 @@ try:
     status, _, page = request("director", "/?view=clients&client=" + str(client))
     check("Передано " in html(page), "Transfer shown in drawer")
 
+    # A finance edit invalidates an already-transferred invoice and act.
+    status, _, _ = request("employee", payload={
+        "csrf": employee_csrf, "action": "save_charge",
+        "client_id": client, "period_id": period_id,
+        "category": "advertising", "label": "Changed fee",
+        "amount": "155.00", "reason": "Updated cost"
+    })
+    check(status == 303, "Employee may change financial amount")
+    status, _, page = request("employee", "/?view=clients&client=" + str(client))
+    check("Требуется замена PDF" in html(page), "Stale financial PDF flagged visibly")
+    status, _, page = request("employee", "/?download=" + str(old_id))
+    check(status == 409 and not page.startswith(b"%PDF-"),
+          "Employee cannot download stale invoice after financial change")
+    status, _, page = request("employee", payload={
+        "csrf": employee_csrf, "action": "transfer_document",
+        "client_id": client, "document_id": old_id
+    })
+    check(status == 200 and "должен заменить PDF" in html(page),
+          "Employee cannot mark an outdated PDF as transferred")
+    status, _, old_pdf = request("director", "/?download=" + str(old_id))
+    check(status == 200 and old_pdf == pdf.read_bytes(),
+          "Director may inspect old PDF before replacement")
+
+
     # CSRF is mandatory even for valid director session.
     status, _, page = request("director", payload={
         "csrf": "not-a-token", "action": "void_document",
@@ -151,7 +191,7 @@ try:
 
     replacement = WORK / "replacement.pdf"
     replacement.write_bytes(b"%PDF-1.5\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")
-    status, _, _ = uploaded("director", "replace_document", director_csrf, client, replacement, old_id)
+    status, _, _ = uploaded("director", "replace_document", director_csrf, client, replacement, old_id, period_id=period_id)
     check(status == 303, "Director replaces PDF")
     status, _, page = request("director", "/?view=clients&client=" + str(client))
     ids = document_ids(html(page))
