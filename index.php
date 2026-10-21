@@ -292,11 +292,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'deactivate_employee') {
             adc_require_director($current);
             $employeeId = filter_var(adc_input('employee_id'), FILTER_VALIDATE_INT);
-            if (!$employeeId) {
+            if (!$employeeId || $employeeId < 1) {
                 throw new RuntimeException('Не выбран сотрудник.');
             }
-            $stmt = $db->prepare('UPDATE users SET is_active = 0 WHERE id = ? AND role = "employee"');
+            $stmt = $db->prepare('UPDATE users SET is_active = 0 WHERE id = ? AND role = "employee" AND is_active=1');
             $stmt->execute([$employeeId]);
+            if (!$stmt->rowCount()) {
+                throw new RuntimeException('Сотрудник не найден или уже отключён.');
+            }
             adc_audit($db, (int)$current['id'], 'deactivate_employee', 'user', (int)$employeeId);
             adc_flash('Доступ сотрудника отключён.');
             adc_redirect();
