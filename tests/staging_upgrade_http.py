@@ -10,31 +10,29 @@ from pathlib import Path
 BASE="http://darkred-crow-882796.hostingersite.com:8092"
 HOST="darkred-crow-882796.hostingersite.com"
 TMP=Path(tempfile.mkdtemp(prefix="adc-staging-upgrade-"))
-COOKIES=TMP/"cookies.txt"
+SESSION=None
 def check(ok, message):
     if not ok:
         raise AssertionError(message)
 def request(data=None):
-    # Production sessions intentionally use Secure cookies. The isolated
-    # fixture server is HTTP-only, so pass the CI-only cookie explicitly;
-    # curl otherwise refuses to resend it to a non-local test hostname.
-    cookie=None
-    if COOKIES.exists():
-        for line in COOKIES.read_text().splitlines():
-            parts=line.removeprefix("#HttpOnly_").split("\t")
-            if len(parts) >= 7 and parts[5] == "ADCLIENTSESSID":
-                cookie="ADCLIENTSESSID="+parts[6]
-    cmd=["curl","-sS","--max-time","15","-H",f"Host: {HOST}",
+    global SESSION
+    # The real application deliberately marks session cookies Secure. In this
+    # disposable HTTP fixture send back the server-issued cookie explicitly,
+    # without weakening its production TLS/session settings.
+    cmd=["curl","-sS","--max-time","15",
          "--noproxy","*","--resolve",f"{HOST}:8092:127.0.0.1",
-         "-c",str(COOKIES),"-D",str(TMP/"headers"),
-         "-o",str(TMP/"body"),"-w","%{http_code}"]
-    if cookie is not None:
-        cmd.extend(["-b",cookie])
+         "-D",str(TMP/"headers"),"-o",str(TMP/"body"),"-w","%{http_code}"]
+    if SESSION is not None:
+        cmd.extend(["-H",f"Cookie: ADCLIENTSESSID={SESSION}"])
     if data is not None:
         for k,v in data.items():
             cmd.extend(["--data-urlencode",f"{k}={v}"])
-    r=subprocess.run(cmd+[BASE+"/"],capture_output=True,text=True,check=True)
-    return int(r.stdout),(TMP/"body").read_text(encoding="utf-8"),(TMP/"headers").read_text(encoding="utf-8")
+    result=subprocess.run(cmd+[BASE+"/"],capture_output=True,text=True,check=True)
+    headers=(TMP/"headers").read_text(encoding="utf-8")
+    match=re.search(r"ADCLIENTSESSID=([A-Za-z0-9]+)",headers)
+    if match:
+        SESSION=match.group(1)
+    return int(result.stdout),(TMP/"body").read_text(encoding="utf-8"),headers
 def csrf(body):
     match=re.search(r'name="csrf" value="([a-f0-9]{64})"',body)
     check(match,"CSRF token missing")
