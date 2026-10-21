@@ -249,6 +249,12 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             throw new RuntimeException('Сначала завершите действующее сотрудничество.');
         }
         $fields = adc_w_collaboration_fields();
+        $lastArchive=$db->prepare('SELECT MAX(ended_on) FROM engagements WHERE client_id=? AND status="archived"');
+        $lastArchive->execute([$clientId]);
+        $lastEnded=$lastArchive->fetchColumn();
+        if ($lastEnded!==null && $fields[0]<=$lastEnded) {
+            throw new RuntimeException('Новое сотрудничество должно начинаться после последней даты архива.');
+        }
         $stmt = $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency,quoted_amount)
             VALUES (?,?,?,?,?,?)');
         $stmt->execute([$clientId, ...$fields]);
@@ -261,6 +267,12 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         }
         $fields=adc_w_collaboration_fields();
         [$started,$day,$mode,$currency,$quote]=$fields;
+        $prevStmt=$db->prepare('SELECT MAX(ended_on) FROM engagements WHERE client_id=? AND status="archived"');
+        $prevStmt->execute([$clientId]);
+        $previousEnd=$prevStmt->fetchColumn();
+        if ($previousEnd!==null && $started<=$previousEnd) {
+            throw new RuntimeException('Начало действующего сотрудничества пересекается с архивом.');
+        }
         $stmt=$db->prepare('SELECT MIN(period_start) FROM billing_periods WHERE engagement_id=?');
         $stmt->execute([$eid]);
         $first=$stmt->fetchColumn();
@@ -331,11 +343,16 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             ['from'=>$start,'to'=>$end]);
     } elseif ($action === 'save_period') {
         $eid = adc_w_id('engagement_id');
-        adc_w_engagement($db, $clientId, $eid);
+        $eng=adc_w_engagement($db, $clientId, $eid);
         $start = adc_w_date(adc_input('period_start'));
         $end = adc_w_date(adc_input('period_end'));
         if ($start >= $end) {
             throw new RuntimeException('Окончание периода должно быть позже начала.');
+        }
+        if ($start<$eng['started_on'] ||
+            ($eng['status']==='archived' && ($eng['ended_on']===null ||
+             $end>(new DateTimeImmutable($eng['ended_on']))->modify('+1 day')->format('Y-m-d')))) {
+            throw new RuntimeException('Расчётный период выходит за даты сотрудничества.');
         }
         $note = adc_input('period_note');
         if (mb_strlen($note) > 400) {
