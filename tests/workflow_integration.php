@@ -220,6 +220,13 @@ run_action($db,$employee,'transfer_document',[
 ]);
 check((bool)$db->query("SELECT transferred_at IS NOT NULL FROM document_bundles WHERE id=$documentId")->fetchColumn(),
     'Employee may mark a PDF transferred');
+run_action($db,$employee,'save_charge',[
+    'client_id'=>(string)$demoId,'period_id'=>(string)$demoP,
+    'category'=>'other','label'=>'Amendment','amount'=>'1.00',
+]);
+check((int)$db->query("SELECT transferred_at IS NULL FROM document_bundles WHERE id=$documentId")->fetchColumn()===1,
+    'Charge change invalidates previously transferred document');
+
 try {
     run_action($db,$employee,'delete_demo',['client_id'=>(string)$demoId]);
     throw new RuntimeException('Employee deleted demo files');
