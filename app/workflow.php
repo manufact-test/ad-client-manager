@@ -521,6 +521,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '') .
         '</h2><a class="btn secondary" href="' . adc_h($returnUrl) . '">Закрыть ✕</a></div>';
     $html .= adc_w_client_form($db, $client);
+    $html .= '<p><a class="btn secondary" href="/?export=client&amp;client_id='.(int)$id.'">Скачать историю операций CSV</a></p>';
     $html .= adc_doc_panel($db, $user, $id);
     $stmt = $db->prepare('SELECT * FROM engagements WHERE client_id=? ORDER BY id DESC');
     $stmt->execute([$id]);
