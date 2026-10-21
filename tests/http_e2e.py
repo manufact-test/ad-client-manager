@@ -131,6 +131,11 @@ try:
     status, _, page = uploaded("director", "upload_document", director_csrf, client, bad, period_id=period_id)
     check(status == 200 and "Разрешены только PDF" in html(page), "Reject fake PDF before storage")
     check(not DOCS.exists() or not list(DOCS.glob("*.pdf")), "Invalid PDF wrote no file")
+    status, _, page = uploaded("director", "upload_document", director_csrf, client, pdf)
+    check(status == 200 and "сначала выберите расчётный период" in html(page),
+          "Financial PDF cannot bypass period linkage needed for stale-document protection")
+    check(not DOCS.exists() or not list(DOCS.glob("*.pdf")), "Unlinked financial PDF was not saved")
+
 
     status, headers, _ = uploaded("director", "upload_document", director_csrf, client, pdf, period_id=period_id)
     check(status == 303, "Director PDF upload accepted: " + str(status))
