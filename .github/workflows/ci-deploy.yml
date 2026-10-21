@@ -77,6 +77,7 @@ jobs:
           php tests/reminders_integration.php
           php tests/finance_integration.php
           php tests/import_integration.php
+          php tests/audit_integration.php
 
       - name: Check bootstrap form behavior (when available)
         run: |
