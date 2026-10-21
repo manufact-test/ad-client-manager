@@ -407,7 +407,7 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             $stmt = $db->prepare('SELECT COALESCE(SUM(CASE WHEN event_type="received" THEN amount ELSE -amount END),0)
                 FROM payment_events WHERE client_id=? AND currency=?');
             $stmt->execute([$clientId, $period['currency']]);
-            if ((float)$amount > (float)$stmt->fetchColumn() + 0.000001) {
+            if (adc_fin_minor($amount) > adc_fin_minor((string)$stmt->fetchColumn())) {
                 throw new RuntimeException('Возврат превышает сумму полученных оплат в данной валюте.');
             }
         }
@@ -698,79 +698,7 @@ function adc_w_tasks(PDO $db, array $user): string {
 }
 
 function adc_w_analytics(PDO $db): string {
-    $html = '<h1>Аналитика</h1><p class="muted">Только реальные клиенты. Валюты не смешиваются. Суммы считаются по фактическим начислениям и операциям.</p>';
-    $rows = $db->query('SELECT currency,category,COALESCE(SUM(amount),0) total
-        FROM charge_lines ch JOIN clients c ON c.id=ch.client_id
-        WHERE ch.is_void=0 AND ' . adc_demo_analytics_predicate('c') .
-        ' GROUP BY currency,category ORDER BY currency,category')->fetchAll();
-    $payRows = $db->query('SELECT currency,event_type,COALESCE(SUM(amount),0) total
-        FROM payment_events p JOIN clients c ON c.id=p.client_id
-        WHERE ' . adc_demo_analytics_predicate('c') .
-        ' GROUP BY currency,event_type ORDER BY currency,event_type')->fetchAll();
-    $totals = [];
-    foreach ($rows as $row) {
-        $ccy = $row['currency'];
-        $totals[$ccy] ??= ['advertising'=>0.0,'development'=>0.0,'other'=>0.0,'received'=>0.0,'refund'=>0.0];
-        $totals[$ccy][$row['category']] = (float)$row['total'];
-    }
-    foreach ($payRows as $row) {
-        $ccy = $row['currency'];
-        $totals[$ccy] ??= ['advertising'=>0.0,'development'=>0.0,'other'=>0.0,'received'=>0.0,'refund'=>0.0];
-        $totals[$ccy][$row['event_type']] = (float)$row['total'];
-    }
-    $html .= '<section class="card"><h2>Деньги по валютам</h2><table><thead><tr><th>Валюта</th><th>Реклама</th><th>Разработка</th><th>Прочее</th><th>Начислено</th><th>Получено нетто</th><th>Баланс</th></tr></thead><tbody>';
-    foreach ($totals as $ccy=>$t) {
-        $billed = $t['advertising']+$t['development']+$t['other'];
-        $net = $t['received']-$t['refund'];
-        $html .= '<tr><td>' . adc_h($ccy) . '</td><td>' . adc_w_money($t['advertising'],$ccy) .
-            '</td><td>' . adc_w_money($t['development'],$ccy) . '</td><td>' .
-            adc_w_money($t['other'],$ccy) . '</td><td>' . adc_w_money($billed,$ccy) .
-            '</td><td>' . adc_w_money($net,$ccy) . '</td><td>' . adc_w_money($billed-$net,$ccy) . '</td></tr>';
-    }
-    if (!$totals) {
-        $html .= '<tr><td colspan="7">Начислений и платежей пока нет.</td></tr>';
-    }
-    $html .= '</tbody></table><small>Отрицательный баланс означает аванс; возвраты уменьшают полученную сумму.</small></section>';
-    $counts = $db->query('SELECT
-        COUNT(*) count_clients,
-        SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")) active_clients,
-        SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="archived")) ever_archived,
-        SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="archived")
-            AND NOT EXISTS(SELECT 1 FROM engagements x WHERE x.client_id=c.id AND x.status="active")) churned,
-        SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="archived")
-            AND EXISTS(SELECT 1 FROM engagements x WHERE x.client_id=c.id AND x.status="active")) resumed,
-        SUM(c.previous_client_id IS NOT NULL OR (c.previous_name_text IS NOT NULL AND c.previous_name_text<>"")) returning
-        FROM clients c WHERE ' . adc_demo_analytics_predicate('c'))->fetch();
-    $html .= '<section class="card"><h2>Клиентская база</h2><p>Клиентов: <strong>' . (int)$counts['count_clients'] .
-        '</strong> · активных: <strong>' . (int)$counts['active_clients'] .
-        '</strong> · были в архиве: <strong>' . (int)$counts['ever_archived'] .
-        '</strong> · пришли повторно: <strong>' . (int)$counts['returning'] .
-        '</strong> · завершили и не возобновили: <strong>' . (int)$counts['churned'] .
-        '</strong> · вернулись из архива: <strong>' . (int)$counts['resumed'] . '</strong></p>' .
-        '<p class="muted">Отток здесь — клиенты с закрытым сотрудничеством и без активного. Возвращаемость — повторно открытое сотрудничество или ссылка на прошлую запись.</p>';
-    $sourceRows = $db->query('SELECT COALESCE(NULLIF(source_kind,""),"unknown") kind, COUNT(*) qty
-        FROM clients c WHERE ' . adc_demo_analytics_predicate('c') . ' GROUP BY source_kind ORDER BY qty DESC')->fetchAll();
-    $html .= '<h3>Источники</h3>';
-    foreach ($sourceRows as $s) {
-        $html .= '<div class="item"><span>' . adc_h($s['kind']) . '</span><strong>' . (int)$s['qty'] . '</strong></div>';
-    }
-    $html .= '</section><section class="card"><h2>LTV и задолженность по клиентам</h2><table><thead><tr><th>Клиент</th><th>Валюта</th><th>Начислено (LTV)</th><th>Получено</th><th>Баланс</th></tr></thead><tbody>';
-    $stmt = $db->query('SELECT c.id,c.name,t.currency,
-        COALESCE((SELECT SUM(ch.amount) FROM charge_lines ch WHERE ch.client_id=c.id AND ch.currency=t.currency AND ch.is_void=0),0) billed,
-        COALESCE((SELECT SUM(CASE WHEN p.event_type="received" THEN p.amount ELSE -p.amount END)
-          FROM payment_events p WHERE p.client_id=c.id AND p.currency=t.currency),0) paid
-        FROM clients c JOIN (
-          SELECT client_id,currency FROM charge_lines WHERE is_void=0
-          UNION SELECT client_id,currency FROM payment_events
-        ) t ON t.client_id=c.id
-        WHERE ' . adc_demo_analytics_predicate('c') . ' ORDER BY c.name,t.currency LIMIT 500');
-    foreach ($stmt as $row) {
-        $html .= '<tr><td>' . adc_h($row['name']) . '</td><td>' . adc_h($row['currency']) .
-            '</td><td>' . adc_w_money($row['billed'],$row['currency']) .
-            '</td><td>' . adc_w_money($row['paid'],$row['currency']) .
-            '</td><td>' . adc_w_money((float)$row['billed']-(float)$row['paid'],$row['currency']) . '</td></tr>';
-    }
-    return $html . '</tbody></table></section>';
+    return adc_fin_render($db);
 }
 
 function adc_w_team(PDO $db, array $user): string {
