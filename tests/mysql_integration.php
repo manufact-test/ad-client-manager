@@ -14,6 +14,17 @@ $connection = [
 $db = adc_db($connection);
 adc_schema($db);
 adc_schema($db); // Re-running schema must be safe.
+// Simulate an old installation without the idempotency column in disposable CI.
+// Migration must preserve old financial rows and be rerunnable.
+$db->exec('ALTER TABLE payment_events DROP INDEX uq_payment_submission, DROP COLUMN submission_key');
+adc_schema($db);
+adc_schema($db);
+$submissionColumn=$db->query("SHOW COLUMNS FROM payment_events LIKE 'submission_key'")->fetch();
+$submissionIndex=$db->query("SHOW INDEX FROM payment_events WHERE Key_name='uq_payment_submission'")->fetch();
+if (!$submissionColumn || $submissionColumn['Null']!=='YES' || !$submissionIndex ||
+    (int)$submissionIndex['Non_unique']!==0) {
+    throw new RuntimeException('Payment submission idempotency migration is missing');
+}
 
 function expect_equal(mixed $expected, mixed $actual, string $label): void {
     if ($expected !== $actual) {

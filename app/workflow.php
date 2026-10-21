@@ -109,11 +109,12 @@ function adc_w_invalidate_period_documents(PDO $db,int $actor,int $periodId): vo
     $stmt->execute([$periodId]);
     $documentIds=$stmt->fetchAll(PDO::FETCH_COLUMN);
     if (!$documentIds) return;
-    $db->prepare('UPDATE document_bundles SET transferred_at=NULL WHERE period_id=? AND is_void=0
-        AND (needs_invoice=1 OR needs_spec=1 OR needs_act=1)')->execute([$periodId]);
-    // Re-transfer cannot be acknowledged without a replacement file.
-    // A new upload creates a new document ID with no invalidation event.
+    // An already obsolete document is not invalidated or audited twice.
+    // A new upload has its own ID, so replacement is still fully protected.
+    $clear=$db->prepare('UPDATE document_bundles SET transferred_at=NULL WHERE id=?');
     foreach ($documentIds as $documentId) {
+        if (adc_doc_requires_replacement($db,(int)$documentId)) continue;
+        $clear->execute([$documentId]);
         adc_audit($db,$actor,'invalidate_document','document_bundle',(int)$documentId,
             ['reason'=>'financial_change','period_id'=>$periodId]);
     }
@@ -463,6 +464,28 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         if (mb_strlen($note) > 500) {
             throw new RuntimeException('Слишком длинное примечание.');
         }
+        $submissionKey=adc_input('submission_key');
+        if (!preg_match('/^[a-f0-9]{64}$/D',$submissionKey)) {
+            throw new RuntimeException('Форма оплаты устарела. Обновите карточку клиента и повторите ввод.');
+        }
+        // The locked client row serializes payment POSTs for this customer.
+        // A replay of the same form must not create a second payment/audit.
+        $existingPayment=$db->prepare('SELECT client_id,period_id,event_type,amount,currency,occurred_on,note
+            FROM payment_events WHERE submission_key=?');
+        $existingPayment->execute([$submissionKey]);
+        $saved=$existingPayment->fetch();
+        if ($saved) {
+            if ((int)$saved['client_id']!==$clientId ||
+                (int)$saved['period_id']!==$pid ||
+                $saved['event_type']!==$type || $saved['amount']!==$amount ||
+                $saved['currency']!==$period['currency'] || $saved['occurred_on']!==$date ||
+                (string)($saved['note']??'')!==$note) {
+                throw new RuntimeException('Эта форма уже использована для другой операции. Обновите карточку.');
+            }
+            $db->commit();
+            adc_flash('Операция уже сохранена. Повторное поступление или возврат не создан.');
+            adc_redirect(adc_w_client_location($db,$clientId));
+        }
         if ($type === 'refund') {
             $stmt = $db->prepare('SELECT COALESCE(SUM(CASE WHEN event_type="received" THEN amount ELSE -amount END),0)
                 FROM payment_events WHERE client_id=? AND currency=?');
@@ -471,9 +494,9 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
                 throw new RuntimeException('Возврат превышает сумму полученных оплат в данной валюте.');
             }
         }
-        $stmt = $db->prepare('INSERT INTO payment_events(client_id,period_id,event_type,amount,currency,occurred_on,note)
-            VALUES (?,?,?,?,?,?,?)');
-        $stmt->execute([$clientId, $pid, $type, $amount, $period['currency'], $date, $note]);
+        $stmt = $db->prepare('INSERT INTO payment_events(client_id,period_id,event_type,amount,currency,occurred_on,note,submission_key)
+            VALUES (?,?,?,?,?,?,?,?)');
+        $stmt->execute([$clientId, $pid, $type, $amount, $period['currency'], $date, $note, $submissionKey]);
         adc_audit($db, $actor, $type === 'refund' ? 'refund' : 'receive_payment', 'payment_event',
             (int)$db->lastInsertId(), ['amount'=>$amount,'currency'=>$period['currency']]);
     }
@@ -635,6 +658,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
                 '<details><summary>＋ Оплата / возврат</summary>' .
                 adc_w_form_start('add_payment') . adc_w_hidden('client_id', $id) .
                 adc_w_hidden('period_id', $pid) .
+                adc_w_hidden('submission_key',bin2hex(random_bytes(32))) .
                 adc_w_select('Операция','event_type',['received'=>'Поступление','refund'=>'Возврат']) .
                 adc_w_field('Сумма','amount','','number','step="0.01" min="0.01" required') .
                 adc_w_field('Дата','occurred_on',date('Y-m-d'),'date','required') .

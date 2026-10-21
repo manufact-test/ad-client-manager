@@ -13,6 +13,10 @@ function check(bool $condition, string $label): void {
     if (!$condition) { throw new RuntimeException('FAIL: ' . $label); }
 }
 function run_action(PDO $db, array $user, string $action, array $data): string {
+    // The regular web form supplies a new nonce for each distinct payment.
+    if ($action==='add_payment' && !isset($data['submission_key'])) {
+        $data['submission_key']=bin2hex(random_bytes(32));
+    }
     $_POST = $data;
     try {
         $handled = adc_w_action($db, $user, $action) || adc_doc_action($db, $user, $action);
@@ -85,18 +89,46 @@ run_action($db,$employee,'save_charge',[
     'client_id'=>(string)$realId,'period_id'=>(string)$p,
     'category'=>'development','label'=>'Landing page','amount'=>'400.00',
 ]);
-run_action($db,$employee,'add_payment',[
+$receiptToken=bin2hex(random_bytes(32));
+$receiptFields=[
     'client_id'=>(string)$realId,'period_id'=>(string)$p,
     'event_type'=>'received','amount'=>'800.00','occurred_on'=>'2026-09-08',
-]);
+    'submission_key'=>$receiptToken,
+];
+run_action($db,$employee,'add_payment',$receiptFields);
 run_action($db,$employee,'add_payment',[
     'client_id'=>(string)$realId,'period_id'=>(string)$p,
     'event_type'=>'received','amount'=>'200.00','occurred_on'=>'2026-09-09',
 ]);
-run_action($db,$employee,'add_payment',[
+$refundToken=bin2hex(random_bytes(32));
+$refundFields=[
     'client_id'=>(string)$realId,'period_id'=>(string)$p,
     'event_type'=>'refund','amount'=>'100.00','occurred_on'=>'2026-09-10',
-]);
+    'submission_key'=>$refundToken,
+];
+run_action($db,$employee,'add_payment',$refundFields);
+$paymentCount=(int)$db->query("SELECT COUNT(*) FROM payment_events WHERE client_id=$realId")->fetchColumn();
+$auditCount=(int)$db->query("SELECT COUNT(*) FROM audit_events WHERE object_type='payment_event'")->fetchColumn();
+run_action($db,$employee,'add_payment',$receiptFields);
+run_action($db,$employee,'add_payment',$refundFields);
+check((int)$db->query("SELECT COUNT(*) FROM payment_events WHERE client_id=$realId")->fetchColumn()===$paymentCount,
+    'Replayed receipt and refund never duplicate financial entries');
+check((int)$db->query("SELECT COUNT(*) FROM audit_events WHERE object_type='payment_event'")->fetchColumn()===$auditCount,
+    'Replayed payments do not duplicate audit events');
+try {
+    run_action($db,$employee,'add_payment',array_merge($receiptFields,['amount'=>'800.01']));
+    throw new RuntimeException('Reused nonce changed the recorded payment');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'уже использована'),'Nonce replay with altered amount rejected');
+    if ($db->inTransaction()) $db->rollBack();
+}
+try {
+    run_action($db,$employee,'add_payment',array_merge($receiptFields,['submission_key'=>'INVALID']));
+    throw new RuntimeException('Invalid payment form nonce accepted');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'устарела'),'Malformed payment form nonce rejected');
+    if ($db->inTransaction()) $db->rollBack();
+}
 $balance = $db->query("SELECT
     (SELECT SUM(amount) FROM charge_lines WHERE client_id=$realId AND is_void=0) -
     (SELECT SUM(CASE WHEN event_type='received' THEN amount ELSE -amount END) FROM payment_events WHERE client_id=$realId)")->fetchColumn();
@@ -344,6 +376,12 @@ run_action($db,$employee,'transfer_document',[
 ]);
 check((bool)$db->query("SELECT transferred_at IS NOT NULL FROM document_bundles WHERE id=$documentId")->fetchColumn(),
     'Employee may mark a PDF transferred');
+$transferCount=(int)$db->query("SELECT COUNT(*) FROM audit_events WHERE object_type='document_bundle' AND object_id=$documentId AND action='transfer_document'")->fetchColumn();
+run_action($db,$employee,'transfer_document',[
+    'client_id'=>(string)$demoId,'document_id'=>(string)$documentId
+]);
+check((int)$db->query("SELECT COUNT(*) FROM audit_events WHERE object_type='document_bundle' AND object_id=$documentId AND action='transfer_document'")->fetchColumn()===$transferCount,
+    'Replayed document handover is idempotent and audit-safe');
 run_action($db,$employee,'save_charge',[
     'client_id'=>(string)$demoId,'period_id'=>(string)$demoP,
     'category'=>'other','label'=>'Amendment','amount'=>'1.00',
@@ -352,6 +390,13 @@ check((int)$db->query("SELECT transferred_at IS NULL FROM document_bundles WHERE
     'Charge change invalidates previously transferred document');
 check(adc_doc_requires_replacement($db,$documentId),
     'Financial modification invalidates original PDF, not merely transfer timestamp');
+$onceInvalidated=(int)$db->query("SELECT COUNT(*) FROM audit_events WHERE object_type='document_bundle' AND object_id=$documentId AND action='invalidate_document'")->fetchColumn();
+run_action($db,$employee,'save_charge',[
+    'client_id'=>(string)$demoId,'period_id'=>(string)$demoP,
+    'category'=>'other','label'=>'Another amendment','amount'=>'2.00',
+]);
+check($onceInvalidated===1 && (int)$db->query("SELECT COUNT(*) FROM audit_events WHERE object_type='document_bundle' AND object_id=$documentId AND action='invalidate_document'")->fetchColumn()===1,
+    'Further edits never create duplicate invalidation audit for a stale PDF');
 try {
     run_action($db,$employee,'transfer_document',[
         'client_id'=>(string)$demoId,'document_id'=>(string)$documentId

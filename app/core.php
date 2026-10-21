@@ -183,7 +183,9 @@ function adc_schema(PDO $db): void {
             currency CHAR(3) NOT NULL,
             occurred_on DATE NOT NULL,
             note VARCHAR(500) NULL,
+            submission_key CHAR(64) NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_payment_submission(submission_key),
             INDEX idx_payment_client(client_id, occurred_on),
             CONSTRAINT fk_payment_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
             CONSTRAINT fk_payment_period FOREIGN KEY(period_id) REFERENCES billing_periods(id) ON DELETE SET NULL
@@ -191,6 +193,18 @@ function adc_schema(PDO $db): void {
     ];
     foreach ($statements as $sql) {
         $db->exec($sql . $options);
+    }
+    // Legacy test installations can have payment_events without the nullable
+    // idempotency key. Never rewrite existing payments or generate keys for
+    // historic imports: MySQL UNIQUE permits multiple NULL legacy rows.
+    $hasKey=$db->query("SHOW COLUMNS FROM payment_events LIKE 'submission_key'")->fetch();
+    if (!$hasKey) {
+        $db->exec('ALTER TABLE payment_events
+            ADD COLUMN submission_key CHAR(64) NULL,
+            ADD UNIQUE KEY uq_payment_submission(submission_key)');
+    } else {
+        $idx=$db->query("SHOW INDEX FROM payment_events WHERE Key_name='uq_payment_submission'")->fetch();
+        if (!$idx) $db->exec('ALTER TABLE payment_events ADD UNIQUE KEY uq_payment_submission(submission_key)');
     }
 }
 

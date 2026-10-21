@@ -150,6 +150,11 @@ function adc_doc_action(PDO $db, array $user, string $action): bool {
         if ($oldFile === null || adc_doc_verified_path($existing) === null) {
             throw new RuntimeException('PDF отсутствует или повреждён. Сообщите директору, передача невозможна.');
         }
+        if ($existing['transferred_at'] !== null) {
+            $db->commit();
+            adc_flash('Документ уже отмечен как переданный. Повторная запись не создана.');
+            adc_redirect(adc_w_client_location($db,$clientId));
+        }
         $db->prepare('UPDATE document_bundles SET transferred_at=UTC_TIMESTAMP() WHERE id=? AND client_id=? AND is_void=0')
             ->execute([$docId,$clientId]);
         adc_audit($db,$actor,'transfer_document','document_bundle',$docId);

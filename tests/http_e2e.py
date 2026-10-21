@@ -120,6 +120,40 @@ try:
     check(match is not None, "New period available in PDF upload selector")
     period_id = int(match.group(1))
 
+    # Real browser-generated nonce: repeat POSTs cannot double-count money.
+    nonce_match = re.search(r'name="submission_key" value="([a-f0-9]{64})"', html(page))
+    check(nonce_match is not None, "Payment form has a cryptographically random one-use key")
+    receipt = {
+        "csrf": employee_csrf, "action": "add_payment", "client_id": client,
+        "period_id": period_id, "event_type": "received", "amount": "12.34",
+        "occurred_on": "2026-10-22", "note": "One fictional receipt",
+        "submission_key": nonce_match.group(1)
+    }
+    status, _, error = request("employee", payload={k:v for k,v in receipt.items() if k != "submission_key"})
+    check(status == 200 and "Форма оплаты устарела" in html(error),
+          "Payment POST without form key is rejected")
+    status, _, _ = request("employee", payload=receipt)
+    check(status == 303, "Valid payment is recorded")
+    status, _, _ = request("employee", payload=receipt)
+    check(status == 303, "Replaying exact POST safely redirects without new payment")
+    status, _, page = request("employee", "/?view=clients&client=" + str(client))
+    check(html(page).count("One fictional receipt") == 1 and "12,34 BYN" in html(page),
+          "Duplicate HTTP payment did not double the amount or history")
+    status, _, error = request("employee", payload={**receipt, "amount": "12.35"})
+    check(status == 200 and "уже использована" in html(error),
+          "Reusing a payment key for a changed amount is rejected")
+    status, _, page = request("employee", "/?view=clients&client=" + str(client))
+    next_key = re.search(r'name="submission_key" value="([a-f0-9]{64})"', html(page))
+    check(next_key is not None and next_key.group(1) != receipt["submission_key"],
+          "Fresh form creates an independent payment key")
+    status, _, _ = request("employee", payload={
+        **receipt, "amount": "1.00", "note": "Second legitimate receipt",
+        "submission_key": next_key.group(1)
+    })
+    check(status == 303, "A second deliberately submitted receipt is accepted")
+    status, _, page = request("employee", "/?view=clients&client=" + str(client))
+    check("13,34 BYN" in html(page) and html(page).count("Second legitimate receipt") == 1,
+          "Client reconciliation includes two distinct payments once each")
 
     pdf = WORK / "test.pdf"
     pdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")
@@ -162,6 +196,14 @@ try:
     check(status == 303, "Employee may record handover")
     status, _, page = request("director", "/?view=clients&client=" + str(client))
     check("Передано " in html(page), "Transfer shown in drawer")
+    status, _, _ = request("employee", payload={
+        "csrf": employee_csrf, "action": "transfer_document",
+        "client_id": client, "document_id": old_id
+    })
+    check(status == 303, "Replay of document handover is harmless")
+    status, _, page = request("employee", "/?view=clients&client=" + str(client))
+    check("Повторная запись не создана" in html(page),
+          "Handover replay explicitly reports no duplicate audit event")
     check("Финансовая сверка клиента" in html(page),
           "Client drawer exposes whole-client reconciliation")
 
