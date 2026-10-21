@@ -192,6 +192,36 @@ function adc_schema(PDO $db): void {
             CONSTRAINT fk_payment_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
             CONSTRAINT fk_payment_period FOREIGN KEY(period_id) REFERENCES billing_periods(id) ON DELETE SET NULL
         )'
+        ,'CREATE TABLE IF NOT EXISTS client_entries (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            client_id BIGINT UNSIGNED NOT NULL,
+            document_id BIGINT UNSIGNED NULL,
+            entry_kind ENUM("document","card") NOT NULL,
+            amount DECIMAL(16,2) NULL,
+            currency CHAR(3) NULL,
+            category ENUM("advertising","development","other") NOT NULL DEFAULT "advertising",
+            note VARCHAR(500) NULL,
+            sent_at DATETIME NULL,
+            received_at DATETIME NULL,
+            is_void TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_entry_document(document_id),
+            INDEX idx_entry_client(client_id,is_void),
+            CONSTRAINT fk_entry_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
+            CONSTRAINT fk_entry_document FOREIGN KEY(document_id) REFERENCES document_bundles(id) ON DELETE SET NULL
+        )'
+        ,'CREATE TABLE IF NOT EXISTS engagement_terms (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            engagement_id BIGINT UNSIGNED NOT NULL,
+            effective_on DATE NOT NULL,
+            started_on DATE NOT NULL,
+            billing_day TINYINT UNSIGNED NOT NULL,
+            payment_mode ENUM("prepayment","postpayment") NOT NULL,
+            currency CHAR(3) NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_terms_effective(engagement_id,effective_on),
+            CONSTRAINT fk_terms_engagement FOREIGN KEY(engagement_id) REFERENCES engagements(id) ON DELETE CASCADE
+        )'
     ];
     foreach ($statements as $sql) {
         $db->exec($sql . $options);

@@ -205,7 +205,7 @@ function adc_w_engagement_revision(array $row): string {
 
 function adc_w_action(PDO $db, array $user, string $action): bool {
     $supported = [
-        'save_client', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
+        'add_engagement_terms', 'save_client', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
         'save_charge', 'void_charge', 'add_payment', 'edit_task',
     ];
     if (!in_array($action, $supported, true)) {
@@ -339,6 +339,29 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             VALUES (?,?,?,?,?,?)');
         $stmt->execute([$clientId, ...$fields]);
         adc_audit($db, $actor, 'resume_client', 'client', $clientId);
+    } elseif ($action === 'add_engagement_terms') {
+        $eid=adc_w_id('engagement_id');
+        $old=adc_w_engagement($db,$clientId,$eid);
+        if ($old['status']!=='active') throw new RuntimeException('Нельзя менять закрытое сотрудничество.');
+        $effective=adc_w_date(adc_input('effective_on'));
+        if ($effective<$old['started_on']) throw new RuntimeException('Новые условия не могут действовать раньше начала сотрудничества.');
+        $day=(int)substr($effective,8,2);
+        $mode=adc_w_pick('payment_mode',['prepayment','postpayment']);
+        $ccy=adc_w_currency(adc_input('currency'));
+        $q=$db->prepare('SELECT MAX(effective_on) FROM engagement_terms WHERE engagement_id=?');
+        $q->execute([$eid]);$last=$q->fetchColumn();
+        if ($last!==false && $effective<=$last) throw new RuntimeException('Новая дата должна быть позже предыдущих условий.');
+        $q=$db->prepare('SELECT COUNT(*) FROM engagement_terms WHERE engagement_id=?');
+        $q->execute([$eid]);
+        if ((int)$q->fetchColumn()===0) {
+            $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
+              VALUES (?,?,?,?,?,?)')->execute([$eid,$old['started_on'],$old['started_on'],$old['billing_day'],$old['payment_mode'],$old['currency']]);
+        }
+        $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
+          VALUES (?,?,?,?,?,?)')->execute([$eid,$effective,$effective,$day,$mode,$ccy]);
+        $db->prepare('UPDATE engagements SET billing_day=?,payment_mode=?,currency=? WHERE id=?')
+          ->execute([$day,$mode,$ccy,$eid]);
+        adc_audit($db,$actor,'add_engagement_terms','engagement',$eid,['effective_on'=>$effective]);
     } elseif ($action === 'save_engagement') {
         $eid=adc_w_id('engagement_id');
         $old=adc_w_engagement($db,$clientId,$eid);
@@ -690,13 +713,13 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         '<div class="drawer-head"><h2 id="client-heading">'.adc_h((string)$client['name']).
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '').
         '</h2><a class="btn secondary" href="'.adc_h($returnUrl).'">Закрыть ✕</a></div>'.
-        '<section class="card customer-identity"><h3>О клиенте</h3><div class="profile-facts">'.
+        '<section class="card customer-identity"><div class="client-summary-header"><h3>О клиенте</h3><a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Выгрузить историю в CSV</a></div><div class="profile-facts">'.
         '<div><small>Услуги</small><strong>'.adc_h((string)$client['platform_text'] ?: 'Не указаны').'</strong></div>'.
         '<div><small>Тип</small><strong>'.((string)$client['legal_type']==='legal'?'Юридическое лицо':'Физическое лицо').'</strong></div>'.
         '<div><small>Откуда пришёл</small><strong>'.adc_h($source).'</strong></div>';
     if ($current) {
         $html .= '<div><small>Дата начала</small><strong>'.adc_h($qDate((string)$current['started_on'])).'</strong></div>'.
-            '<div><small>Стоимость услуг в месяц</small><strong>'.
+            '<div><small>Ориентир стоимости за месяц</small><strong>'.
             adc_w_money($current['quoted_amount'] ?? '0.00',(string)$current['currency']).'</strong></div>'.
             '<div><small>Условия оплаты</small><strong>'.
             ($current['payment_mode']==='prepayment'?'Предоплата':'Постоплата').'</strong></div>';
@@ -712,116 +735,34 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
     }
     $html .= '</section>';
 
-    $html .= '<section class="card customer-finances"><h3>Работы и оплаты</h3>';
-    $balances = adc_w_client_balances($db,$id);
-    if ($balances) {
-        $html .= '<div class="summary-grid">';
-        foreach ($balances as $row) {
-            foreach (['Начислено'=>'billed','Получено'=>'net','Остаток'=>'balance'] as $label=>$key) {
-                $html .= '<div class="summary-metric"><small>'.adc_h($label).' · '.adc_h($row['currency']).
-                    '</small><strong>'.adc_fin_format($row[$key],$row['currency']).'</strong></div>';
-            }
-        }
-        $html .= '</div>';
-    } else {
-        $html .= '<p class="muted">Начислений и оплат ещё нет. Добавьте работу в нужном месяце.</p>';
-    }
-
-    if (!$engagements) {
-        $html .= '<p class="muted">Сотрудничество ещё не оформлено.</p>';
-    }
-    foreach ($engagements as $eng) {
-        $eid = (int)$eng['id'];
-        $status = $eng['status']==='active';
-        $html .= '<div class="engagement-block"><div class="engagement-head"><strong>'.
-            ($status ? 'Текущее сотрудничество' : 'Завершённое сотрудничество').'</strong>'.
-            '<span class="muted">'.adc_h($qDate((string)$eng['started_on'])).
-            ($status ? ' — настоящее время' : ' — '.adc_h($qDate((string)$eng['ended_on']))).
-            '</span></div>';
-        $stmt = $db->prepare('SELECT * FROM billing_periods WHERE engagement_id=? ORDER BY period_start DESC,id DESC');
-        $stmt->execute([$eid]);
-        $periods = $stmt->fetchAll();
-        if (!$periods && $status) {
-            $html .= '<p class="muted">Первый расчётный месяц ещё не создан.</p>';
-        }
-        foreach ($periods as $pos=>$p) {
-            $pid=(int)$p['id'];
-            $isOpen=$status && $pos===0;
-            $dateFrom=$qDate((string)$p['period_start']);
-            $dateTo=$qDate((new DateTimeImmutable((string)$p['period_end']))->modify('-1 day')->format('Y-m-d'));
-            $html .= '<details class="period client-period"'.($isOpen?' open':'').'><summary>'.
-                'С '.adc_h($dateFrom).' по '.adc_h($dateTo).
-                '</summary><div class="period-content">';
-            $query=$db->prepare('SELECT * FROM charge_lines WHERE period_id=? AND client_id=? AND is_void=0 ORDER BY id');
-            $query->execute([$pid,$id]);
-            $bill=0;
-            foreach ($query as $charge) {
-                $bill=adc_fin_add($bill,adc_fin_minor((string)$charge['amount']));
-                $cat=['advertising'=>'Реклама','development'=>'Разработка','other'=>'Прочее'][(string)$charge['category']]??'Работа';
-                $html .= '<div class="item"><div><strong>'.adc_h((string)$charge['label']).'</strong>'.
-                    '<small> · '.adc_h($cat).'</small></div><strong>'.
-                    adc_w_money($charge['amount'],$eng['currency']).'</strong></div>'.
-                    '<details class="sub-action"><summary>Изменить начисление</summary>'.
-                    adc_w_charge_form($id,$pid,$charge).
-                    adc_w_form_start('void_charge').adc_w_hidden('client_id',$id).
-                    adc_w_hidden('charge_id',(int)$charge['id']).
-                    adc_w_hidden('expected_revision',adc_w_charge_revision($charge)).
-                    '<button type="submit" class="secondary">Аннулировать начисление</button></form></details>';
-            }
-            $html .= '<p class="period-total">Начислено: <strong>'.adc_fin_format($bill,$eng['currency']).'</strong></p>'.
-                '<details class="sub-action"><summary>Добавить работу</summary>'.
-                adc_w_charge_form($id,$pid).'</details>';
-            $query=$db->prepare('SELECT * FROM payment_events WHERE period_id=? AND client_id=? ORDER BY occurred_on DESC,id DESC');
-            $query->execute([$pid,$id]);
-            $paid=0;
-            foreach ($query as $payment) {
-                $paid=adc_fin_add($paid,($payment['event_type']==='received'?1:-1)*adc_fin_minor((string)$payment['amount']));
-                $html .= '<div class="item"><span>'.
-                    ($payment['event_type']==='received'?'Оплата':'Возврат').
-                    ' · '.adc_h($qDate((string)$payment['occurred_on'])).
-                    (trim((string)$payment['note'])!==''?' · '.adc_h((string)$payment['note']):'').
-                    '</span><strong>'.adc_w_money($payment['amount'],$eng['currency']).'</strong></div>';
-            }
-            $html .= '<p class="period-total">Получено: <strong>'.adc_fin_format($paid,$eng['currency']).'</strong></p>'.
-                '<details class="sub-action"><summary>Добавить оплату или возврат</summary>'.
-                adc_w_form_start('add_payment').adc_w_hidden('client_id',$id).
-                adc_w_hidden('period_id',$pid).adc_w_hidden('submission_key',bin2hex(random_bytes(32))).
-                adc_w_select('Операция','event_type',['received'=>'Поступление','refund'=>'Возврат']).
-                adc_w_field('Сумма','amount','','number','min="0.01" step="0.01" required').
-                adc_w_field('Дата','occurred_on',date('Y-m-d'),'date','required').
-                adc_w_field('Примечание','note','','text','maxlength="500"').
-                '<button type="submit">Записать</button></form></details></div></details>';
-        }
-        if ($status) {
-            $html .= adc_w_form_start('create_next_period').adc_w_hidden('client_id',$id).
-                adc_w_hidden('engagement_id',$eid).
-                adc_w_hidden('expected_tail',adc_w_period_tail($periods[0]??null)).
-                adc_w_hidden('submission_key',bin2hex(random_bytes(32))).
-                '<button type="submit" class="secondary">Добавить следующий месяц</button></form>';
-        }
-        $html .= '</div>';
-    }
-    $html .= '</section>';
-    $html .= adc_doc_panel($db,$user,$id);
+    $html .= adc_ledger_panel($db,$user,$id);
 
     $html .= '<section class="card customer-more"><h3>Дополнительные действия</h3>'.
         adc_w_client_form($db,$client);
     foreach ($active as $eng) {
         $eid=(int)$eng['id'];
-        $html .= '<details class="sub-action"><summary>Изменить условия сотрудничества</summary>'.
-            adc_w_form_start('save_engagement').adc_w_hidden('client_id',$id).
+        $history=$db->prepare('SELECT * FROM engagement_terms WHERE engagement_id=? ORDER BY effective_on DESC,id DESC');
+        $history->execute([$eid]);$terms=$history->fetchAll();
+        $html.='<div class="terms-list"><h4>Текущие условия</h4>'.
+            '<p>'.adc_h($qDate((string)$eng['started_on'])).' · '.
+            ((string)$eng['payment_mode']==='prepayment'?'Предоплата':'Постоплата').
+            ' · '.adc_h((string)$eng['currency']).' · расчётный день '.(int)$eng['billing_day'].'</p>';
+        if ($terms) {
+            $html.='<details><summary>История условий · '.count($terms).'</summary>';
+            foreach($terms as $term) {
+                $html.='<p>'.adc_h($qDate((string)$term['effective_on'])).' · '.
+                    ((string)$term['payment_mode']==='prepayment'?'Предоплата':'Постоплата').
+                    ' · '.adc_h((string)$term['currency']).' · день '.(int)$term['billing_day'].'</p>';
+            }
+            $html.='</details>';
+        }
+        $html.='</div><details class="sub-action"><summary>Добавить новые условия</summary>'.
+            adc_w_form_start('add_engagement_terms').adc_w_hidden('client_id',$id).
             adc_w_hidden('engagement_id',$eid).
-            adc_w_hidden('expected_revision',adc_w_engagement_revision($eng)).
-            adc_w_engagement_fields($eng).
-            '<button type="submit">Сохранить условия</button></form></details>'.
-            '<details class="sub-action"><summary>Добавить расчётный период вручную</summary>'.
-            adc_w_form_start('save_period').adc_w_hidden('client_id',$id).
-            adc_w_hidden('engagement_id',$eid).
-            adc_w_field('Начало','period_start',date('Y-m-01'),'date','required').
-            adc_w_field('Конец','period_end',date('Y-m-d',strtotime('first day of next month')),'date','required').
-            adc_w_field('Примечание','period_note','','text','maxlength="400"').
-            adc_w_check('is_final','Последний период',false).
-            '<button type="submit">Сохранить период</button></form></details>'.
+            adc_w_field('Действуют с','effective_on',date('Y-m-d'),'date','required').
+            adc_w_select('Условия оплаты','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)$eng['payment_mode']).
+            adc_w_select('Валюта','currency',['BYN'=>'BYN','RUB'=>'RUB','EUR'=>'EUR','USD'=>'USD','KZT'=>'KZT'],(string)$eng['currency']).
+            '<button type="submit">Сохранить новые условия</button></form></details>'.
             '<details class="sub-action"><summary>Завершить сотрудничество</summary>'.
             adc_w_form_start('archive_engagement').adc_w_hidden('client_id',$id).
             adc_w_hidden('engagement_id',$eid).
@@ -834,8 +775,6 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
             adc_w_form_start('start_engagement').adc_w_hidden('client_id',$id).
             adc_w_engagement_fields().'<button type="submit">Возобновить</button></form></details>';
     }
-    $html .= '<details class="sub-action"><summary>Выгрузить историю операций</summary>'.
-        '<a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Скачать CSV</a></details>';
     if ((int)$client['is_demo']===1 && $user['role']==='director') {
         $html .= '<details class="sub-action"><summary>Удалить демо-клиента</summary>'.
             '<p class="muted">Это действие удалит клиента, его операции и PDF без возможности отмены.</p>'.
@@ -906,16 +845,18 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '</form><section class="card"><p class="muted">Найдено в списке: '.count($clients).
         (count($clients)===300?' (показаны последние 300, уточните поиск)':'').'</p>'.
         '<div class="table-scroll" tabindex="0" role="region" aria-label="Список клиентов: таблицу можно прокручивать по горизонтали"><table><thead><tr>'.
-        '<th>Клиент</th><th>Услуги</th><th>Карточка</th>'.
+        '<th>Клиент</th><th>Услуги</th><th>Карточка</th><th>Статус</th>'.
         '</tr></thead><tbody>';
     foreach ($clients as $client) {
         $html.='<tr><td><strong>'.adc_h($client['name']).'</strong>'.
             ((int)$client['is_demo']===1?' <span class="badge demo">Демо</span>':'').
             '</td><td>'.adc_h((string)$client['platform_text']).'</td><td><a class="btn secondary" href="'.
-            adc_h($returnUrl.'&client='.(int)$client['id']).'">Открыть</a></td></tr>';
+            adc_h($returnUrl.'&client='.(int)$client['id']).'">Открыть</a></td><td class="status-cell">'.
+            '<span class="badge '.adc_ledger_client_status($db,(int)$client['id'],date('Y-m-d'))[1].'">'.
+            adc_h(adc_ledger_client_status($db,(int)$client['id'],date('Y-m-d'))[0]).'</span></td></tr>';
     }
     if (!$clients) {
-        $html.='<tr><td colspan="3" class="muted">Совпадений нет.</td></tr>';
+        $html.='<tr><td colspan="4" class="muted">Совпадений нет.</td></tr>';
     }
     $html.='</tbody></table></div></section>';
     $selected=filter_var($_GET['client'] ?? null,FILTER_VALIDATE_INT);

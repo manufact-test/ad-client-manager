@@ -212,10 +212,13 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           .analytics-chart-row{grid-template-columns:60px minmax(90px,1fr);gap:8px}
           .analytics-chart-label{grid-column:2;justify-self:end}
           .analytics-filter label{flex:1;min-width:120px}}
+.ledger-row{padding:13px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:15px;border-top:1px solid #e8e7f4}.ledger-row:nth-of-type(even){background:#faf9ff}.ledger-main{flex:1;min-width:0}.ledger-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.ledger-actions form{margin:0}.ledger-actions button,.ledger-actions .btn{font-size:12px;padding:7px 10px;min-width:0}.ledger-edit{width:100%}.ledger-edit form{min-width:min(320px,100%)}.ledger-paid{margin-top:12px;padding-top:9px;border-top:1px solid #dad6f7}.status-cell{min-width:150px}.table-scroll tbody tr:nth-child(even) td{background:#f7f6fe}.client-summary-header{display:flex;align-items:center;justify-content:space-between;gap:12px}.ledger-panel summary{cursor:pointer}.ledger-money-toggle:not(:has(input[name=has_amount]:checked)) .ledger-money-fields{display:none}@media(max-width:680px){.ledger-row{flex-direction:column}.ledger-actions{width:100%}}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script>
 (function(){
   "use strict";
   document.addEventListener("click",function(event){
+    var danger=event.target.closest("[data-confirm]");
+    if(danger&&!window.confirm(danger.getAttribute("data-confirm"))){event.preventDefault();return;}
     var toggle=event.target.closest("[data-task-toggle]");
     var close=event.target.closest("[data-task-close]");
     if(!toggle&&!close)return;
@@ -258,6 +261,7 @@ function adc_flash(string $message): void {
 require __DIR__ . '/app/finance.php';
 require __DIR__ . '/app/export.php';
 require __DIR__ . '/app/workflow.php';
+require __DIR__ . '/app/ledger.php';
 require __DIR__ . '/app/documents.php';
 require __DIR__ . '/app/reminders.php';
 require __DIR__ . '/app/import.php';
@@ -303,6 +307,9 @@ try {
  * MySQL schema. Never attempt implicit DDL on login or ordinary page requests.
  */
 function adc_staging_schema_upgrade_needed(PDO $db): bool {
+    foreach (['client_entries','engagement_terms'] as $table) {
+        if (!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()) return true;
+    }
     foreach ([
         ['payment_events', 'submission_key', 'uq_payment_submission'],
         ['billing_periods', 'creation_key', 'uq_period_creation_key'],
@@ -516,6 +523,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Connected workflow actions share the established authentication and CSRF gates.
+        if (adc_ledger_action($db, $current, $action)) {
+            adc_redirect();
+        }
         if (adc_w_action($db, $current, $action)) {
             adc_redirect();
         }
@@ -719,7 +729,7 @@ if ($schemaUpgradeRequired) {
         $eligible = adc_staging_schema_upgrade_eligible($db);
         $body = '<section class="card narrow"><h1>Обновление тестовой базы</h1>'
             . $alert
-            . '<p>Новая версия приложения требует добавить два защищающих от повторов поля. '
+            . '<p>Новая версия добавляет учёт документов и оплат по отдельным записям и историю условий. '
             . 'Директор, сотрудники, тестовые клиенты, задачи и финансовые записи сохраняются.</p>'
             . '<p><strong>Сейчас в тестовой базе:</strong> '
             . adc_h(implode('; ', adc_staging_existing_record_counts($db))) . '.</p>'
