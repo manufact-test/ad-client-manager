@@ -160,7 +160,51 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           .customer-profile .item{flex-direction:row;align-items:center}
           .customer-profile .summary-metric{padding:11px}
           .customer-profile .summary-metric strong{font-size:16px}}
-</style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main></body></html>';
+
+        [hidden]{display:none!important}
+        .task-month .task-day{border:0;border-radius:10px;padding:13px 14px;margin:10px 0}
+        .task-month .task-day:nth-of-type(odd){background:#f6f7fd}
+        .task-month .task-day:nth-of-type(even){background:#edecfa}
+        .task-day>h3{font-size:14px;color:#373b62;padding:0 0 10px}
+        .task-day .task-row{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:8px 2px}
+        .task-day .task-row>.task-title{flex:1;line-height:1.35}
+        .task-day .task-actions{align-items:center;gap:10px;flex-shrink:0}
+        .task-day .task-actions form{display:flex;align-items:center;margin:0}
+        .task-day .task-actions button{height:40px;min-width:85px;display:inline-flex;align-items:center;justify-content:center}
+        .task-inline-edit{margin:8px 0 14px;border:1px solid #d9d6f4;background:#fff}
+        .task-inline-edit h3{margin:0 0 12px}
+        .task-edit-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0 18px}
+        .task-edit-controls button{min-width:98px;min-height:40px}
+        .task-delete{padding-top:14px;border-top:1px solid #edeaf9}
+        .task-delete button{background:#fff;color:#6c3345;border:1px solid #e1c2c9}
+        .task-delete button:hover{background:#fff1f2;color:#9d2e47}
+        .task-month>h2{margin-bottom:10px}
+        input[type="date"]{min-height:44px;padding-right:12px}
+        input[type="date"]::-webkit-calendar-picker-indicator{opacity:1;margin:0 1px 0 0;padding:7px;border-radius:7px;background-color:#ece8ff;cursor:pointer}
+        .source-choice .conditional-other{margin-top:7px}
+        @media(max-width:640px){
+          .task-day .task-row{flex-direction:column;align-items:stretch;gap:10px}
+          .task-day .task-actions{justify-content:flex-end;align-self:stretch}
+          .task-day .task-actions button{min-width:84px}
+        }
+</style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script>
+(function(){
+  "use strict";
+  document.addEventListener("click",function(event){
+    var toggle=event.target.closest("[data-task-toggle]");
+    var close=event.target.closest("[data-task-close]");
+    if(!toggle&&!close)return;
+    var id=(toggle||close).getAttribute(toggle?"data-task-toggle":"data-task-close");
+    var target=document.getElementById(id);
+    if(!target)return;
+    var opened=toggle?!target.hidden:false;
+    target.hidden=!opened;
+    var button=document.querySelector('[data-task-toggle="'+id+'"]');
+    if(button)button.setAttribute("aria-expanded",opened?"true":"false");
+    if(opened){var title=target.querySelector('input[name="title"]');if(title)title.focus({preventScroll:true});}
+  });
+})();
+</script></body></html>';
     exit;
 }
 
