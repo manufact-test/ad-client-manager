@@ -3,7 +3,18 @@ name: Verify and deploy Ad Client Manager
 on:
   push:
     branches: [main]
+  # Manual verification is safe from any branch. Publication also requires
+  # selecting main and explicitly confirming the release below.
   workflow_dispatch:
+    inputs:
+      confirm_release:
+        description: 'Approve publishing verified main to deploy (only after all release gates)'
+        required: true
+        type: choice
+        options:
+          - 'NO'
+          - 'YES'
+        default: 'NO'
   pull_request:
     branches: [main]
 
@@ -34,6 +45,9 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Enforce release trigger and file promotion policy
+        run: python3 tests/release_policy.py
 
       - name: Check PHP version
         run: |
@@ -107,6 +121,8 @@ jobs:
           ADC_HTTP_TEST_FIXTURE: isolated-github-actions
         run: |
           php tests/http_fixture.php init
+          php -r 'require "app/core.php"; require "app/documents.php"; adc_doc_ensure_directory();'
+          php scripts/release_preflight.php --verify-pdfs
           php -S 127.0.0.1:8085 -t . >/tmp/adclients-http-e2e.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true; php tests/http_fixture.php cleanup' EXIT
@@ -149,9 +165,12 @@ jobs:
           TEST_DB_NAME=adclients_restore_test ADC_RESTORE_PDF_DIR="$tempdir/restored-pdfs" php tests/restore_fixture.php verify
 
   deploy:
-    name: Publish verified server application files only
+    name: Manual release of verified application files only
     needs: verify
-    if: github.event_name == 'push'
+    # IMPORTANT: main push/PR/manual runs without YES MUST NOT promote files.
+    # The deploy branch is only updated by an explicit manual confirmation
+    # from main, after the operator has passed docs/RELEASE.md release gates.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirm_release == 'YES'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
