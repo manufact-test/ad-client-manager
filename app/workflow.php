@@ -132,7 +132,17 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $title = adc_validate_task_title(adc_input('title'));
         $due = adc_w_date(adc_input('due_date'));
         $repeat = isset($_POST['repeat_monthly']) ? 1 : 0;
-        $anchor = $repeat ? (int)substr($due, 8, 2) : null;
+        $existingStmt=$db->prepare('SELECT due_date,repeat_monthly,anchor_day FROM personal_tasks
+            WHERE id=? AND user_id=? AND is_done=0');
+        $existingStmt->execute([$taskId,$actor]);
+        $existing=$existingStmt->fetch();
+        if (!$existing) {
+            throw new RuntimeException('Задача не найдена или недоступна.');
+        }
+        // Editing only the title must not lose an original 29–31 anchor
+        // when a task happens to be scheduled in a shorter month.
+        $sameRecurring=(int)$existing['repeat_monthly']===1 && $existing['due_date']===$due;
+        $anchor=$repeat ? ($sameRecurring ? (int)$existing['anchor_day'] : (int)substr($due,8,2)) : null;
         $stmt = $db->prepare('UPDATE personal_tasks SET title=?, due_date=?, repeat_monthly=?, anchor_day=?, is_done=0, completed_at=NULL
             WHERE id=? AND user_id=? AND is_done=0');
         $stmt->execute([$title, $due, $repeat, $anchor, $taskId, $actor]);
