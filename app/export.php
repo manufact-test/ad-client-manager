@@ -9,6 +9,9 @@ declare(strict_types=1);
 function adc_export_safe_cell(string $value): string {
     // Excel, LibreOffice and some CSV consumers evaluate leading = + - @
     // or leading control/whitespace followed by formula operators.
+    if (preg_match('/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,2})?$/D', $value)) {
+        return $value; // Valid numeric values, including negative adjustments.
+    }
     if (preg_match('/^[\x00-\x20]*[=+\-@]/u', $value) ||
         preg_match('/^[\t\r\n]/', $value)) {
         return "'" . $value;
@@ -94,19 +97,19 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
         'Вид операции','Категория','Работа/примечание','Сумма','Валюта','ID операции']];
     $stmt=$db->prepare('SELECT e.id engagement_id,p.id period_id,p.period_start,p.period_end,
         ch.id operation_id,ch.category,ch.label,ch.amount,ch.currency,ch.is_void,
-        "charge" entry_type,p.period_start occurred_on
-        FROM charge_lines ch JOIN billing_periods p ON p.id=ch.period_id
-        JOIN engagements e ON e.id=p.engagement_id
-        WHERE e.client_id=? AND ch.client_id=?
+        "charge" entry_type,COALESCE(p.period_start,DATE(ch.created_at)) occurred_on
+        FROM charge_lines ch LEFT JOIN billing_periods p ON p.id=ch.period_id
+        LEFT JOIN engagements e ON e.id=p.engagement_id
+        WHERE ch.client_id=?
         UNION ALL
         SELECT e.id engagement_id,p.id period_id,p.period_start,p.period_end,
         pe.id operation_id,pe.event_type category,pe.note label,pe.amount,pe.currency,
         0 is_void,"payment" entry_type,pe.occurred_on
-        FROM payment_events pe JOIN billing_periods p ON p.id=pe.period_id
-        JOIN engagements e ON e.id=p.engagement_id
-        WHERE e.client_id=? AND pe.client_id=?
+        FROM payment_events pe LEFT JOIN billing_periods p ON p.id=pe.period_id
+        LEFT JOIN engagements e ON e.id=p.engagement_id
+        WHERE pe.client_id=?
         ORDER BY occurred_on,entry_type,operation_id');
-    $stmt->execute([$clientId,$clientId,$clientId,$clientId]);
+    $stmt->execute([$clientId,$clientId]);
     foreach ($stmt as $line) {
         $kind=$line['entry_type']==='charge'
             ? ((int)$line['is_void']===1?'Начисление аннулировано':'Начисление')
@@ -116,7 +119,7 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
         // billed amount in balance reports but original amount remains audit.
         $rows[]=[(int)$clientId,(string)$client['name'],(int)$client['is_demo'],
             (int)$line['engagement_id'],(int)$line['period_id'],
-            (string)$line['period_start'],(string)$line['period_end'],
+            (string)($line['period_start']??''),(string)($line['period_end']??''),
             (string)$line['occurred_on'],$kind,
             (string)$line['category'],(string)($line['label']??''),
             adc_export_decimal($amount),(string)$line['currency'],(int)$line['operation_id']];
