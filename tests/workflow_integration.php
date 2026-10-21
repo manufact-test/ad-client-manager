@@ -303,6 +303,10 @@ check((int)$db->query("SELECT anchor_day FROM personal_tasks WHERE id=$clampedTa
 
 
 $key=str_repeat('b',48).'.pdf';
+// This MySQL-only integration creates a real private fixture file so that
+// handover integrity checks exercise actual bytes. Leave no storage directory
+// behind: the next HTTP fixture refuses an inherited private directory.
+$fixtureCreatedDir=!file_exists(adc_doc_directory());
 adc_doc_ensure_directory();
 $fixtureBytes="%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n";
 $fixturePath=adc_doc_path($key);
@@ -353,4 +357,10 @@ run_action($db,$director,'delete_demo',['client_id'=>(string)$demoId]);
 check((int)$db->query("SELECT COUNT(*) FROM charge_lines WHERE client_id=$demoId")->fetchColumn()===0,'Demo charge cascades');
 check((int)$db->query("SELECT COUNT(*) FROM payment_events WHERE client_id=$demoId")->fetchColumn()===0,'Demo payments cascade');
 check((int)$db->query("SELECT COUNT(*) FROM document_bundles WHERE client_id=$demoId")->fetchColumn()===0,'Demo PDF metadata cascades');
+check(!file_exists($fixturePath),'Demo PDF fixture bytes removed from private storage');
+if ($fixtureCreatedDir) {
+    $remaining=scandir(adc_doc_directory());
+    check($remaining!==false && count($remaining)===2,'No leaked private fixture files');
+    check(rmdir(adc_doc_directory()),'Clean up CI-only storage directory');
+}
 echo "Integrated client workflow passed: clients, finance, demo, archive, permissions, tasks\n";
