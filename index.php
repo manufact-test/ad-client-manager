@@ -224,9 +224,9 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     if(!target)return;
     var opened=toggle?!target.hidden:false;
     target.hidden=!opened;
-    var button=document.querySelector('[data-task-toggle="'+id+'"]');
+    var button=document.querySelector("[data-task-toggle=\""+id+"\"]");
     if(button)button.setAttribute("aria-expanded",opened?"true":"false");
-    if(opened){var title=target.querySelector('input[name="title"]');if(title)title.focus({preventScroll:true});}
+    if(opened){var title=target.querySelector("input[name=\"title\"]");if(title)title.focus({preventScroll:true});}
   });
 })();
 </script></body></html>';
