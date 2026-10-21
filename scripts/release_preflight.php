@@ -58,11 +58,12 @@ try {
 $expected = [
     'users','login_attempts','audit_events','personal_tasks',
     'personal_task_completions','clients','engagements','billing_periods',
-    'document_bundles','charge_lines','payment_events'
+    'document_bundles','charge_lines','payment_events',
+    'client_entries','engagement_terms'
 ];
 $actual = $db->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
 $missing = array_diff($expected,$actual);
-$check(!$missing,'All 11 required tables exist');
+$check(!$missing,'All 13 required tables exist');
 if ($missing) exit(1);
 
 foreach ([
@@ -74,6 +75,17 @@ foreach ([
     $idx=$db->query("SHOW INDEX FROM `$table` WHERE Key_name='$index'")->fetch();
     $check($cols && $cols['Null']==='YES' && $idx && (int)$idx['Non_unique']===0 &&
         $idx['Column_name']===$column, "Required schema/index: $table");
+}
+// Verify that the new entry schema is genuinely compatible, not only table names.
+$requiredColumns = [
+    'client_entries'=>['client_id','document_id','entry_kind','amount','currency',
+                       'category','sent_at','received_at','is_void'],
+    'engagement_terms'=>['engagement_id','effective_on','started_on','billing_day',
+                         'payment_mode','currency'],
+];
+foreach ($requiredColumns as $table=>$columns) {
+    $actualColumns=$db->query("SHOW COLUMNS FROM `$table`")->fetchAll(PDO::FETCH_COLUMN);
+    $check(!array_diff($columns,$actualColumns),"$table mandatory columns");
 }
 $hasDirector=$db->query('SELECT COUNT(*) FROM users WHERE role="director" AND is_active=1')
     ->fetchColumn();

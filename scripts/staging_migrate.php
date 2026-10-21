@@ -78,8 +78,21 @@ try {
         }
         return $ready;
     };
+    $newTables=['client_entries','engagement_terms'];
+    $inspectTables=static function () use ($db,$newTables): bool {
+        $ready=true;
+        $present=$db->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($newTables as $table) {
+            $ok=in_array($table,$present,true);
+            echo ($ok ? '[PASS] ' : '[PENDING] ')."$table: required new workflow table\n";
+            if (!$ok) $ready=false;
+        }
+        return $ready;
+    };
     echo "Ad Client Manager test-site schema inspection (no private values):\n";
     $ready = $inspect();
+    $newReady=$inspectTables();
+    $ready=$ready && $newReady;
     if ($mode === '--plan') {
         echo $ready ? "PLAN: schema already compatible (read-only).\n" :
             "PLAN: schema update is required; make and verify SQL backup before --apply.\n";
@@ -88,7 +101,9 @@ try {
     // Schema DDL can commit implicitly in MySQL. A complete SQL backup is
     // mandatory before this operation; there is no pretend-transaction rollback.
     adc_schema($db);
-    if (!$inspect()) {
+    $oldReady=$inspect();
+    $newReady=$inspectTables();
+    if (!$oldReady || !$newReady) {
         fwrite(STDERR, "FAILED: schema was not fully migrated. Restore test backup.\n");
         exit(1);
     }
