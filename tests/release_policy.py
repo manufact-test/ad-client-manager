@@ -30,4 +30,13 @@ assert "git restore --source=origin/main --staged --worktree -- index.php .htacc
 )
 assert (root / "scripts/release_preflight.php").is_file()
 assert (root / "scripts/.htaccess").is_file()
+# Hostinger keeps a .git directory inside public_html. The Apache rule must
+# deny nested paths, not just FilesMatch for a literal ".git" filename.
+htaccess = (root / ".htaccess").read_text(encoding="utf-8")
+assert "RewriteEngine On" in htaccess, "Git directory protection requires rewrite rules"
+assert re.search(r"RewriteRule\s+\^\(\?:\\\.git\|\\\.svn\|\\\.hg\)", htaccess), (
+    "Deny nested Git metadata paths under public_html"
+)
+assert "- [F,L,NC]" in htaccess, "Git metadata RewriteRule must return 403"
+assert "Options -Indexes" in htaccess, "Directory browsing must remain disabled"
 print("Release policy passed: main push verifies only; explicit manual YES on main publishes")
