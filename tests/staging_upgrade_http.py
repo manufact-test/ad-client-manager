@@ -43,7 +43,7 @@ check(status==200 and "Вход" in body, "Login page unavailable")
 status,body,_=request({"csrf":csrf(body),"action":"login",
                        "email":"staging-director@example.test",
                        "password":"ci-fixture-upgrade-123456"})
-check(status==302, "Director could not log in on old schema")
+check(status==303, "Director could not log in on old schema")
 status,body,_=request()
 check(status==200 and "Обновление тестовой базы" in body,
       "Director upgrade gate not visible")
@@ -54,7 +54,7 @@ check(status==200 and "резервную копию" in body.lower(),
       "Missing backup consent unexpectedly allowed schema changes")
 status,body,_=request({"csrf":csrf(body),"action":"staging_upgrade_schema",
                        "backup_confirmed":"YES"})
-check(status==302, "Approved test-only migration failed")
+check(status==303, "Approved test-only migration failed")
 status,body,_=request()
 check(status==200 and "Обновление тестовой базы" not in body,
       "Upgrade screen remains after successful migration")
