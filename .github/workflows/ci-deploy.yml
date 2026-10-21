@@ -55,6 +55,9 @@ jobs:
       - name: Test recurrence and demo filter without database
         run: php tests/smoke.php
 
+      - name: Test private PDF validation and storage boundaries
+        run: php tests/document_smoke.php
+
       - name: Test MySQL migrations and demo finance exclusion
         env:
           TEST_DB_HOST: 127.0.0.1
