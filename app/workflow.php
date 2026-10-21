@@ -752,7 +752,13 @@ function adc_w_team(PDO $db, array $user): string {
             if ($member['role'] === 'employee' && (int)$member['is_active'] === 1) {
                 $html .= adc_w_form_start('deactivate_employee') .
                     adc_w_hidden('employee_id',(int)$member['id']) .
-                    '<button type="submit" class="secondary">Отключить</button></form>';
+                    '<button type="submit" class="secondary">Отключить</button></form>' .
+                '<details><summary>Выдать новый временный пароль</summary>' .
+                adc_w_form_start('reset_employee_password') .
+                adc_w_hidden('employee_id',(int)$member['id']) .
+                adc_w_field('Новый временный пароль','employee_new_password','','password',
+                    'required minlength="12" maxlength="1024" autocomplete="new-password"') .
+                '<button type="submit">Сбросить пароль сотрудника</button></form></details>';
             }
             $html .= '</div>';
         }
