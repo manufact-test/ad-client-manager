@@ -212,6 +212,10 @@ function adc_doc_download(PDO $db, array $user): never {
         http_response_code(404);
         exit('Документ не найден.');
     }
+    if ($user['role'] !== 'director' && adc_doc_requires_replacement($db,(int)$docId)) {
+        http_response_code(409);
+        exit('Документ устарел. Ожидается новая версия от директора.');
+    }
     $path=adc_doc_path($doc['storage_key']);
     if (!is_file($path) || !is_readable($path)) {
         http_response_code(404);
@@ -247,7 +251,10 @@ function adc_doc_panel(PDO $db, array $user, int $clientId): string {
             ($stale ? 'Требуется замена PDF после изменения суммы' :
               ($doc['transferred_at'] ? 'Передано '.adc_h($doc['transferred_at']) : 'Ожидает передачи')) .
             ($doc['transfer_due_on'] ? ' · Передать до '.adc_h($doc['transfer_due_on']) : '') .
-            '</p></div><div class="actions"><a class="btn secondary" href="/?download='.$id.'">Скачать</a>';
+            '</p></div><div class="actions">';
+        if (!$stale || $user['role']==='director') {
+            $html.='<a class="btn secondary" href="/?download='.$id.'">Скачать</a>';
+        }
         if (!$doc['transferred_at'] && !$stale) {
             $html.=adc_w_form_start('transfer_document').adc_w_hidden('client_id',$clientId).
                 adc_w_hidden('document_id',$id).'<button type="submit">Передано</button></form>';
