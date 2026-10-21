@@ -9,10 +9,12 @@ header('Cache-Control: private, no-store, max-age=0');
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('Referrer-Policy: no-referrer');
-header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+$adcJsNonce=base64_encode(random_bytes(24));
+header("Content-Security-Policy: default-src 'none'; script-src 'nonce-" . $adcJsNonce . "'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
 adc_session();
 
 function adc_page(string $title, string $body, ?array $user = null): never {
+    global $adcJsNonce;
     $name = $user ? adc_h((string) $user['display_name']) : '';
     $menu = '';
     if ($user) {
@@ -212,10 +214,29 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           .analytics-chart-row{grid-template-columns:60px minmax(90px,1fr);gap:8px}
           .analytics-chart-label{grid-column:2;justify-self:end}
           .analytics-filter label{flex:1;min-width:120px}}
-</style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script>
+.ledger-row{padding:13px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:15px;border-top:1px solid #e8e7f4}.ledger-row:nth-of-type(even){background:#faf9ff}.ledger-main{flex:1;min-width:0}.ledger-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.ledger-actions form{margin:0}.ledger-actions button,.ledger-actions .btn{font-size:12px;padding:7px 10px;min-width:0}.ledger-edit{width:100%}.ledger-edit form{min-width:min(320px,100%)}.ledger-paid{margin-top:12px;padding-top:9px;border-top:1px solid #dad6f7}.status-cell{min-width:150px}.table-scroll th:nth-child(3),.table-scroll td:nth-child(3){text-align:right}.table-scroll tbody tr:nth-child(even) td{background:#f7f6fe}.client-summary-header{display:flex;align-items:center;justify-content:space-between;gap:12px}.ledger-panel summary{cursor:pointer}.ledger-money-toggle:not(:has(input[name=has_amount]:checked)) .ledger-money-fields{display:none}@media(max-width:680px){.ledger-row{flex-direction:column}.ledger-actions{width:100%}}
+
+        /* Accessible native backing controls with consistently purple, custom pickers. */
+        .ac-select{position:relative;min-width:0}.ac-select>select{position:absolute!important;opacity:0!important;width:1px!important;height:1px!important;pointer-events:none!important}
+        .ac-trigger{display:flex;width:100%;min-height:43px;align-items:center;justify-content:space-between;text-align:left;padding:10px 12px;background:#fff;color:#1a2242;border:1px solid #ced1e6;border-radius:8px;cursor:pointer;font-size:inherit;font-weight:500}
+        .ac-trigger:hover{background:#f8f6ff;border-color:#8c83df;color:#211954}.ac-trigger::after{content:"";width:8px;height:8px;border-right:2px solid #5143bb;border-bottom:2px solid #5143bb;transform:rotate(45deg);margin-left:10px;margin-top:-5px}
+        .ac-menu,.ac-calendar{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:30;background:#fff;border:1px solid #ddd8fc;border-radius:10px;box-shadow:0 12px 30px #29205b30;padding:6px;max-height:240px;overflow-y:auto}
+        .ac-menu[hidden],.ac-calendar[hidden]{display:none}.ac-option{width:100%;display:block;text-align:left;border:0;border-radius:6px;padding:9px 10px;background:transparent;color:#202344;font-weight:500;white-space:normal;cursor:pointer}
+        .ac-option:hover,.ac-option[aria-selected=true]{background:#ebe8ff;color:#3021a4}
+        .ac-date-wrap{position:relative;display:flex;align-items:stretch;gap:5px}.ac-date-wrap>input{flex:1;min-width:0}.ac-date-btn{flex:none;border:1px solid #c5beea;border-radius:8px;background:#efedff;color:#4033a7;min-width:40px;font-size:18px}
+        .ac-calendar{right:auto;width:290px;max-width:min(320px,90vw);max-height:none;overflow:visible;padding:12px}
+        .ac-cal-head{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:8px}.ac-cal-head button{background:#efedff;color:#4033a7;border:0;min-width:30px;padding:5px;border-radius:6px}.ac-cal-head span{font-weight:700;font-size:13px}
+        .ac-days{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}.ac-days button{background:#fff;color:#292348;border:0;border-radius:7px;height:34px;padding:4px;font-size:12px}.ac-days button:hover,.ac-days button.is-selected{background:#4d43c2;color:#fff}.ac-days button.is-today{outline:1px solid #4d43c2}
+        .ac-days small{text-align:center;padding:4px 0;color:#69648b;font-size:11px}
+        .ac-calendar .ac-today{width:100%;margin-top:8px;padding:7px;background:#eeecff;color:#4033a7;font-size:12px}
+
+.card-payment-switch{margin-bottom:10px}.doc-upload-form:has(input[name=is_card]:checked) .document-only{display:none}.doc-upload-form:has(input[name=is_card]:checked) .ledger-money-fields{display:block!important}.doc-upload-form:has(input[name=is_card]:checked) .ledger-money-toggle>label.check{display:none}
+</style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script nonce="' . adc_h($adcJsNonce) . '">
 (function(){
   "use strict";
   document.addEventListener("click",function(event){
+    var danger=event.target.closest("[data-confirm]");
+    if(danger&&!window.confirm(danger.getAttribute("data-confirm"))){event.preventDefault();return;}
     var toggle=event.target.closest("[data-task-toggle]");
     var close=event.target.closest("[data-task-close]");
     if(!toggle&&!close)return;
@@ -227,6 +248,112 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var button=document.querySelector("[data-task-toggle=\""+id+"\"]");
     if(button)button.setAttribute("aria-expanded",opened?"true":"false");
     if(opened){var title=target.querySelector("input[name=\"title\"]");if(title)title.focus({preventScroll:true});}
+  });
+
+  document.addEventListener("DOMContentLoaded",function(){
+    function closeMenus(except){
+      document.querySelectorAll(".ac-menu,.ac-calendar").forEach(function(p){
+        if(p!==except)p.hidden=true;
+      });
+    }
+    document.querySelectorAll("select").forEach(function(sel){
+      if(sel.closest(".ac-select")||sel.multiple)return;
+      var root=document.createElement("div");root.className="ac-select";
+      sel.parentNode.insertBefore(root,sel);root.appendChild(sel);
+      var trigger=document.createElement("button");trigger.type="button";trigger.className="ac-trigger";
+      trigger.setAttribute("aria-haspopup","listbox");
+      var menu=document.createElement("div");menu.className="ac-menu";menu.hidden=true;
+      menu.setAttribute("role","listbox");
+      root.appendChild(trigger);root.appendChild(menu);sel.tabIndex=-1;
+      function refresh(){
+        var opt=sel.selectedOptions[0];
+        trigger.textContent=opt?opt.textContent:"Выберите";
+        menu.textContent="";
+        Array.from(sel.options).forEach(function(o){
+          var item=document.createElement("button");item.type="button";item.className="ac-option";
+          item.setAttribute("role","option");item.setAttribute("aria-selected",o.selected?"true":"false");
+          item.textContent=o.textContent;item.disabled=o.disabled;
+          item.addEventListener("click",function(){
+            sel.value=o.value;sel.dispatchEvent(new Event("change",{bubbles:true}));
+            closeMenus();trigger.focus();
+          });
+          menu.appendChild(item);
+        });
+      }
+      refresh();sel.addEventListener("change",refresh);
+      trigger.addEventListener("click",function(){
+        var hidden=menu.hidden;closeMenus();
+        menu.hidden=!hidden;if(hidden){var active=menu.querySelector("[aria-selected=true]");if(active)active.scrollIntoView({block:"nearest"});}
+      });
+      trigger.addEventListener("keydown",function(e){
+        if(e.key==="ArrowDown"||e.key==="Enter"||e.key===" "){e.preventDefault();menu.hidden=false;closeMenus(menu);menu.querySelector("[aria-selected=true]")?.focus();}
+      });
+      menu.addEventListener("keydown",function(e){
+        var items=Array.from(menu.querySelectorAll(".ac-option:not(:disabled)"));
+        var n=items.indexOf(document.activeElement);
+        if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();items[(n+(e.key==="ArrowDown"?1:items.length-1))%items.length]?.focus();}
+        if(e.key==="Escape"){menu.hidden=true;trigger.focus();}
+      });
+    });
+    var monthNames=["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+    function pad(n){return String(n).padStart(2,"0");}
+    function iso(y,m,d){return y+"-"+pad(m)+"-"+pad(d);}
+    document.querySelectorAll("input[type=date]").forEach(function(input){
+      var wrap=document.createElement("div");wrap.className="ac-date-wrap";
+      input.parentNode.insertBefore(wrap,input);wrap.appendChild(input);
+      input.type="text";input.placeholder="ГГГГ-ММ-ДД";input.maxLength=10;
+      input.pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}";
+      input.autocomplete="off";
+      var trigger=document.createElement("button");trigger.type="button";trigger.className="ac-date-btn";
+      trigger.textContent="▦";trigger.setAttribute("aria-label","Выбрать дату");
+      var picker=document.createElement("div");picker.className="ac-calendar";picker.hidden=true;
+      wrap.appendChild(trigger);wrap.appendChild(picker);
+      var v=/^\d{4}-\d{2}-\d{2}$/.test(input.value)?input.value:"";
+      var selected=v?new Date(Number(v.slice(0,4)),Number(v.slice(5,7))-1,Number(v.slice(8,10))):new Date();
+      var year=selected.getFullYear(),month=selected.getMonth();
+      function draw(){
+        picker.textContent="";
+        var head=document.createElement("div");head.className="ac-cal-head";
+        var prev=document.createElement("button");prev.type="button";prev.textContent="‹";
+        var title=document.createElement("span");title.textContent=monthNames[month]+" "+year;
+        var next=document.createElement("button");next.type="button";next.textContent="›";
+        function change(n){month+=n;if(month<0){month=11;year--;}if(month>11){month=0;year++;}draw();}
+        prev.onclick=function(){change(-1);};next.onclick=function(){change(1);};
+        head.append(prev,title,next);picker.appendChild(head);
+        var days=document.createElement("div");days.className="ac-days";
+        ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].forEach(function(w){var l=document.createElement("small");l.textContent=w;days.appendChild(l);});
+        var begin=(new Date(year,month,1).getDay()+6)%7;
+        for(var i=0;i<begin;i++)days.appendChild(document.createElement("span"));
+        var count=new Date(year,month+1,0).getDate();
+        var today=new Date();
+        for(var d=1;d<=count;d++){
+          let day=d;
+          var b=document.createElement("button");b.type="button";b.textContent=String(day);
+          var value=iso(year,month+1,day);
+          if(value===input.value)b.classList.add("is-selected");
+          if(value===iso(today.getFullYear(),today.getMonth()+1,today.getDate()))b.classList.add("is-today");
+          b.onclick=function(){input.value=value;input.dispatchEvent(new Event("change",{bubbles:true}));closeMenus();};
+          days.appendChild(b);
+        }
+        picker.appendChild(days);
+        var todayButton=document.createElement("button");todayButton.type="button";
+        todayButton.className="ac-today";todayButton.textContent="Сегодня";
+        todayButton.onclick=function(){
+          var d=new Date();input.value=iso(d.getFullYear(),d.getMonth()+1,d.getDate());
+          input.dispatchEvent(new Event("change",{bubbles:true}));closeMenus();
+        };
+        picker.appendChild(todayButton);
+      }
+      trigger.onclick=function(){
+        var opening=picker.hidden;closeMenus();if(opening){var parsed=/^\d{4}-\d{2}-\d{2}$/.test(input.value)?new Date(Number(input.value.slice(0,4)),Number(input.value.slice(5,7))-1,Number(input.value.slice(8,10))):new Date();year=parsed.getFullYear();month=parsed.getMonth();draw();}
+        picker.hidden=!opening;
+      };
+      input.addEventListener("keydown",function(e){if(e.key==="ArrowDown"){e.preventDefault();trigger.click();}});
+    });
+    document.addEventListener("click",function(e){
+      if(!e.target.closest(".ac-select,.ac-date-wrap"))closeMenus();
+    });
+    document.addEventListener("keydown",function(e){if(e.key==="Escape")closeMenus();});
   });
 })();
 </script></body></html>';
@@ -258,6 +385,7 @@ function adc_flash(string $message): void {
 require __DIR__ . '/app/finance.php';
 require __DIR__ . '/app/export.php';
 require __DIR__ . '/app/workflow.php';
+require __DIR__ . '/app/ledger.php';
 require __DIR__ . '/app/documents.php';
 require __DIR__ . '/app/reminders.php';
 require __DIR__ . '/app/import.php';
@@ -303,6 +431,9 @@ try {
  * MySQL schema. Never attempt implicit DDL on login or ordinary page requests.
  */
 function adc_staging_schema_upgrade_needed(PDO $db): bool {
+    foreach (['client_entries','engagement_terms'] as $table) {
+        if (!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()) return true;
+    }
     foreach ([
         ['payment_events', 'submission_key', 'uq_payment_submission'],
         ['billing_periods', 'creation_key', 'uq_period_creation_key'],
@@ -516,6 +647,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Connected workflow actions share the established authentication and CSRF gates.
+        if (adc_ledger_action($db, $current, $action)) {
+            adc_redirect();
+        }
         if (adc_w_action($db, $current, $action)) {
             adc_redirect();
         }
@@ -602,7 +736,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             adc_audit($db, (int)$current['id'], 'create_employee', 'user', (int)$db->lastInsertId());
             $db->commit();
             adc_flash('Сотрудник добавлен. Передайте временный пароль безопасным способом.');
-            adc_redirect();
+            adc_redirect('?view=team');
         }
 
         if ($action === 'reset_employee_password') {
@@ -640,7 +774,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             adc_audit($db, (int)$current['id'], 'deactivate_employee', 'user', (int)$employeeId);
             $db->commit();
             adc_flash('Доступ сотрудника отключён.');
-            adc_redirect();
+            adc_redirect('?view=team');
         }
 
         if ($action === 'activate_employee') {
@@ -719,8 +853,8 @@ if ($schemaUpgradeRequired) {
         $eligible = adc_staging_schema_upgrade_eligible($db);
         $body = '<section class="card narrow"><h1>Обновление тестовой базы</h1>'
             . $alert
-            . '<p>Новая версия приложения требует добавить два защищающих от повторов поля. '
-            . 'Директор, сотрудники, тестовые клиенты, задачи и финансовые записи сохраняются.</p>'
+            . '<p>Новая версия добавляет учёт документов и оплат по отдельным записям и историю условий. '
+            . 'Директор, сотрудники, клиенты, задачи и существующие документы сохраняются. Новые записи учитываются отдельно от старых.</p>'
             . '<p><strong>Сейчас в тестовой базе:</strong> '
             . adc_h(implode('; ', adc_staging_existing_record_counts($db))) . '.</p>'
             . '<p><strong>Перед подтверждением:</strong> убедитесь, что в Hostinger '
