@@ -6,6 +6,17 @@ declare(strict_types=1);
  * decimal aggregates to a float before doing financial arithmetic.
  * The largest single value allowed by the database fits signed 64-bit cents.
  */
+function adc_source_label(string $source): string {
+    return [
+        'advertising'=>'Реклама',
+        'referral'=>'Рекомендация',
+        'old_contact'=>'Старые контакты',
+        'inbound'=>'Сам обратился',
+        'other'=>'Другое',
+        'unknown'=>'Не указано'
+    ][$source] ?? $source;
+}
+
 function adc_fin_minor(string $amount): int {
     if (!preg_match('/^-?[0-9]{1,16}(?:\.[0-9]{1,2})?$/D', $amount)) {
         throw new InvalidArgumentException('Некорректная денежная сумма.');
@@ -136,7 +147,7 @@ function adc_fin_render(PDO $db): string {
     foreach ($db->query('SELECT COALESCE(NULLIF(source_kind,""),"unknown") kind,COUNT(*) qty
         FROM clients c WHERE '.adc_demo_analytics_predicate('c').'
         GROUP BY source_kind ORDER BY qty DESC') as $row) {
-        $html.='<div class="item"><span>'.adc_h($row['kind']).'</span><strong>'.(int)$row['qty'].'</strong></div>';
+        $html.='<div class="item"><span>'.adc_h(adc_source_label((string)$row['kind'])).'</span><strong>'.(int)$row['qty'].'</strong></div>';
     }
     $html.='</section><section class="card"><h2>LTV и баланс по клиентам</h2><table><thead><tr><th>Клиент</th><th>Валюта</th><th>Начислено (LTV)</th><th>Получено нетто</th><th>Баланс</th></tr></thead><tbody>';
     $sql='SELECT c.name,t.currency,
