@@ -58,7 +58,7 @@ try {
     fin_assert($m['CHF|2026-10']['paid']===29,'Monthly received net 0.29');
     $_GET['currency']='CHF';
     $html=adc_fin_render($db);
-    fin_assert(substr_count($html,'class="table-scroll"')===0 &&
+    fin_assert(substr_count($html,'class="table-scroll"')===1 &&
         str_contains($html,'class="table-scroll" tabindex="0"'),
         'The new dashboard uses one keyboard-scrollable finance table');
     fin_assert(str_contains($html,'class="analytics-kpis"') &&
