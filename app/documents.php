@@ -165,6 +165,9 @@ function adc_doc_action(PDO $db, array $user, string $action): bool {
     $due=adc_input('transfer_due_on');
     if ($due !== '') adc_w_date($due);
     $flags=adc_doc_labels();
+    if ($periodId === null && ($flags[1] === 1 || $flags[2] === 1 || $flags[3] === 1)) {
+        throw new RuntimeException('Для счёта, акта или спецификации сначала выберите расчётный период.');
+    }
     adc_doc_ensure_directory();
     $key=bin2hex(random_bytes(24)).'.pdf';
     $path=adc_doc_path($key);
@@ -288,7 +291,8 @@ function adc_doc_upload_form(PDO $db, int $clientId, ?int $replaceId=null): stri
         adc_w_hidden('action',$replaceId?'replace_document':'upload_document').
         adc_w_hidden('client_id',$clientId);
     if ($replaceId) $html.=adc_w_hidden('document_id',$replaceId);
-    $html.='<label class="field">PDF (до 20 МБ)<input type="file" name="document" accept=".pdf,application/pdf" required></label>'.
+    $html.='<p class="muted">Счёт, акт и спецификация привязываются к расчётному периоду. Договор можно загрузить отдельно.</p>'.
+        '<label class="field">PDF (до 20 МБ)<input type="file" name="document" accept=".pdf,application/pdf" required></label>'.
         adc_w_select('Расчётный период','period_id',$choices).
         adc_w_check('needs_contract','Договор',false).
         adc_w_check('needs_spec','Спецификация',false).
