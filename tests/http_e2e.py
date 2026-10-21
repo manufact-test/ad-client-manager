@@ -86,6 +86,14 @@ try:
     demo=create_client(director,"CI demo ledger",True)
     real=create_client(director,"CI real ledger",False)
     page=panel("director",demo)
+    # UI behaviors require an authorized nonce: no unsafe-inline script policy.
+    status,headers,_=request("director","/?view=clients&client="+str(demo))
+    policy=re.search(r"(?im)^Content-Security-Policy:\s*(.+)$",headers)
+    match=re.search(r'<script nonce="([A-Za-z0-9+/=]+)">',page)
+    require(status==200 and policy and match and
+            "script-src 'nonce-"+match.group(1)+"'" in policy.group(1),
+            "CSP permits the task editor, dropdowns and calendars without unsafe inline scripts")
+    require("script-src 'unsafe-inline'" not in policy.group(1),"No JavaScript unsafe-inline bypass")
     require("Документы и оплаты" in page and "Загрузить документ" in page,"New document-centered drawer exists")
     require("Выгрузить историю в CSV" in page,"Client CSV is in overview")
     require("Добавить новые условия" in page and "Добавить расчётный период вручную" not in page,
