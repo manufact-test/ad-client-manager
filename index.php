@@ -574,6 +574,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             adc_redirect();
         }
 
+        if ($action === 'activate_employee') {
+            adc_require_director($current);
+            $employeeId = filter_var(adc_input('employee_id'),FILTER_VALIDATE_INT);
+            if (!$employeeId || $employeeId < 1) {
+                throw new RuntimeException('Не выбран сотрудник.');
+            }
+            $db->beginTransaction();
+            $stmt=$db->prepare('UPDATE users SET is_active=1 WHERE id=? AND role="employee" AND is_active=0');
+            $stmt->execute([$employeeId]);
+            if ($stmt->rowCount() !== 1) {
+                throw new RuntimeException('Сотрудник не найден или уже включён.');
+            }
+            adc_audit($db,(int)$current['id'],'activate_employee','user',(int)$employeeId);
+            $db->commit();
+            adc_flash('Доступ сотрудника восстановлен.');
+            adc_redirect('?view=team');
+        }
+
         throw new RuntimeException('Неизвестное действие.');
     } catch (Throwable $error) {
         if ($db->inTransaction()) {

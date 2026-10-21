@@ -1002,6 +1002,11 @@ function adc_w_team(PDO $db, array $user): string {
             $html.='<div class="item"><span><strong>'.adc_h($member['display_name']).'</strong> · '.
                 ($member['role']==='director'?'Директор':'Сотрудник').
                 ((int)$member['is_active']===1?'':' · Отключён').'</span>';
+            if ($member['role']==='employee' && (int)$member['is_active']===0) {
+                $html.=adc_w_form_start('activate_employee').
+                    adc_w_hidden('employee_id',(int)$member['id']).
+                    '<button type="submit" class="secondary">Включить</button></form>';
+            }
             if ($member['role']==='employee' && (int)$member['is_active']===1) {
                 $html.='<div class="actions">'.adc_w_form_start('deactivate_employee').
                     adc_w_hidden('employee_id',(int)$member['id']).
