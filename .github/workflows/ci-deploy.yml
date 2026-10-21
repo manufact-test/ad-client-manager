@@ -183,6 +183,31 @@ jobs:
           TEST_DB_NAME=adclients_restore_test ADC_RESTORE_PDF_DIR="$tempdir/restored-pdfs" php tests/restore_fixture.php verify
 
 
+
+      - name: Director-approved legacy schema upgrade over real HTTP (separate disposable DB)
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_NAME: adclients_test
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: ci-only-root
+          ADC_STAGING_UPGRADE_FIXTURE: isolated-github-actions
+        run: |
+          set -euo pipefail
+          server_pid=""
+          trap 'if test -n "$server_pid"; then kill "$server_pid" 2>/dev/null || true; fi; php tests/staging_upgrade_fixture.php cleanup' EXIT
+          php tests/staging_upgrade_fixture.php seed
+          php -S 127.0.0.1:8092 -t . >/tmp/adclients-staging-upgrade.log 2>&1 &
+          server_pid=$!
+          for i in 1 2 3 4 5 6 7 8; do
+            status=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: darkred-crow-882796.hostingersite.com' http://127.0.0.1:8092/ || true)
+            if test "$status" = "200"; then break; fi
+            sleep 1
+          done
+          test "$status" = "200"
+          python3 tests/staging_upgrade_http.py || { tail -n 40 /tmp/adclients-staging-upgrade.log; exit 1; }
+          php tests/staging_upgrade_fixture.php verify
+
+
   staging_package:
     name: Tested ZIP for manual Hostinger acceptance (no deployment)
     needs: verify
