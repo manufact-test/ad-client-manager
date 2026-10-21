@@ -121,7 +121,7 @@ try:
     })
     check(status==303,"Hire creates recurring task")
     status,_,page=request("hire","/?view=tasks")
-    check("Worker monthly task" in page and "2026-10-31" in page,"Hire sees own task")
+    check("Worker monthly task" in page and "31.10.2026" in page,"Hire sees own task")
     match=re.search(r'name="task_id" value="(\d+)"',page)
     check(match is not None,"Employee sees task id")
     own_id=match.group(1)
