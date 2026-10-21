@@ -2,7 +2,6 @@
 declare(strict_types=1);
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
-date_default_timezone_set('Europe/Minsk');
 require __DIR__ . '/app/core.php';
 
 header('Content-Type: text/html; charset=UTF-8');
