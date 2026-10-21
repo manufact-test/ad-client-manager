@@ -292,8 +292,12 @@ try:
     })
     check(status == 303, "Employee may change financial amount")
     status, _, page = request("employee", "/?view=clients&client=" + str(client))
-    previous_revision = re.search(r'name="expected_revision" value="([a-f0-9]{64})"', html(page))
-    charge_id_match = re.search(r'name="charge_id" value="(\d+)"', html(page))
+    charge_forms = re.findall(r'<form\b[^>]*>.*?</form>', html(page), flags=re.S)
+    edit_charge_form = next((f for f in charge_forms
+        if 'name="action" value="save_charge"' in f and 'name="charge_id"' in f), None)
+    check(edit_charge_form is not None, "Saved charge has a dedicated edit form")
+    previous_revision = re.search(r'name="expected_revision" value="([a-f0-9]{64})"', edit_charge_form)
+    charge_id_match = re.search(r'name="charge_id" value="(\d+)"', edit_charge_form)
     check(previous_revision is not None and charge_id_match is not None,
           "Edit and void actions have immutable charge version snapshots")
     charge_id = int(charge_id_match.group(1))
