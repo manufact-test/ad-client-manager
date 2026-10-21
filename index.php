@@ -63,7 +63,7 @@ function adc_notice(): string {
     }
     $value = (string) $_SESSION['flash'];
     unset($_SESSION['flash']);
-    return '<div class="notice">' . adc_h($value) . '</div>';
+    return '<div class="notice" role="status">' . adc_h($value) . '</div>';
 }
 
 function adc_flash(string $message): void {
@@ -357,7 +357,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$alert = $errorMessage ? '<div class="error">' . adc_h($errorMessage) . '</div>' : adc_notice();
+$alert = $errorMessage ? '<div class="error" role="alert">' . adc_h($errorMessage) . '</div>' : adc_notice();
 $csrf = adc_csrf();
 
 if (!$initialized) {

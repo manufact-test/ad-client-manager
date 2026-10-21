@@ -162,6 +162,8 @@ try:
     check(status == 303, "Employee may record handover")
     status, _, page = request("director", "/?view=clients&client=" + str(client))
     check("Передано " in html(page), "Transfer shown in drawer")
+    check("Финансовая сверка клиента" in html(page),
+          "Client drawer exposes whole-client reconciliation")
 
     # A finance edit invalidates an already-transferred invoice and act.
     status, _, _ = request("employee", payload={
@@ -259,6 +261,9 @@ try:
     check(not list(DOCS.glob("*.pdf")), "Demo deletes stored PDF bytes too")
     status, _, page = request("director", "/?view=clients")
     check("Disposable CI demo" not in html(page), "Deleted demo removed from client table")
+    status, _, page = request("director", "/?view=archive&client=" + str(client))
+    check(status == 200 and "Клиент больше не существует" in html(page),
+          "Opening a deleted client link renders a usable page, not HTTP 500")
 
     # Historical canonical CSV is previewed and then committed in a
     # director-only HTTP multipart flow. No raw CSV is persisted on server.

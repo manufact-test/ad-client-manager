@@ -155,7 +155,7 @@ function adc_doc_action(PDO $db, array $user, string $action): bool {
         adc_audit($db,$actor,'transfer_document','document_bundle',$docId);
         $db->commit();
         adc_flash('Документ отмечен как переданный.');
-        adc_redirect('?view=clients&client='.$clientId);
+        adc_redirect(adc_w_client_location($db,$clientId));
     }
     if ($action === 'void_document') {
         $db->prepare('UPDATE document_bundles SET is_void=1,storage_key=NULL WHERE id=? AND client_id=?')
@@ -167,7 +167,7 @@ function adc_doc_action(PDO $db, array $user, string $action): bool {
             if (is_file($path) && !unlink($path)) error_log('Ad Client Manager: document deletion failed');
         }
         adc_flash('Документ удалён.');
-        adc_redirect('?view=clients&client='.$clientId);
+        adc_redirect(adc_w_client_location($db,$clientId));
     }
 
     $file=$_FILES['document'] ?? null;
@@ -221,7 +221,7 @@ function adc_doc_action(PDO $db, array $user, string $action): bool {
         if (is_file($prev) && !unlink($prev)) error_log('Ad Client Manager: replaced PDF cleanup failed');
     }
     adc_flash('PDF сохранён. Передача отмечается отдельно.');
-    adc_redirect('?view=clients&client='.$clientId);
+    adc_redirect(adc_w_client_location($db,$clientId));
 }
 
 function adc_doc_download(PDO $db, array $user): never {

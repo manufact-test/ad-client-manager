@@ -134,6 +134,36 @@ function adc_w_collaboration_fields(): array {
     ];
 }
 
+/** Stay in the correct client/archive tab after an operation. */
+function adc_w_client_location(PDO $db, int $clientId): string {
+    $stmt=$db->prepare('SELECT EXISTS(SELECT 1 FROM engagements
+        WHERE client_id=? AND status="active")');
+    $stmt->execute([$clientId]);
+    return '?view='.((int)$stmt->fetchColumn()===1?'clients':'archive').'&client='.$clientId;
+}
+
+/** Whole-client money includes historical and unassigned rows, never quotes.
+ * Demo rows are visible in their own cards, not global financial reports. */
+function adc_w_client_balances(PDO $db, int $clientId): array {
+    $stmt=$db->prepare('SELECT t.currency,
+        COALESCE((SELECT SUM(ch.amount) FROM charge_lines ch
+            WHERE ch.client_id=? AND ch.currency=t.currency AND ch.is_void=0),0) billed,
+        COALESCE((SELECT SUM(CASE WHEN pe.event_type="received" THEN pe.amount ELSE -pe.amount END)
+            FROM payment_events pe WHERE pe.client_id=? AND pe.currency=t.currency),0) received_net
+        FROM (SELECT currency FROM charge_lines WHERE client_id=? AND is_void=0
+              UNION SELECT currency FROM payment_events WHERE client_id=?) t
+        ORDER BY t.currency');
+    $stmt->execute([$clientId,$clientId,$clientId,$clientId]);
+    $rows=[];
+    foreach ($stmt as $entry) {
+        $billed=adc_fin_minor((string)$entry['billed']);
+        $net=adc_fin_minor((string)$entry['received_net']);
+        $rows[]=['currency'=>(string)$entry['currency'],'billed'=>$billed,
+            'net'=>$net,'balance'=>adc_fin_add($billed,-$net)];
+    }
+    return $rows;
+}
+
 function adc_w_action(PDO $db, array $user, string $action): bool {
     $supported = [
         'save_client', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
@@ -143,6 +173,7 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         return false;
     }
     $actor = (int)$user['id'];
+    $feedback='Изменения сохранены.';
     if ($action === 'edit_task') {
         $taskId = adc_w_id('task_id');
         $title = adc_validate_task_title(adc_input('title'));
@@ -235,7 +266,7 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         }
         $db->commit();
         adc_flash('Карточка клиента сохранена.');
-        adc_redirect('?view=clients&client=' . $id);
+        adc_redirect(adc_w_client_location($db,$id));
     }
 
     $clientId = adc_w_id('client_id');
@@ -385,23 +416,31 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $chargeText = adc_input('charge_id');
         if ($chargeText !== '') {
             $cid = adc_w_id('charge_id');
-            $s = $db->prepare('SELECT id FROM charge_lines WHERE id=? AND client_id=? AND period_id=? AND is_void=0 FOR UPDATE');
+            $s = $db->prepare('SELECT id,category,label,amount,reason FROM charge_lines
+                WHERE id=? AND client_id=? AND period_id=? AND is_void=0 FOR UPDATE');
             $s->execute([$cid, $clientId, $pid]);
-            if (!$s->fetch()) {
+            $oldCharge=$s->fetch();
+            if (!$oldCharge) {
                 throw new RuntimeException('Строка начисления не найдена.');
             }
-            $db->prepare('UPDATE charge_lines SET category=?,label=?,amount=?,reason=? WHERE id=?')
-                ->execute([$category, $label, $amount, $reason, $cid]);
-            adc_audit($db, $actor, 'edit_charge', 'charge_line', $cid, ['amount'=>$amount]);
+            $same=$oldCharge['category']===$category && $oldCharge['label']===$label &&
+                (string)$oldCharge['amount']===$amount && (string)($oldCharge['reason']??'')===$reason;
+            if ($same) {
+                // A repeated identical save must not invalidate a signed invoice.
+                $feedback='Начисление не изменилось.';
+            } else {
+                $db->prepare('UPDATE charge_lines SET category=?,label=?,amount=?,reason=? WHERE id=?')
+                    ->execute([$category, $label, $amount, $reason, $cid]);
+                adc_audit($db, $actor, 'edit_charge', 'charge_line', $cid, ['amount'=>$amount]);
+                adc_w_invalidate_period_documents($db,$actor,$pid);
+            }
         } else {
             $stmt = $db->prepare('INSERT INTO charge_lines(client_id,period_id,category,label,amount,currency,reason)
                 VALUES (?,?,?,?,?,?,?)');
             $stmt->execute([$clientId, $pid, $category, $label, $amount, $period['currency'], $reason]);
             adc_audit($db, $actor, 'add_charge', 'charge_line', (int)$db->lastInsertId(), ['amount'=>$amount]);
+            adc_w_invalidate_period_documents($db,$actor,$pid);
         }
-        // An edited amount can invalidate an already-transferred invoice,
-        // specification or act. Transfer must be acknowledged again.
-        adc_w_invalidate_period_documents($db,$actor,$pid);
     } elseif ($action === 'void_charge') {
         $cid = adc_w_id('charge_id');
         $s = $db->prepare('UPDATE charge_lines SET is_void=1 WHERE id=? AND client_id=? AND is_void=0');
@@ -439,8 +478,8 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             (int)$db->lastInsertId(), ['amount'=>$amount,'currency'=>$period['currency']]);
     }
     $db->commit();
-    adc_flash('Изменения сохранены.');
-    adc_redirect('?view=clients&client=' . $clientId);
+    adc_flash($feedback);
+    adc_redirect(adc_w_client_location($db,$clientId));
 }
 
 function adc_w_form_start(string $action): string {
@@ -525,6 +564,20 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '') .
         '</h2><a class="btn secondary" href="' . adc_h($returnUrl) . '">Закрыть ✕</a></div>';
     $html .= adc_w_client_form($db, $client);
+    $balances=adc_w_client_balances($db,$id);
+    $html.='<section class="card"><h3>Финансовая сверка клиента</h3>'.
+        '<p class="muted">Все сотрудничества, включая архив и операции без периода. По каждой валюте отдельно; ориентировочная стоимость сюда не входит.'.
+        ((int)$client['is_demo']===1?' Демо не учитывается в общей реальной аналитике.':'').'</p>';
+    if (!$balances) $html.='<p class="muted">Финансовых операций пока нет.</p>';
+    foreach ($balances as $row) {
+        $ccy=$row['currency'];
+        $html.='<div class="item"><div><strong>'.adc_h($ccy).'</strong>'.
+            '<p class="muted">Начислено: '.adc_fin_format($row['billed'],$ccy).
+            ' · Получено нетто: '.adc_fin_format($row['net'],$ccy).'</p></div>'.
+            '<div><strong>'.adc_fin_format($row['balance'],$ccy).'</strong>'.
+            '<p class="muted">'.($row['balance']>0?'Долг':($row['balance']<0?'Аванс':'Расчёты закрыты')).'</p></div></div>';
+    }
+    $html.='</section>';
     $html .= '<p><a class="btn secondary" href="/?export=client&amp;client_id='.(int)$id.'">Скачать историю операций CSV</a></p>';
     $html .= adc_doc_panel($db, $user, $id);
     $stmt = $db->prepare('SELECT * FROM engagements WHERE client_id=? ORDER BY id DESC');
@@ -701,7 +754,13 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     $html.='</tbody></table></div></section>';
     $selected=filter_var($_GET['client'] ?? null,FILTER_VALIDATE_INT);
     if ($selected && $selected>0) {
-        $html.=adc_w_client_panel($db,$user,(int)$selected,$view,$returnUrl);
+        $exists=$db->prepare('SELECT id FROM clients WHERE id=?');
+        $exists->execute([(int)$selected]);
+        if ($exists->fetchColumn()) {
+            $html.=adc_w_client_panel($db,$user,(int)$selected,$view,$returnUrl);
+        } else {
+            $html.='<div class="error" role="alert">Клиент больше не существует. Список остался доступен.</div>';
+        }
     }
     return $html;
 }

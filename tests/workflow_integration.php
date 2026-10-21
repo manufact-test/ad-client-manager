@@ -12,13 +12,14 @@ function adc_redirect(string $fragment = ''): never { throw new Redirected($frag
 function check(bool $condition, string $label): void {
     if (!$condition) { throw new RuntimeException('FAIL: ' . $label); }
 }
-function run_action(PDO $db, array $user, string $action, array $data): void {
+function run_action(PDO $db, array $user, string $action, array $data): string {
     $_POST = $data;
     try {
         $handled = adc_w_action($db, $user, $action) || adc_doc_action($db, $user, $action);
         throw new RuntimeException('Action was not handled: ' . $action . ' ' . (int)$handled);
     } catch (Redirected $ok) {
         check(!$db->inTransaction(), 'Transaction committed: ' . $action);
+        return $ok->getMessage();
     }
 }
 $config = ['db'=>[
@@ -100,6 +101,10 @@ $balance = $db->query("SELECT
     (SELECT SUM(amount) FROM charge_lines WHERE client_id=$realId AND is_void=0) -
     (SELECT SUM(CASE WHEN event_type='received' THEN amount ELSE -amount END) FROM payment_events WHERE client_id=$realId)")->fetchColumn();
 check((string)$balance==='600.00','1500 billed - 900 received net = 600 outstanding');
+$clientTotals=adc_w_client_balances($db,$realId);
+check(count($clientTotals)===1 && $clientTotals[0]['currency']==='BYN' &&
+    $clientTotals[0]['billed']===150000 && $clientTotals[0]['net']===90000 &&
+    $clientTotals[0]['balance']===60000,'Whole-client exact balance after partial payments and refund');
 try {
     run_action($db,$employee,'save_engagement',[
         'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
@@ -206,10 +211,11 @@ $unchangedInvoice=(int)$db->lastInsertId();
 $db->prepare('INSERT INTO document_bundles(client_id,period_id,needs_act,transferred_at)
     VALUES (?,?,1,UTC_TIMESTAMP())')->execute([$realId,$lastPeriodId]);
 $shortenedAct=(int)$db->lastInsertId();
-run_action($db,$director,'archive_engagement',[
+$archiveUrl=run_action($db,$director,'archive_engagement',[
     'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
     'ended_on'=>'2026-10-07','end_reason'=>'Fixture completion',
 ]);
+check($archiveUrl==='?view=archive&client='.$realId,'Archive POST returns to archived client drawer');
 check($db->query("SELECT status FROM engagements WHERE id=$e")->fetchColumn()==='archived','Archived');
 $final=$db->query("SELECT period_end,is_final FROM billing_periods WHERE engagement_id=$e ORDER BY id DESC LIMIT 1")->fetch();
 check($final['period_end']==='2026-10-08' && (int)$final['is_final']===1,'Final billing period shortened on archive');
@@ -242,11 +248,12 @@ try {
 }
 
 
-run_action($db,$director,'start_engagement',[
+$resumeUrl=run_action($db,$director,'start_engagement',[
     'client_id'=>(string)$realId,'started_on'=>'2026-10-14',
     'billing_day'=>'14','payment_mode'=>'postpayment',
     'currency'=>'BYN','quoted_amount'=>'',
 ]);
+check($resumeUrl==='?view=clients&client='.$realId,'Resumed client returns to active client drawer');
 check((int)$db->query("SELECT COUNT(*) FROM engagements WHERE client_id=$realId")->fetchColumn()===2,'New collaboration retains history');
 $newEng=(int)$db->query("SELECT MAX(id) FROM engagements WHERE client_id=$realId")->fetchColumn();
 try {
@@ -322,6 +329,16 @@ check(str_contains($form,'value="'.$demoP.'" selected'),'Replacement preserves h
 check(str_contains($form,'name="needs_invoice" value="1" checked'),'Replacement preserves invoice type');
 check(str_contains($form,'name="needs_act" value="1" checked'),'Replacement preserves act type');
 check(str_contains($form,'value="2026-10-31"'),'Replacement preserves transfer due date');
+$chargeBefore=(int)$db->query("SELECT id FROM charge_lines WHERE client_id=$demoId AND label='Demo ads'")->fetchColumn();
+$auditBefore=(int)$db->query("SELECT COUNT(*) FROM audit_events WHERE object_type='document_bundle' AND object_id=$documentId AND action='invalidate_document'")->fetchColumn();
+$unchangedUrl=run_action($db,$employee,'save_charge',[
+    'client_id'=>(string)$demoId,'period_id'=>(string)$demoP,
+    'charge_id'=>(string)$chargeBefore,'category'=>'advertising',
+    'label'=>'Demo ads','amount'=>'999999.00','reason'=>''
+]);
+check($unchangedUrl==='?view=clients&client='.$demoId,'Unchanged charge returns to active drawer');
+check((int)$db->query("SELECT COUNT(*) FROM audit_events WHERE object_type='document_bundle' AND object_id=$documentId AND action='invalidate_document'")->fetchColumn()===$auditBefore,
+    'No-op charge does not invalidate unchanged invoice');
 run_action($db,$employee,'transfer_document',[
     'client_id'=>(string)$demoId,'document_id'=>(string)$documentId
 ]);

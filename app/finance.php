@@ -104,7 +104,7 @@ function adc_fin_render(PDO $db): string {
     $html='<h1>Аналитика</h1><p class="muted">Только реальные клиенты. Начисления и деньги получены из разных операций; все суммы и балансы считаются до копейки без смешивания валют.</p>';
     $html.='<p><a class="btn secondary" href="/?export=balances">Скачать сверку реальных клиентов (CSV)</a></p>';
     $totals=adc_fin_groups($db);
-    $html.='<section class="card"><h2>Начисления, поступления и задолженность</h2><table><thead><tr><th>Валюта</th><th>Реклама</th><th>Разработка</th><th>Прочее</th><th>Начислено</th><th>Получено нетто</th><th>Баланс</th></tr></thead><tbody>';
+    $html.='<section class="card"><h2>Начисления, поступления и задолженность</h2><div class="table-scroll" tabindex="0" role="region" aria-label="Финансовая сводка: горизонтальная прокрутка"><table><thead><tr><th>Валюта</th><th>Реклама</th><th>Разработка</th><th>Прочее</th><th>Начислено</th><th>Получено нетто</th><th>Баланс</th></tr></thead><tbody>';
     foreach ($totals as $ccy=>$t) {
         $billed=adc_fin_add(adc_fin_add($t['advertising'],$t['development']),$t['other']);
         $net=adc_fin_add($t['received'],-$t['refund']);
@@ -114,9 +114,9 @@ function adc_fin_render(PDO $db): string {
             '</td><td>'.adc_fin_format(adc_fin_add($billed,-$net),$ccy).'</td></tr>';
     }
     if (!$totals) $html.='<tr><td colspan="7">Пока нет финансовых операций.</td></tr>';
-    $html.='</tbody></table><small>Положительный баланс — задолженность клиента, отрицательный — аванс. Корректировки учитываются со знаком.</small></section>';
+    $html.='</tbody></table></div><small>Положительный баланс — задолженность клиента, отрицательный — аванс. Корректировки учитываются со знаком.</small></section>';
 
-    $html.='<section class="card"><h2>По месяцам</h2><p class="muted">Начисления относятся к месяцу начала расчётного периода, поступления — к месяцу фактической даты оплаты.</p><table><thead><tr><th>Месяц</th><th>Валюта</th><th>Реклама</th><th>Разработка</th><th>Прочее</th><th>Начислено</th><th>Получено нетто</th></tr></thead><tbody>';
+    $html.='<section class="card"><h2>По месяцам</h2><p class="muted">Начисления относятся к месяцу начала расчётного периода, поступления — к месяцу фактической даты оплаты.</p><div class="table-scroll" tabindex="0" role="region" aria-label="Помесячная аналитика: горизонтальная прокрутка"><table><thead><tr><th>Месяц</th><th>Валюта</th><th>Реклама</th><th>Разработка</th><th>Прочее</th><th>Начислено</th><th>Получено нетто</th></tr></thead><tbody>';
     $months=adc_fin_months($db);
     foreach (array_slice($months,0,48) as $r) {
         $html.='<tr><td>'.adc_h($r['month']).'</td><td>'.adc_h($r['currency']).'</td><td>'.
@@ -127,7 +127,7 @@ function adc_fin_render(PDO $db): string {
             adc_fin_format($r['paid'],$r['currency']).'</td></tr>';
     }
     if (!$months) $html.='<tr><td colspan="7">Нет операций по месяцам.</td></tr>';
-    $html.='</tbody></table></section>';
+    $html.='</tbody></table></div></section>';
 
     $counts=$db->query('SELECT COUNT(*) count_clients,
         COALESCE(SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")),0) active_clients,
@@ -150,7 +150,7 @@ function adc_fin_render(PDO $db): string {
         GROUP BY source_kind ORDER BY qty DESC') as $row) {
         $html.='<div class="item"><span>'.adc_h(adc_source_label((string)$row['kind'])).'</span><strong>'.(int)$row['qty'].'</strong></div>';
     }
-    $html.='</section><section class="card"><h2>LTV и баланс по клиентам</h2><table><thead><tr><th>Клиент</th><th>Валюта</th><th>Начислено (LTV)</th><th>Получено нетто</th><th>Баланс</th></tr></thead><tbody>';
+    $html.='</section><section class="card"><h2>LTV и баланс по клиентам</h2><div class="table-scroll" tabindex="0" role="region" aria-label="LTV клиентов: горизонтальная прокрутка"><table><thead><tr><th>Клиент</th><th>Валюта</th><th>Начислено (LTV)</th><th>Получено нетто</th><th>Баланс</th></tr></thead><tbody>';
     $sql='SELECT c.name,t.currency,
         COALESCE((SELECT SUM(ch.amount) FROM charge_lines ch
           WHERE ch.client_id=c.id AND ch.currency=t.currency AND ch.is_void=0),0) billed,
@@ -168,5 +168,5 @@ function adc_fin_render(PDO $db): string {
             adc_fin_format($b,$r['currency']).'</td><td>'.adc_fin_format($p,$r['currency']).
             '</td><td>'.adc_fin_format(adc_fin_add($b,-$p),$r['currency']).'</td></tr>';
     }
-    return $html.'</tbody></table></section>';
+    return $html.'</tbody></table></div></section>';
 }

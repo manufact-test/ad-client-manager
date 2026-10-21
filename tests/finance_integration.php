@@ -40,6 +40,13 @@ try {
     $pay->execute([$real,$period,'received','0.20','2026-10-11']);
     $pay->execute([$real,$period,'refund','0.01','2026-10-12']);
     $pay->execute([$demo,null,'received','999999.00','2026-10-12']);
+    $balanceRows=adc_w_client_balances($db,$real);
+    fin_assert(count($balanceRows)===1 && $balanceRows[0]['currency']==='CHF' &&
+        $balanceRows[0]['billed']===1030 && $balanceRows[0]['net']===29 &&
+        $balanceRows[0]['balance']===1001,'Client drawer reconciliation equals analytics');
+    $demoRows=adc_w_client_balances($db,$demo);
+    fin_assert(count($demoRows)===1 && $demoRows[0]['billed']===99999900,
+        'Explicit demo drawer has its own exact balance');
     $g=adc_fin_groups($db);
     fin_assert($g['CHF']['advertising']===30,'Demo isolated, 30 cents advertising');
     fin_assert($g['CHF']['development']===1001,'Development 1001 cents');
@@ -50,6 +57,10 @@ try {
     fin_assert($m['CHF|2026-10']['advertising']===30 && $m['CHF|2026-10']['development']===1001 && $m['CHF|2026-10']['other']===-1,'Monthly category split exact');
     fin_assert($m['CHF|2026-10']['paid']===29,'Monthly received net 0.29');
     $html=adc_fin_render($db);
+    fin_assert(substr_count($html,'class="table-scroll"')===3,
+        'All three mobile analytics tables are horizontally scrollable');
+    fin_assert(substr_count($html,'tabindex="0"')===3,
+        'Mobile finance tables keyboard scrollable');
     fin_assert(str_contains($html,'10,30 CHF') && str_contains($html,'0,29 CHF') &&
       str_contains($html,'10,01 CHF'),'Financial page renders exact cents');
     fin_assert(!str_contains($html,'Finance demo CHF'),'Demo not in LTV');
