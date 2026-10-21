@@ -55,6 +55,9 @@ jobs:
       - name: Test recurrence and demo filter without database
         run: php tests/smoke.php
 
+      - name: Test session lifetime and revocation boundaries
+        run: php tests/auth_regression.php
+
       - name: Test private PDF validation and storage boundaries
         run: php tests/document_smoke.php
 
@@ -112,6 +115,7 @@ jobs:
           done
           test "$code" = "200"
           python3 tests/http_e2e.py || { tail -n 75 /tmp/adclients-http-e2e.log; exit 1; }
+          python3 tests/http_auth_e2e.py || { tail -n 75 /tmp/adclients-http-e2e.log; exit 1; }
 
 
       - name: Verify backup/restore of SQL and private PDFs in a second database
