@@ -33,7 +33,7 @@ if not files or any(not (ROOT / p).is_file() or (ROOT / p).is_symlink() for p in
     raise SystemExit("ERROR: missing or symlinked staging file")
 if any(not (
     p.as_posix() in required
-    or re.fullmatch(r"app/[A-Za-z0-9_-]+\\.php", p.as_posix())
+    or re.fullmatch(r"app/[A-Za-z0-9_-]+\.php", p.as_posix())
 ) for p in files):
     raise SystemExit("ERROR: staging archive contains a non-approved path")
 
