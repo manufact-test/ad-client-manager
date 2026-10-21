@@ -122,6 +122,12 @@ jobs:
           ADC_PREFLIGHT_TEST_FIXTURE: isolated-github-actions
         run: |
           php tests/http_fixture.php init
+          php scripts/staging_migrate.php --plan
+          if php scripts/staging_migrate.php --apply; then
+            echo "Unconfirmed staging migration unexpectedly succeeded" >&2
+            exit 1
+          fi
+          ADC_STAGING_MIGRATE=CONFIRM_TEST_SITE php scripts/staging_migrate.php --apply
           php -r 'require "app/core.php"; require "app/documents.php"; adc_doc_ensure_directory();'
           php scripts/release_preflight.php --verify-pdfs
           php -S 127.0.0.1:8085 -t . >/tmp/adclients-http-e2e.log 2>&1 &
