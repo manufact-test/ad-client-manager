@@ -298,9 +298,9 @@ function adc_doc_panel(PDO $db, array $user, int $clientId): string {
         }
         $html.='</div></div>';
     }
-    if (!$documents) $html.='<p class="muted">PDF ещё не загружены.</p>';
+    // The upload action is the empty state: no repetitive technical message.
     if ($user['role']==='director') {
-        $html.='<details><summary>＋ Загрузить PDF</summary>'.
+        $html.='<details class="doc-upload"><summary>Загрузить документ</summary>'.
             adc_doc_upload_form($db,$clientId).'</details>';
     }
     return $html.'</section>';
@@ -326,7 +326,7 @@ function adc_doc_upload_form(PDO $db, int $clientId, ?int $replaceId=null): stri
         adc_w_hidden('action',$replaceId?'replace_document':'upload_document').
         adc_w_hidden('client_id',$clientId);
     if ($replaceId) $html.=adc_w_hidden('document_id',$replaceId);
-    $html.='<p class="muted">Счёт, акт и спецификация привязываются к расчётному периоду. Договор можно загрузить отдельно.</p>'.
+    $html.='<p class="muted">Выберите PDF и отметьте, какие документы он содержит.</p>'.
         '<label class="field">PDF (до 20 МБ)<input type="file" name="document" accept=".pdf,application/pdf" required></label>'.
         adc_w_select('Расчётный период','period_id',$choices,(string)($existing['period_id']??'')).
         adc_w_check('needs_contract','Договор',(bool)($existing['needs_contract']??false)).

@@ -117,7 +117,50 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .customer-edit{margin-top:15px}.customer-tools{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
         @media(max-width:760px){.header-inner{align-items:flex-start;flex-direction:column;padding:9px 0}.top-nav{overflow-x:auto;flex-wrap:nowrap;width:100%;scrollbar-width:thin}.top-nav a{padding:9px 11px}.account{align-self:flex-end}.card{padding:16px}.drawer{padding:12px}.drawer-head{top:-12px}}
         @media(max-width:480px){main{padding:0 12px 40px;margin-top:18px}.task-row{flex-direction:column}.task-actions{align-self:flex-end}.top-nav{font-size:13px}.summary-grid{grid-template-columns:1fr 1fr}}
-        </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main></body></html>';
+        
+        /* A client profile is a workflow, not a pile of shortcut anchors. */
+        .customer-profile .drawer-head{padding:16px 2px;align-items:center}
+        .customer-profile .drawer-head h2{font-size:23px;line-height:1.3;overflow-wrap:anywhere}
+        .customer-profile .card{margin:14px 0;padding:22px;border-radius:14px}
+        .customer-profile .card>h3{margin:0 0 16px;font-size:19px}
+        .customer-profile .profile-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+        .profile-facts>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+        .profile-facts small{font-weight:500;color:#75819a}
+        .profile-facts strong{overflow-wrap:anywhere;font-size:15px}
+        .client-note{margin:18px 0 0;padding:12px 14px;border-radius:9px;background:#f6f7fb;color:#4b5873}
+        .customer-profile .summary-grid{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:20px}
+        .customer-profile .summary-metric{min-width:0;padding:13px}
+        .customer-profile .summary-metric strong{font-size:clamp(15px,2.2vw,20px);overflow-wrap:anywhere}
+        .engagement-block{border-top:1px solid var(--line);padding:18px 0}
+        .engagement-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin:0 0 12px}
+        .engagement-head span{font-size:13px}
+        .client-period{margin:10px 0;border-color:#e5e6f1;background:#fcfcff}
+        .client-period>summary{padding:6px 0 12px;font-weight:750;color:#292851}
+        .period-content{display:grid;gap:6px}
+        .period-total{margin:10px 0 0;display:flex;justify-content:space-between;gap:12px}
+        .customer-profile .sub-action{padding:7px 0;border-top:1px solid #eff0f6;margin:8px 0}
+        .customer-profile .sub-action:first-of-type{border-top:0}
+        .customer-profile .sub-action>summary{font-weight:600;color:#4840b4}
+        .customer-profile .sub-action>form{margin:10px 0}
+        .customer-profile .customer-edit{border:0;margin:0;padding:0;background:none}
+        .customer-profile .customer-edit>summary{font-weight:600;font-size:15px}
+        .customer-profile .doc-upload{margin:0}
+        .customer-profile .actions{gap:10px}
+        .customer-profile button,.customer-profile .btn{max-width:100%}
+        .repeat-choice{grid-column:1/-1;padding:4px 0 8px}
+        .repeat-choice>.field{margin-top:8px}
+        .repeat-choice .manual-previous{display:none}
+        .repeat-choice:has(select[name="previous_client_id"] option[value="__manual__"]:checked) .manual-previous{display:block}
+        .repeat-choice .manual-previous .field{max-width:100%}
+        .customer-more>details{margin:6px 0;padding:7px 0}
+        @media(max-width:550px){.customer-profile .profile-facts{grid-template-columns:1fr 1fr;gap:12px}
+          .customer-profile .summary-grid{grid-template-columns:1fr 1fr}
+          .customer-profile .card{padding:16px}
+          .engagement-head{flex-direction:column}
+          .customer-profile .item{flex-direction:row;align-items:center}
+          .customer-profile .summary-metric{padding:11px}
+          .customer-profile .summary-metric strong{font-size:16px}}
+</style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main></body></html>';
     exit;
 }
 
