@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require __DIR__ . '/../app/core.php';
 require __DIR__ . '/../app/workflow.php';
+require __DIR__ . '/../app/documents.php';
 
 class Redirected extends RuntimeException {}
 function adc_input(string $key): string { return is_string($_POST[$key] ?? null) ? trim($_POST[$key]) : ''; }
@@ -190,7 +191,23 @@ run_action($db,$director,'edit_task',[
 $taskRow=$db->query("SELECT * FROM personal_tasks WHERE id=$task")->fetch();
 check($taskRow['title']==='Task A revised' && (int)$taskRow['anchor_day']===30,'Owner edit and monthly anchor');
 
-$db->prepare('DELETE FROM clients WHERE id=? AND is_demo=1')->execute([$demoId]);
+$key=str_repeat('b',48).'.pdf';
+$db->prepare('INSERT INTO document_bundles(client_id,period_id,storage_key,original_filename,needs_invoice)
+    VALUES (?,?,?,?,1)')->execute([$demoId,$demoP,$key,'fixture-invoice.pdf']);
+$documentId=(int)$db->lastInsertId();
+run_action($db,$employee,'transfer_document',[
+    'client_id'=>(string)$demoId,'document_id'=>(string)$documentId
+]);
+check((bool)$db->query("SELECT transferred_at IS NOT NULL FROM document_bundles WHERE id=$documentId")->fetchColumn(),
+    'Employee may mark a PDF transferred');
+try {
+    run_action($db,$employee,'delete_demo',['client_id'=>(string)$demoId]);
+    throw new RuntimeException('Employee deleted demo files');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'Недостаточно прав'),'Demo deletion director-only');
+}
+run_action($db,$director,'delete_demo',['client_id'=>(string)$demoId]);
 check((int)$db->query("SELECT COUNT(*) FROM charge_lines WHERE client_id=$demoId")->fetchColumn()===0,'Demo charge cascades');
 check((int)$db->query("SELECT COUNT(*) FROM payment_events WHERE client_id=$demoId")->fetchColumn()===0,'Demo payments cascade');
+check((int)$db->query("SELECT COUNT(*) FROM document_bundles WHERE client_id=$demoId")->fetchColumn()===0,'Demo PDF metadata cascades');
 echo "Integrated client workflow passed: clients, finance, demo, archive, permissions, tasks\n";
