@@ -42,7 +42,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
        details{margin:10px 0}summary{cursor:pointer;color:#4239a9;font-weight:650;padding:8px 0}.period{border:1px solid #e6e9f1;border-radius:10px;padding:12px;margin:10px 0}.period>summary{color:#232c44}
        h3{font-size:16px;margin:14px 0 10px}.drawer{position:fixed;right:0;top:0;bottom:0;width:min(740px,100vw);background:#f7f8fb;padding:18px;overflow:auto;z-index:20;box-shadow:-20px 0 70px #1921392e}.drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.drawer-head h2{margin:0}.drawer-shade{position:fixed;inset:0;background:#0b133c38;z-index:19}.drawer .card{margin-top:14px}
        
-       table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #edf0f3;padding:9px 4px;text-align:left;font-size:14px}
+       .table-scroll{overflow-x:auto;max-width:100%}table{border-collapse:collapse;width:100%;min-width:480px}td,th{border-bottom:1px solid #edf0f3;padding:9px 6px;text-align:left;font-size:14px}tr:hover td{background:#fafaff}td:last-child,th:last-child{white-space:nowrap}
        @media(max-width:560px){header{padding:12px 16px}.item{align-items:flex-start;flex-direction:column}.card{padding:16px}h1{font-size:23px}}
        </style></head><body><header><div class="brand">Ad Client Manager</div>' . $menu . '</header><main>' . $body . '</main></body></html>';
     exit;
