@@ -224,6 +224,16 @@ try:
     })
     check(status == 200 and "повреждён" in html(page),
           "Transfer refuses damaged PDF without recording it")
+    stored_pdf.unlink()
+    status, _, missing = request("employee", "/?download=" + str(new_id))
+    check(status == 409 and not missing.startswith(b"%PDF-"),
+          "Missing private PDF is blocked before streaming")
+    status, _, page = request("employee", payload={
+        "csrf": employee_csrf, "action": "transfer_document",
+        "client_id": client, "document_id": new_id
+    })
+    check(status == 200 and "отсутствует" in html(page),
+          "Transfer refuses a file deleted outside the application")
     stored_pdf.write_bytes(replacement.read_bytes())
     status, _, recovered = request("employee", "/?download=" + str(new_id))
     check(status == 200 and recovered == replacement.read_bytes(),
