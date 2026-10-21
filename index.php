@@ -195,10 +195,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!password_verify($old, (string)$stmt->fetchColumn()) || strlen($new) < 12) {
                 throw new RuntimeException('Проверьте старый пароль и новый пароль (не менее 12 символов).');
             }
+            $newHash=password_hash($new,PASSWORD_DEFAULT);
+            $db->beginTransaction();
             $db->prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?')
-               ->execute([password_hash($new, PASSWORD_DEFAULT), (int)$current['id']]);
+               ->execute([$newHash, (int)$current['id']]);
             adc_audit($db, (int)$current['id'], 'change_password', 'user', (int)$current['id']);
-            adc_auth_session_issue((int)$current['id'],(string)$db->query('SELECT password_hash FROM users WHERE id='.(int)$current['id'])->fetchColumn());
+            $db->commit();
+            adc_auth_session_issue((int)$current['id'],$newHash);
             adc_flash('Пароль изменён.');
             adc_redirect();
         }
@@ -226,8 +229,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $monthly = isset($_POST['repeat_monthly']) ? 1 : 0;
             $anchor = $monthly ? (int)(new DateTimeImmutable($dueDate))->format('j') : null;
+            $db->beginTransaction();
             $stmt = $db->prepare('INSERT INTO personal_tasks(user_id,title,due_date,repeat_monthly,anchor_day) VALUES(?,?,?,?,?)');
             $stmt->execute([(int)$current['id'], $title, $dueDate, $monthly, $anchor]);
+            adc_audit($db,(int)$current['id'],'create_task','personal_task',(int)$db->lastInsertId());
+            $db->commit();
             adc_flash('Задача добавлена.');
             adc_redirect('?view=tasks');
         }
@@ -264,6 +270,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $db->prepare('UPDATE personal_tasks SET is_done = 1, completed_at = UTC_TIMESTAMP() WHERE id = ? AND user_id = ?')
                    ->execute([$taskId, (int)$current['id']]);
             }
+            adc_audit($db,(int)$current['id'],'complete_task','personal_task',$taskId,
+                ['due_date'=>$task['due_date'],'recurring'=>(int)$task['repeat_monthly']===1]);
             $db->commit();
             adc_flash('Готово. Задача отмечена.');
             adc_redirect('?view=tasks');
@@ -283,9 +291,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!filter_var($email, FILTER_VALIDATE_EMAIL) || mb_strlen($name) < 2 || mb_strlen($name) > 120 || strlen($password) < 12) {
                 throw new RuntimeException('Укажите имя, email и временный пароль от 12 символов.');
             }
+            $db->beginTransaction();
             $stmt = $db->prepare('INSERT INTO users(email, display_name, password_hash, role, must_change_password) VALUES (?,?,?,"employee",1)');
             $stmt->execute([$email, $name, password_hash($password, PASSWORD_DEFAULT)]);
             adc_audit($db, (int)$current['id'], 'create_employee', 'user', (int)$db->lastInsertId());
+            $db->commit();
             adc_flash('Сотрудник добавлен. Передайте временный пароль безопасным способом.');
             adc_redirect();
         }
@@ -297,6 +307,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$employeeId || $employeeId<1 || strlen($password)<12 || strlen($password)>1024) {
                 throw new RuntimeException('Укажите сотрудника и временный пароль от 12 до 1024 символов.');
             }
+            $db->beginTransaction();
             $stmt=$db->prepare('UPDATE users SET password_hash=?,must_change_password=1
                 WHERE id=? AND role="employee" AND is_active=1');
             $stmt->execute([password_hash($password,PASSWORD_DEFAULT),$employeeId]);
@@ -304,6 +315,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Сотрудник не найден или уже отключён.');
             }
             adc_audit($db,(int)$current['id'],'reset_employee_password','user',(int)$employeeId);
+            $db->commit();
             adc_flash('Временный пароль установлен. Старые сеансы сотрудника отозваны; передайте пароль безопасным способом.');
             adc_redirect('?view=team');
         }
@@ -314,12 +326,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$employeeId || $employeeId < 1) {
                 throw new RuntimeException('Не выбран сотрудник.');
             }
+            $db->beginTransaction();
             $stmt = $db->prepare('UPDATE users SET is_active = 0 WHERE id = ? AND role = "employee" AND is_active=1');
             $stmt->execute([$employeeId]);
             if (!$stmt->rowCount()) {
                 throw new RuntimeException('Сотрудник не найден или уже отключён.');
             }
             adc_audit($db, (int)$current['id'], 'deactivate_employee', 'user', (int)$employeeId);
+            $db->commit();
             adc_flash('Доступ сотрудника отключён.');
             adc_redirect();
         }
