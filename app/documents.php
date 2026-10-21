@@ -210,7 +210,7 @@ function adc_doc_download(PDO $db, array $user): never {
     $unicode=rawurlencode((string)$doc['original_filename']);
     header('Content-Type: application/pdf');
     header('Content-Length: '.(string)filesize($path));
-    header('Content-Disposition: attachment; filename="'.$ascii.'"; filename*=UTF-8'."' '".$unicode);
+    header('Content-Disposition: attachment; filename="'.$ascii.'"; filename*=UTF-8\'\''.$unicode);
     header('X-Content-Type-Options: nosniff');
     readfile($path);
     exit;
