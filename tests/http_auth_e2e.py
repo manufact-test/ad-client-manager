@@ -195,6 +195,19 @@ try:
     check("Вход" in page and "Клиенты</h1>" not in page,
           "Deactivated employee loses existing session immediately")
 
+    status,_,_=request("director",payload={
+        "csrf":director_token,"action":"activate_employee","employee_id":hire_id
+    })
+    check(status==303,"Director reactivates the same employee account")
+    hire_token,page=login("hire","hire@example.test",NEW_HIRE_PASSWORD)
+    check("Worker monthly task" in page,
+          "Reactivated employee retains existing password and personal tasks")
+    status,_,page=request("hire",payload={
+        "csrf":hire_token,"action":"activate_employee","employee_id":hire_id
+    })
+    check(status==403 and "Недостаточно прав" in page,
+          "An employee cannot reactivate accounts")
+
     # Password rotation of the director must invalidate another active session.
     second_token,page=login("director_second","web-director@example.test",OLD_PASSWORD)
     status,_,page=request("director_second",payload={
