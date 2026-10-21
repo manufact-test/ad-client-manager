@@ -695,12 +695,19 @@ function adc_w_analytics(PDO $db): string {
         COUNT(*) count_clients,
         SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")) active_clients,
         SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="archived")) ever_archived,
+        SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="archived")
+            AND NOT EXISTS(SELECT 1 FROM engagements x WHERE x.client_id=c.id AND x.status="active")) churned,
+        SUM(EXISTS(SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="archived")
+            AND EXISTS(SELECT 1 FROM engagements x WHERE x.client_id=c.id AND x.status="active")) resumed,
         SUM(c.previous_client_id IS NOT NULL OR (c.previous_name_text IS NOT NULL AND c.previous_name_text<>"")) returning
         FROM clients c WHERE ' . adc_demo_analytics_predicate('c'))->fetch();
     $html .= '<section class="card"><h2>Клиентская база</h2><p>Клиентов: <strong>' . (int)$counts['count_clients'] .
         '</strong> · активных: <strong>' . (int)$counts['active_clients'] .
         '</strong> · были в архиве: <strong>' . (int)$counts['ever_archived'] .
-        '</strong> · пришли повторно: <strong>' . (int)$counts['returning'] . '</strong></p>';
+        '</strong> · пришли повторно: <strong>' . (int)$counts['returning'] .
+        '</strong> · завершили и не возобновили: <strong>' . (int)$counts['churned'] .
+        '</strong> · вернулись из архива: <strong>' . (int)$counts['resumed'] . '</strong></p>' .
+        '<p class="muted">Отток здесь — клиенты с закрытым сотрудничеством и без активного. Возвращаемость — повторно открытое сотрудничество или ссылка на прошлую запись.</p>';
     $sourceRows = $db->query('SELECT COALESCE(NULLIF(source_kind,""),"unknown") kind, COUNT(*) qty
         FROM clients c WHERE ' . adc_demo_analytics_predicate('c') . ' GROUP BY source_kind ORDER BY qty DESC')->fetchAll();
     $html .= '<h3>Источники</h3>';
