@@ -58,6 +58,14 @@ function adc_doc_record(PDO $db, int $clientId, int $docId, bool $lock = false):
     return $row;
 }
 
+function adc_doc_requires_replacement(PDO $db,int $docId): bool {
+    $stmt=$db->prepare('SELECT 1 FROM audit_events
+        WHERE object_type="document_bundle" AND object_id=?
+          AND action="invalidate_document" LIMIT 1');
+    $stmt->execute([$docId]);
+    return (bool)$stmt->fetchColumn();
+}
+
 function adc_doc_labels(): array {
     $types = ['needs_contract','needs_spec','needs_invoice','needs_act'];
     $out = [];
@@ -113,6 +121,9 @@ function adc_doc_action(PDO $db, array $user, string $action): bool {
         $oldFile=$existing['storage_key'];
     }
     if ($action === 'transfer_document') {
+        if (adc_doc_requires_replacement($db,(int)$docId)) {
+            throw new RuntimeException('Суммы изменены: директор должен заменить PDF перед передачей.');
+        }
         if ($oldFile === null) {
             throw new RuntimeException('Нельзя передать документ без файла.');
         }
@@ -225,6 +236,7 @@ function adc_doc_panel(PDO $db, array $user, int $clientId): string {
     $html='<section class="card"><h3>Документы</h3>';
     foreach ($documents as $doc) {
         $id=(int)$doc['id'];
+        $stale=adc_doc_requires_replacement($db,$id);
         $types=[];
         foreach (['needs_contract'=>'Договор','needs_spec'=>'Спецификация','needs_invoice'=>'Счёт','needs_act'=>'Акт'] as $col=>$label) {
             if ((int)$doc[$col]===1) $types[]=$label;
@@ -232,10 +244,11 @@ function adc_doc_panel(PDO $db, array $user, int $clientId): string {
         $html.='<div class="item"><div><strong>'.adc_h((string)$doc['original_filename']).'</strong><p class="muted">'.
             adc_h(implode(' · ',$types)).' · '.
             adc_h((string)($doc['period_start'] ?? 'Без периода')).' · '.
-            ($doc['transferred_at'] ? 'Передано '.adc_h($doc['transferred_at']) : 'Ожидает передачи / проверки PDF') .
+            ($stale ? 'Требуется замена PDF после изменения суммы' :
+              ($doc['transferred_at'] ? 'Передано '.adc_h($doc['transferred_at']) : 'Ожидает передачи')) .
             ($doc['transfer_due_on'] ? ' · Передать до '.adc_h($doc['transfer_due_on']) : '') .
             '</p></div><div class="actions"><a class="btn secondary" href="/?download='.$id.'">Скачать</a>';
-        if (!$doc['transferred_at']) {
+        if (!$doc['transferred_at'] && !$stale) {
             $html.=adc_w_form_start('transfer_document').adc_w_hidden('client_id',$clientId).
                 adc_w_hidden('document_id',$id).'<button type="submit">Передано</button></form>';
         }
