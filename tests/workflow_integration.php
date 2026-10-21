@@ -162,6 +162,9 @@ run_action($db,$director,'archive_engagement',[
     'ended_on'=>'2026-10-07','end_reason'=>'Fixture completion',
 ]);
 check($db->query("SELECT status FROM engagements WHERE id=$e")->fetchColumn()==='archived','Archived');
+$final=$db->query("SELECT period_end,is_final FROM billing_periods WHERE engagement_id=$e ORDER BY id DESC LIMIT 1")->fetch();
+check($final['period_end']==='2026-10-08' && (int)$final['is_final']===1,'Final billing period shortened on archive');
+
 run_action($db,$director,'start_engagement',[
     'client_id'=>(string)$realId,'started_on'=>'2026-10-14',
     'billing_day'=>'14','payment_mode'=>'postpayment',
