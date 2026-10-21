@@ -1,0 +1,235 @@
+<?php
+declare(strict_types=1);
+
+function adc_config_path(): string {
+    return dirname(__DIR__, 2) . '/adclients-config.php';
+}
+
+function adc_config(): ?array {
+    $path = adc_config_path();
+    if (!is_file($path) || !is_readable($path)) {
+        return null;
+    }
+    $config = require $path;
+    if (!is_array($config) || !isset($config['db'], $config['setup_secret']) ||
+        !is_array($config['db']) || !is_string($config['setup_secret']) ||
+        strlen($config['setup_secret']) < 24) {
+        return null;
+    }
+    foreach (['host', 'name', 'user', 'password'] as $key) {
+        if (!isset($config['db'][$key]) || !is_string($config['db'][$key]) || $config['db'][$key] === '') {
+            return null;
+        }
+    }
+    return $config;
+}
+
+function adc_db(array $config): PDO {
+    $db = $config['db'];
+    $dsn = sprintf(
+        'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
+        $db['host'],
+        (int) ($db['port'] ?? 3306),
+        $db['name']
+    );
+    return new PDO($dsn, $db['user'], $db['password'], [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
+}
+
+function adc_schema(PDO $db): void {
+    $options = ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+    $statements = [
+        'CREATE TABLE IF NOT EXISTS users (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            email VARCHAR(190) NOT NULL UNIQUE,
+            display_name VARCHAR(120) NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            role ENUM("director", "employee") NOT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            must_change_password TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )',
+        'CREATE TABLE IF NOT EXISTS login_attempts (
+            identity_hash CHAR(64) PRIMARY KEY,
+            failure_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+            last_failure DATETIME NOT NULL
+        )',
+        'CREATE TABLE IF NOT EXISTS audit_events (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            actor_user_id BIGINT UNSIGNED NULL,
+            action VARCHAR(80) NOT NULL,
+            object_type VARCHAR(80) NOT NULL,
+            object_id BIGINT UNSIGNED NULL,
+            details_json TEXT NULL,
+            occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_actor_time(actor_user_id, occurred_at)
+        )',
+        'CREATE TABLE IF NOT EXISTS personal_tasks (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id BIGINT UNSIGNED NOT NULL,
+            title VARCHAR(240) NOT NULL,
+            due_date DATE NOT NULL,
+            repeat_monthly TINYINT(1) NOT NULL DEFAULT 0,
+            anchor_day TINYINT UNSIGNED NULL,
+            is_done TINYINT(1) NOT NULL DEFAULT 0,
+            completed_at DATETIME NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_user_due(user_id, due_date),
+            CONSTRAINT fk_personal_task_user FOREIGN KEY(user_id) REFERENCES users(id)
+        )',
+        'CREATE TABLE IF NOT EXISTS clients (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(240) NOT NULL,
+            platform_text VARCHAR(400) NULL,
+            legal_type ENUM("legal", "individual") NOT NULL DEFAULT "legal",
+            source_kind VARCHAR(30) NULL,
+            source_note VARCHAR(240) NULL,
+            previous_client_id BIGINT UNSIGNED NULL,
+            previous_name_text VARCHAR(240) NULL,
+            requires_acts TINYINT(1) NOT NULL DEFAULT 0,
+            requires_specs TINYINT(1) NOT NULL DEFAULT 0,
+            comment_text TEXT NULL,
+            created_by BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_client_name(name),
+            INDEX idx_client_previous(previous_client_id)
+        )',
+        'CREATE TABLE IF NOT EXISTS engagements (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            client_id BIGINT UNSIGNED NOT NULL,
+            started_on DATE NOT NULL,
+            ended_on DATE NULL,
+            end_reason VARCHAR(500) NULL,
+            billing_day TINYINT UNSIGNED NOT NULL,
+            payment_mode ENUM("prepayment", "postpayment") NOT NULL,
+            currency CHAR(3) NOT NULL,
+            quoted_amount DECIMAL(16,2) NOT NULL DEFAULT 0,
+            status ENUM("active", "archived") NOT NULL DEFAULT "active",
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_client_engagement(client_id, status),
+            CONSTRAINT fk_engagement_client FOREIGN KEY(client_id) REFERENCES clients(id)
+        )'
+    ];
+    foreach ($statements as $sql) {
+        $db->exec($sql . $options);
+    }
+}
+
+function adc_has_users(PDO $db): bool {
+    try {
+        return (int) $db->query('SELECT COUNT(*) FROM users')->fetchColumn() > 0;
+    } catch (PDOException $e) {
+        // No schema exists before the first, secret-gated setup.
+        if (in_array($e->getCode(), ['42S02', '42P01'], true)) {
+            return false;
+        }
+        throw $e;
+    }
+}
+
+function adc_session(): void {
+    if (session_status() !== PHP_SESSION_NONE) {
+        return;
+    }
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.cookie_httponly', '1');
+    session_name('ADCLIENTSESSID');
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'secure' => true,
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+    session_start();
+}
+
+function adc_csrf(): string {
+    if (!isset($_SESSION['csrf']) || !is_string($_SESSION['csrf'])) {
+        $_SESSION['csrf'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf'];
+}
+
+function adc_verify_csrf(): void {
+    $submitted = $_POST['csrf'] ?? '';
+    if (!is_string($submitted) || !hash_equals(adc_csrf(), $submitted)) {
+        http_response_code(403);
+        throw new RuntimeException('Проверка формы не пройдена. Обновите страницу.');
+    }
+}
+
+function adc_valid_date(string $date): bool {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date)) {
+        return false;
+    }
+    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+    return $parsed !== false && $parsed->format('Y-m-d') === $date;
+}
+
+function adc_next_month(string $date, int $anchorDay): string {
+    if (!adc_valid_date($date) || $anchorDay < 1 || $anchorDay > 31) {
+        throw new InvalidArgumentException('Неверная дата повторения');
+    }
+    $next = (new DateTimeImmutable($date))->modify('first day of next month');
+    $day = min($anchorDay, (int) $next->format('t'));
+    return $next->setDate((int) $next->format('Y'), (int) $next->format('m'), $day)->format('Y-m-d');
+}
+
+function adc_h(string $text): string {
+    return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function adc_audit(PDO $db, ?int $actorId, string $action, string $type, ?int $objectId, array $details = []): void {
+    $stmt = $db->prepare('INSERT INTO audit_events (actor_user_id, action, object_type, object_id, details_json) VALUES (?, ?, ?, ?, ?)');
+    $stmt->execute([$actorId, $action, $type, $objectId, json_encode($details, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+}
+
+function adc_identity_hash(string $email): string {
+    return hash('sha256', strtolower(trim($email)) . '|' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+}
+
+function adc_login_blocked(PDO $db, string $key): bool {
+    $stmt = $db->prepare('SELECT failure_count, last_failure FROM login_attempts WHERE identity_hash = ?');
+    $stmt->execute([$key]);
+    $record = $stmt->fetch();
+    return $record && (int)$record['failure_count'] >= 5 &&
+        strtotime((string)$record['last_failure']) > time() - 900;
+}
+
+function adc_login_failure(PDO $db, string $key): void {
+    $stmt = $db->prepare('INSERT INTO login_attempts(identity_hash, failure_count, last_failure) VALUES (?, 1, UTC_TIMESTAMP())
+        ON DUPLICATE KEY UPDATE
+          failure_count = IF(last_failure < UTC_TIMESTAMP() - INTERVAL 15 MINUTE, 1, failure_count + 1),
+          last_failure = UTC_TIMESTAMP()');
+    $stmt->execute([$key]);
+}
+
+function adc_current_user(PDO $db): ?array {
+    $id = $_SESSION['user_id'] ?? null;
+    if (!is_int($id) || $id < 1) {
+        return null;
+    }
+    $stmt = $db->prepare('SELECT id, email, display_name, role, is_active, must_change_password FROM users WHERE id = ?');
+    $stmt->execute([$id]);
+    $user = $stmt->fetch();
+    if (!$user || (int)$user['is_active'] !== 1) {
+        unset($_SESSION['user_id']);
+        return null;
+    }
+    return $user;
+}
+
+function adc_require_director(array $user): void {
+    if ($user['role'] !== 'director') {
+        http_response_code(403);
+        throw new RuntimeException('Недостаточно прав.');
+    }
+}
