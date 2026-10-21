@@ -650,7 +650,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         ? '<h1>Архив</h1><p class="muted">Закрытые сотрудничества сохраняют долги и документы.</p>'
         : '<h1>Клиенты</h1><p class="muted">Одна карточка для реальных и демонстрационных клиентов.</p>'.
           adc_w_client_form($db,null);
-    if (!$archive) $html.=adc_reminders_html($db,date('Y-m-d'));
+    if (!$archive && $query==='' && $demo==='') $html.=adc_reminders_html($db,date('Y-m-d'));
     $html.='<form class="card" method="get" role="search">'.
         adc_w_hidden('view',$view).
         '<div class="grid"><label class="field">Поиск клиента или площадки'.
