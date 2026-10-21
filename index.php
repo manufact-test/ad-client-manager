@@ -113,6 +113,53 @@ try {
         . '<small>Сообщите только код. Пароль, секрет и файл конфигурации отправлять не нужно.</small></section>');
 }
 
+/**
+ * Release acceptance: the existing dedicated Hostinger test site has an older
+ * MySQL schema. Never attempt implicit DDL on login or ordinary page requests.
+ */
+function adc_staging_schema_upgrade_needed(PDO $db): bool {
+    foreach ([
+        ['payment_events', 'submission_key', 'uq_payment_submission'],
+        ['billing_periods', 'creation_key', 'uq_period_creation_key'],
+    ] as [$table, $column, $index]) {
+        $col = $db->query("SHOW COLUMNS FROM `$table` LIKE '$column'")->fetch();
+        $key = $db->query("SHOW INDEX FROM `$table` WHERE Key_name='$index'")->fetch();
+        if (!$col || $col['Null'] !== 'YES' || !$key ||
+            (int)$key['Non_unique'] !== 0 || $key['Column_name'] !== $column) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** The browser path is only for the explicitly disposable, director-only setup.
+ * Refuse the upgrade if any client/finance/document/employee data already exists.
+ * More complex migrations must use the offline backup-and-restore procedure.
+ */
+function adc_staging_schema_upgrade_eligible(PDO $db): bool {
+    $userCount = (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    $directorCount = (int)$db->query(
+        "SELECT COUNT(*) FROM users WHERE role='director' AND is_active=1"
+    )->fetchColumn();
+    if ($userCount !== 1 || $directorCount !== 1) {
+        return false;
+    }
+    foreach ([
+        'clients', 'engagements', 'billing_periods', 'document_bundles',
+        'charge_lines', 'payment_events', 'personal_tasks', 'personal_task_completions',
+    ] as $table) {
+        if ((int)$db->query("SELECT COUNT(*) FROM `$table`")->fetchColumn() !== 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+$schemaUpgradeRequired = $initialized && adc_staging_schema_upgrade_needed($db);
+$dedicatedStagingHost =
+    strtolower((string)preg_replace('/:\\d+$/', '', $_SERVER['HTTP_HOST'] ?? '')) ===
+    'darkred-crow-882796.hostingersite.com';
+
 $action = adc_input('action');
 $errorMessage = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -213,6 +260,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ((int)$current['must_change_password'] === 1) {
             throw new RuntimeException('Сначала измените временный пароль.');
+        }
+
+        if ($action === 'staging_upgrade_schema') {
+            if ($current['role'] !== 'director' || !$dedicatedStagingHost ||
+                !$schemaUpgradeRequired ||
+                adc_input('backup_confirmed') !== 'YES' ||
+                !adc_staging_schema_upgrade_eligible($db)) {
+                throw new RuntimeException('Обновление запрещено: проверьте резервную копию и тестовую базу.');
+            }
+            // The director explicitly confirmed a private SQL+files backup.
+            // DDL in MySQL implicitly commits; no false rollback guarantee.
+            adc_schema($db);
+            if (adc_staging_schema_upgrade_needed($db)) {
+                throw new RuntimeException('Структура базы не обновилась. Проверка остановлена.');
+            }
+            adc_audit($db, (int)$current['id'],
+                'staging_schema_upgrade', 'database', null);
+            adc_flash('Тестовая база обновлена. Учётная запись директора сохранена.');
+            adc_redirect();
+        }
+
+        if ($schemaUpgradeRequired) {
+            throw new RuntimeException('Сначала директор должен обновить тестовую базу.');
         }
 
         // Connected workflow actions share the established authentication and CSRF gates.
@@ -394,6 +464,36 @@ if ((int)$user['must_change_password'] === 1) {
         . '<div class="field"><label>Новый пароль (от 12 символов)</label><input name="new_password" type="password" minlength="12" autocomplete="new-password" required></div>'
         . '<button type="submit">Сохранить новый пароль</button></form></section>';
     adc_page('Пароль', $html, $user);
+}
+
+if ($schemaUpgradeRequired) {
+    if ($user['role'] === 'director' && $dedicatedStagingHost) {
+        $eligible = adc_staging_schema_upgrade_eligible($db);
+        $body = '<section class="card narrow"><h1>Обновление тестовой базы</h1>'
+            . $alert
+            . '<p>Новая версия приложения требует добавить два защищающих от повторов поля. '
+            . 'Существующий директор и его пароль сохраняются.</p>'
+            . '<p><strong>Перед подтверждением:</strong> убедитесь, что в Hostinger '
+            . 'создана приватная резервная копия файлов и MySQL.</p>';
+        if ($eligible) {
+            $body .= '<form method="post" class="stack">'
+                . '<input type="hidden" name="csrf" value="' . $csrf . '">'
+                . '<input type="hidden" name="action" value="staging_upgrade_schema">'
+                . '<label><input type="checkbox" name="backup_confirmed" value="YES" required>'
+                . ' Подтверждаю создание резервной копии тестового сайта и базы MySQL</label>'
+                . '<button type="submit">Обновить тестовую базу</button></form>';
+        } else {
+            $body .= '<div class="error" role="alert">Автообновление недоступно: '
+                . 'в базе есть сотрудники, клиенты или финансовые записи. '
+                . 'Не изменяйте их. Требуется отдельная проверка резервной копии.</div>';
+        }
+        adc_page('Обновление тестовой базы', $body . '</section>', $user);
+    }
+    http_response_code(503);
+    adc_page('Требуется обновление базы',
+        '<section class="card narrow"><h1>База ожидает обновления</h1>'
+        . '<p>Операции временно закрыты. Обратитесь к директору.</p></section>',
+        $user);
 }
 
 // Financial downloads follow the same session and temporary-password gates.
