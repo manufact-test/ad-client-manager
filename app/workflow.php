@@ -693,7 +693,7 @@ function adc_w_engagement_fields(?array $current = null): string {
         adc_w_select('Условия оплаты','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)($current['payment_mode'] ?? 'prepayment')) .
         adc_w_select('Валюта','currency',['BYN'=>'BYN — белорусский рубль','RUB'=>'RUB — российский рубль',
          'EUR'=>'EUR — евро','USD'=>'USD — доллар США','KZT'=>'KZT — тенге'],(string)($current['currency'] ?? 'BYN')) .
-        adc_w_field('Стоимость услуг за месяц','quoted_amount',(string)($current['quoted_amount'] ?? ''),'number','min="0" step="0.01" placeholder="0.00"') .
+        adc_w_hidden('quoted_amount',(string)($current['quoted_amount'] ?? '0.00')) .
         '</div>';
 }
 
@@ -721,10 +721,12 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $effective=$db->prepare('SELECT effective_on FROM engagement_terms WHERE engagement_id=? ORDER BY effective_on DESC,id DESC LIMIT 1');
         $effective->execute([(int)$current['id']]);
         $activeFrom=$effective->fetchColumn() ?: $current['started_on'];
-        $html .= '<div><small>Дата начала текущих условий</small><strong>'.adc_h($qDate((string)$activeFrom)).'</strong></div>'.
-            '<div><small>Ориентир стоимости за месяц</small><strong>'.
-            adc_w_money($current['quoted_amount'] ?? '0.00',(string)$current['currency']).'</strong></div>'.
-            '<div><small>Условия оплаты</small><strong>'.
+        $html .= '<div><small>Дата начала текущих условий</small><strong>'.adc_h($qDate((string)$activeFrom)).'</strong></div>';
+        if (adc_fin_minor((string)($current['quoted_amount'] ?? '0.00'))!==0) {
+            $html.='<div><small>Исторический ориентир стоимости за месяц</small><strong>'.
+                adc_w_money($current['quoted_amount'],(string)$current['currency']).'</strong></div>';
+        }
+        $html.='<div><small>Условия оплаты</small><strong>'.
             ($current['payment_mode']==='prepayment'?'Предоплата':'Постоплата').'</strong></div>';
     }
     if ($client['previous_client_id'] !== null || trim((string)$client['previous_name_text']) !== '') {
