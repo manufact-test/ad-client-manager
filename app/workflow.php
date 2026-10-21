@@ -968,20 +968,22 @@ function adc_w_tasks(PDO $db, array $user): string {
         $html.='<div class="task-row"><div class="task-title"><strong>'.
             adc_h((string)$task['title']).'</strong>'.
             ((int)$task['repeat_monthly']===1?' <small>↻ Каждый месяц</small>':'').'</div>'.
-            '<div class="task-actions">'.adc_w_form_start('complete_task').adc_w_hidden('task_id',$id).
+            '<div class="task-actions"><button type="button" class="secondary" '.
+            'aria-expanded="false" aria-controls="task-'.$id.'" data-task-toggle="task-'.$id.'">Изменить</button>'.
+            adc_w_form_start('complete_task').adc_w_hidden('task_id',$id).
             '<button type="submit">Готово</button></form></div></div>';
-        $html.='<details class="task-editor" id="task-'.$id.'"><summary>Изменить задачу</summary>'.
-            '<div class="task-inline-edit">'.
+        $html.='<div class="task-inline-edit" id="task-'.$id.'" hidden>'.
+            '<h3>Изменить задачу</h3>'.
             adc_w_form_start('edit_task').adc_w_hidden('task_id',$id).
             '<div class="grid">'.
             adc_w_field('Название','title',(string)$task['title'],'text','maxlength="240" required').
             adc_w_field('Когда напомнить','due_date',$date,'date','required').
             '</div>'.adc_w_check('repeat_monthly','Повторять каждый месяц',(int)$task['repeat_monthly']===1).
             '<div class="task-edit-controls"><button type="submit">Сохранить</button>'.
-            '<button class="secondary" type="button" data-close-editor>Отмена</button></div></form>'.
+            '<button class="secondary" type="button" data-task-close="task-'.$id.'">Отмена</button></div></form>'.
             '<div class="task-delete">'.adc_w_form_start('delete_task').adc_w_hidden('task_id',$id).
             '<button class="secondary" type="submit">Удалить задачу</button></form></div>'.
-            '</div></details>';
+            '</div>';
 
     }
     if ($month!=='') $html.='</div></div></section>';
