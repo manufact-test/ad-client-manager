@@ -236,6 +236,19 @@ run_action($db,$employee,'save_charge',[
 ]);
 check((int)$db->query("SELECT transferred_at IS NULL FROM document_bundles WHERE id=$documentId")->fetchColumn()===1,
     'Charge change invalidates previously transferred document');
+check(adc_doc_requires_replacement($db,$documentId),
+    'Financial modification invalidates original PDF, not merely transfer timestamp');
+try {
+    run_action($db,$employee,'transfer_document',[
+        'client_id'=>(string)$demoId,'document_id'=>(string)$documentId
+    ]);
+    throw new RuntimeException('Stale PDF was transferred');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'заменить PDF'),
+        'Employee cannot confirm transfer of outdated document');
+    if ($db->inTransaction()) $db->rollBack();
+}
+
 
 try {
     run_action($db,$employee,'delete_demo',['client_id'=>(string)$demoId]);
