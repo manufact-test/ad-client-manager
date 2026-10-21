@@ -80,6 +80,19 @@ try {
         imp_assert(str_contains($e->getMessage(),'пересекающиеся'),'Overlapping periods rejected');
     }
     $bad=$records;
+    $bad[0][12]='';
+    $bad[1][12]='';
+    $bad[1][13]='1.00';
+    file_put_contents($path,imp_csv($bad));
+    try {adc_import_parse($path);throw new RuntimeException('Accepted refund beyond payments');}
+    catch (RuntimeException $e) {
+        imp_assert(str_contains($e->getMessage(),'возвраты превышают'),'Over-refund rejected');
+    }
+    $template=__DIR__.'/../docs/history-import-template.csv';
+    $templateData=adc_import_parse($template);
+    imp_assert($templateData['client_count']===2 && $templateData['row_count']===3,
+        'Published UTF-8 sample CSV follows exact importer contract');
+    $bad=$records;
     $bad[1][2]='9';
     file_put_contents($path,imp_csv($bad));
     try {adc_import_parse($path);throw new RuntimeException('Accepted illegal demo flag');}
