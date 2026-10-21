@@ -290,6 +290,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             adc_redirect();
         }
 
+        if ($action === 'reset_employee_password') {
+            adc_require_director($current);
+            $employeeId=filter_var(adc_input('employee_id'),FILTER_VALIDATE_INT);
+            $password=adc_input('employee_new_password');
+            if (!$employeeId || $employeeId<1 || strlen($password)<12 || strlen($password)>1024) {
+                throw new RuntimeException('Укажите сотрудника и временный пароль от 12 до 1024 символов.');
+            }
+            $stmt=$db->prepare('UPDATE users SET password_hash=?,must_change_password=1
+                WHERE id=? AND role="employee" AND is_active=1');
+            $stmt->execute([password_hash($password,PASSWORD_DEFAULT),$employeeId]);
+            if ($stmt->rowCount()!==1) {
+                throw new RuntimeException('Сотрудник не найден или уже отключён.');
+            }
+            adc_audit($db,(int)$current['id'],'reset_employee_password','user',(int)$employeeId);
+            adc_flash('Временный пароль установлен. Старые сеансы сотрудника отозваны; передайте пароль безопасным способом.');
+            adc_redirect('?view=team');
+        }
+
         if ($action === 'deactivate_employee') {
             adc_require_director($current);
             $employeeId = filter_var(adc_input('employee_id'), FILTER_VALIDATE_INT);
