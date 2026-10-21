@@ -938,37 +938,41 @@ function adc_w_analytics(PDO $db): string {
 }
 
 function adc_w_team(PDO $db, array $user): string {
-    $html = '<h1>Настройки</h1><section class="card"><h2>Пароль учётной записи</h2>' .
-        adc_w_form_start('change_password') .
-        adc_w_field('Текущий пароль','old_password','','password','required') .
-        adc_w_field('Новый пароль (12+ символов)','new_password','','password','minlength="12" required') .
-        '<button type="submit">Изменить пароль</button></form></section>';
-    if ($user['role'] === 'director') {
-        $html .= '<section class="card"><h2>Сотрудники</h2>';
+    $html='<h1>Настройки</h1>';
+    if ($user['role']==='director') {
+        $html.='<section class="card"><h2>Сотрудники</h2>';
         foreach ($db->query('SELECT id,display_name,role,is_active FROM users ORDER BY id') as $member) {
-            $html .= '<div class="item"><span>' . adc_h($member['display_name']) . ' · ' .
-                adc_h($member['role']) . ((int)$member['is_active'] === 1 ? '' : ' · отключён') . '</span>';
-            if ($member['role'] === 'employee' && (int)$member['is_active'] === 1) {
-                $html .= adc_w_form_start('deactivate_employee') .
-                    adc_w_hidden('employee_id',(int)$member['id']) .
-                    '<button type="submit" class="secondary">Отключить</button></form>' .
-                '<details><summary>Выдать новый временный пароль</summary>' .
-                adc_w_form_start('reset_employee_password') .
-                adc_w_hidden('employee_id',(int)$member['id']) .
-                adc_w_field('Новый временный пароль','employee_new_password','','password',
-                    'required minlength="12" maxlength="1024" autocomplete="new-password"') .
-                '<button type="submit">Сбросить пароль сотрудника</button></form></details>';
+            $html.='<div class="item"><span><strong>'.adc_h($member['display_name']).'</strong> · '.
+                ($member['role']==='director'?'Директор':'Сотрудник').
+                ((int)$member['is_active']===1?'':' · Отключён').'</span>';
+            if ($member['role']==='employee' && (int)$member['is_active']===1) {
+                $html.='<div class="actions">'.adc_w_form_start('deactivate_employee').
+                    adc_w_hidden('employee_id',(int)$member['id']).
+                    '<button type="submit" class="secondary">Отключить</button></form>'.
+                    '<details><summary>Сменить временный пароль</summary>'.
+                    adc_w_form_start('reset_employee_password').
+                    adc_w_hidden('employee_id',(int)$member['id']).
+                    adc_w_field('Новый временный пароль','employee_new_password','','password',
+                    'required minlength="12" maxlength="1024" autocomplete="new-password"').
+                    '<button type="submit">Сохранить пароль</button></form></details></div>';
             }
-            $html .= '</div>';
+            $html.='</div>';
         }
-        $html .= '<details><summary>＋ Добавить сотрудника</summary>' . adc_w_form_start('create_employee') .
-            adc_w_field('Имя','employee_name','','text','required maxlength="120"') .
-            adc_w_field('Email','employee_email','','email','required') .
-            adc_w_field('Временный пароль','employee_password','','password','required minlength="12"') .
+        $html.='<details class="settings-disclosure"><summary>Добавить сотрудника</summary>'.
+            '<form method="post" autocomplete="off"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
+            '<input type="hidden" name="action" value="create_employee">'.
+            adc_w_field('Имя','employee_name','','text','required maxlength="120" autocomplete="off"').
+            adc_w_field('Email сотрудника','employee_email','','email','required autocomplete="off"').
+            adc_w_field('Временный пароль','employee_password','','password','required minlength="12" autocomplete="new-password"').
             '<button type="submit">Создать сотрудника</button></form></details></section>';
     }
-    $html .= adc_import_panel($user);
-    $html .= adc_audit_panel($db,$user);
+    $html.='<details class="card settings-disclosure"><summary>Изменить пароль учётной записи</summary>'.
+        adc_w_form_start('change_password').
+        adc_w_field('Текущий пароль','old_password','','password','required autocomplete="current-password"').
+        adc_w_field('Новый пароль','new_password','','password','minlength="12" required autocomplete="new-password"').
+        '<button type="submit">Сохранить пароль</button></form></details>';
+    $html.=adc_import_panel($user);
+    $html.=adc_audit_panel($db,$user);
     return $html;
 }
 
