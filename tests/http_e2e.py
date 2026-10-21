@@ -280,7 +280,7 @@ try:
     status, _, page = request("employee", "/?view=clients&client=" + str(client))
     check("Повторная запись не создана" in html(page),
           "Handover replay explicitly reports no duplicate audit event")
-    check("Финансовая сверка клиента" in html(page),
+    check("Финансы" in html(page) and "Начислено" in html(page) and "Оплачено" in html(page),
           "Client drawer exposes whole-client reconciliation")
 
     # A finance edit invalidates an already-transferred invoice and act.
