@@ -70,6 +70,7 @@ function adc_flash(string $message): void {
     $_SESSION['flash'] = $message;
 }
 
+require __DIR__ . '/app/finance.php';
 require __DIR__ . '/app/workflow.php';
 require __DIR__ . '/app/documents.php';
 require __DIR__ . '/app/reminders.php';
