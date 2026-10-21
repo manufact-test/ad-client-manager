@@ -70,8 +70,10 @@ function adc_fin_months(PDO $db): array {
         GROUP BY ch.currency,mon,ch.category ORDER BY mon DESC');
     foreach ($a as $r) {
         $k=$r['currency'].'|'.$r['mon'];
-        $out[$k] ??= ['currency'=>$r['currency'],'month'=>$r['mon'],'billed'=>0,'paid'=>0];
-        $out[$k]['billed']=adc_fin_add($out[$k]['billed'],adc_fin_minor((string)$r['total']));
+        $out[$k] ??= ['currency'=>$r['currency'],'month'=>$r['mon'],'advertising'=>0,'development'=>0,'other'=>0,'billed'=>0,'paid'=>0];
+        $v=adc_fin_minor((string)$r['total']);
+        $out[$k][$r['category']]=adc_fin_add($out[$k][$r['category']],$v);
+        $out[$k]['billed']=adc_fin_add($out[$k]['billed'],$v);
     }
     $p=$db->query('SELECT p.currency,SUBSTR(p.occurred_on,1,7) mon,p.event_type,SUM(p.amount) total
         FROM payment_events p JOIN clients c ON c.id=p.client_id
@@ -79,7 +81,7 @@ function adc_fin_months(PDO $db): array {
         GROUP BY p.currency,mon,p.event_type ORDER BY mon DESC');
     foreach ($p as $r) {
         $k=$r['currency'].'|'.$r['mon'];
-        $out[$k] ??= ['currency'=>$r['currency'],'month'=>$r['mon'],'billed'=>0,'paid'=>0];
+        $out[$k] ??= ['currency'=>$r['currency'],'month'=>$r['mon'],'advertising'=>0,'development'=>0,'other'=>0,'billed'=>0,'paid'=>0];
         $v=adc_fin_minor((string)$r['total']);
         $out[$k]['paid']=adc_fin_add($out[$k]['paid'],$r['event_type']==='received'?$v:-$v);
     }
@@ -102,13 +104,17 @@ function adc_fin_render(PDO $db): string {
     if (!$totals) $html.='<tr><td colspan="7">Пока нет финансовых операций.</td></tr>';
     $html.='</tbody></table><small>Положительный баланс — задолженность клиента, отрицательный — аванс. Корректировки учитываются со знаком.</small></section>';
 
-    $html.='<section class="card"><h2>По месяцам</h2><p class="muted">Начисления относятся к месяцу начала расчётного периода, поступления — к месяцу фактической даты оплаты.</p><table><thead><tr><th>Месяц</th><th>Валюта</th><th>Начислено</th><th>Получено нетто</th></tr></thead><tbody>';
+    $html.='<section class="card"><h2>По месяцам</h2><p class="muted">Начисления относятся к месяцу начала расчётного периода, поступления — к месяцу фактической даты оплаты.</p><table><thead><tr><th>Месяц</th><th>Валюта</th><th>Реклама</th><th>Разработка</th><th>Прочее</th><th>Начислено</th><th>Получено нетто</th></tr></thead><tbody>';
     $months=adc_fin_months($db);
     foreach (array_slice($months,0,48) as $r) {
         $html.='<tr><td>'.adc_h($r['month']).'</td><td>'.adc_h($r['currency']).'</td><td>'.
-            adc_fin_format($r['billed'],$r['currency']).'</td><td>'.adc_fin_format($r['paid'],$r['currency']).'</td></tr>';
+            adc_fin_format($r['advertising'],$r['currency']).'</td><td>'.
+            adc_fin_format($r['development'],$r['currency']).'</td><td>'.
+            adc_fin_format($r['other'],$r['currency']).'</td><td>'.
+            adc_fin_format($r['billed'],$r['currency']).'</td><td>'.
+            adc_fin_format($r['paid'],$r['currency']).'</td></tr>';
     }
-    if (!$months) $html.='<tr><td colspan="4">Нет операций по месяцам.</td></tr>';
+    if (!$months) $html.='<tr><td colspan="7">Нет операций по месяцам.</td></tr>';
     $html.='</tbody></table></section>';
 
     $counts=$db->query('SELECT COUNT(*) count_clients,
