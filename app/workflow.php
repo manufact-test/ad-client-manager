@@ -935,7 +935,6 @@ function adc_w_tasks(PDO $db, array $user): string {
     $stmt = $db->prepare('SELECT * FROM personal_tasks WHERE user_id=? AND is_done=0 ORDER BY due_date,id');
     $stmt->execute([(int)$user['id']]);
     $tasks = $stmt->fetchAll();
-    $selected = filter_var($_GET['task'] ?? null, FILTER_VALIDATE_INT);
     $monthNames = [1=>'Январь',2=>'Февраль',3=>'Март',4=>'Апрель',5=>'Май',
         6=>'Июнь',7=>'Июль',8=>'Август',9=>'Сентябрь',10=>'Октябрь',
         11=>'Ноябрь',12=>'Декабрь'];
@@ -966,24 +965,24 @@ function adc_w_tasks(PDO $db, array $user): string {
             $html.='<div class="task-day"><h3>'.adc_h(date('d.m.Y',strtotime($date))).$todayBadge.'</h3>';
         }
         $id=(int)$task['id'];
-        $html.='<div class="task-row" id="task-'.$id.'"><div class="task-title"><strong>'.
+        $html.='<div class="task-row"><div class="task-title"><strong>'.
             adc_h((string)$task['title']).'</strong>'.
             ((int)$task['repeat_monthly']===1?' <small>↻ Каждый месяц</small>':'').'</div>'.
-            '<div class="task-actions"><a class="btn secondary edit-btn" aria-label="Изменить задачу" href="/?view=tasks&amp;task='.$id.'#task-'.$id.'">Изменить</a>'.
-            adc_w_form_start('complete_task').adc_w_hidden('task_id',$id).
+            '<div class="task-actions">'.adc_w_form_start('complete_task').adc_w_hidden('task_id',$id).
             '<button type="submit">Готово</button></form></div></div>';
-        if ($selected===$id) {
-            $html.='<div class="task-inline-edit"><h3>Изменить задачу</h3>'.
-                adc_w_form_start('edit_task').adc_w_hidden('task_id',$id).
-                '<div class="grid">'.
-                adc_w_field('Название','title',(string)$task['title'],'text','maxlength="240" required').
-                adc_w_field('Когда напомнить','due_date',$date,'date','required').
-                '</div>'.adc_w_check('repeat_monthly','Повторять каждый месяц',(int)$task['repeat_monthly']===1).
-                '<div class="actions"><button type="submit">Сохранить</button>'.
-                '<a class="btn secondary" href="/?view=tasks#task-'.$id.'">Отмена</a></div></form>'.
-                adc_w_form_start('delete_task').adc_w_hidden('task_id',$id).
-                '<button class="secondary" type="submit">Удалить задачу</button></form></div>';
-        }
+        $html.='<details class="task-editor" id="task-'.$id.'"><summary>Изменить задачу</summary>'.
+            '<div class="task-inline-edit">'.
+            adc_w_form_start('edit_task').adc_w_hidden('task_id',$id).
+            '<div class="grid">'.
+            adc_w_field('Название','title',(string)$task['title'],'text','maxlength="240" required').
+            adc_w_field('Когда напомнить','due_date',$date,'date','required').
+            '</div>'.adc_w_check('repeat_monthly','Повторять каждый месяц',(int)$task['repeat_monthly']===1).
+            '<div class="task-edit-controls"><button type="submit">Сохранить</button>'.
+            '<button class="secondary" type="button" data-close-editor>Отмена</button></div></form>'.
+            '<div class="task-delete">'.adc_w_form_start('delete_task').adc_w_hidden('task_id',$id).
+            '<button class="secondary" type="submit">Удалить задачу</button></form></div>'.
+            '</div></details>';
+
     }
     if ($month!=='') $html.='</div></div></section>';
     if (!$tasks) $html.='<section class="card"><p class="muted">Пока нет задач.</p></section>';
