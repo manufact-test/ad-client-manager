@@ -71,6 +71,7 @@ function adc_flash(string $message): void {
 }
 
 require __DIR__ . '/app/workflow.php';
+require __DIR__ . '/app/documents.php';
 
 $config = adc_config();
 if ($config === null) {
@@ -206,6 +207,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Connected workflow actions share the established authentication and CSRF gates.
         if (adc_w_action($db, $current, $action)) {
+            adc_redirect();
+        }
+        if (adc_doc_action($db, $current, $action)) {
             adc_redirect();
         }
 
@@ -372,6 +376,11 @@ if ((int)$user['must_change_password'] === 1) {
         . '<div class="field"><label>Новый пароль (от 12 символов)</label><input name="new_password" type="password" minlength="12" autocomplete="new-password" required></div>'
         . '<button type="submit">Сохранить новый пароль</button></form></section>';
     adc_page('Пароль', $html, $user);
+}
+
+// Only authenticated users who have changed a temporary password can retrieve PDFs.
+if (isset($_GET['download'])) {
+    adc_doc_download($db, $user);
 }
 
 // The old demo-only and month-switching dashboard has been superseded.
