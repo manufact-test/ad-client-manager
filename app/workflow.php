@@ -498,11 +498,11 @@ function adc_w_engagement_fields(?array $current = null): string {
         '</div>';
 }
 
-function adc_w_client_panel(PDO $db, array $user, int $id, string $view): string {
+function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string $returnUrl): string {
     $client = adc_w_client($db, $id);
     $html = '<aside class="drawer" id="client"><div class="drawer-head"><h2>' . adc_h($client['name']) .
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '') .
-        '</h2><a class="btn secondary" href="/?view=' . adc_h($view) . '">Закрыть ✕</a></div>';
+        '</h2><a class="btn secondary" href="' . adc_h($returnUrl) . '">Закрыть ✕</a></div>';
     $html .= adc_w_client_form($db, $client);
     $html .= adc_doc_panel($db, $user, $id);
     $stmt = $db->prepare('SELECT * FROM engagements WHERE client_id=? ORDER BY id DESC');
@@ -602,7 +602,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view): string
             adc_w_form_start('delete_demo') . adc_w_hidden('client_id', $id) .
             '<button type="submit">Удалить демо-клиента</button></form></details>';
     }
-    return $html . '</aside><a href="/?view=' . adc_h($view) . '" class="drawer-shade" aria-label="Закрыть карточку"></a>';
+    return $html . '</aside><a href="' . adc_h($returnUrl) . '" class="drawer-shade" aria-label="Закрыть карточку"></a>';
 }
 
 function adc_w_charge_form(int $clientId, int $pid, ?array $charge = null): string {
@@ -620,29 +620,66 @@ function adc_w_charge_form(int $clientId, int $pid, ?array $charge = null): stri
 }
 
 function adc_w_clients(PDO $db, array $user, string $view): string {
-    $archive = $view === 'archive';
-    $sql = $archive
-        ? 'SELECT c.* FROM clients c WHERE NOT EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active") ORDER BY c.id DESC LIMIT 300'
-        : 'SELECT c.* FROM clients c WHERE EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active") ORDER BY c.id DESC LIMIT 300';
-    $clients = $db->query($sql)->fetchAll();
-    $html = $archive ? '<h1>Архив</h1><p class="muted">Долги и документы сохраняются после закрытия сотрудничества.</p>'
-        : '<h1>Клиенты</h1><p class="muted">Одна карточка для реальных и демонстрационных клиентов.</p>' . adc_w_client_form($db, null);
-    if (!$archive) $html .= adc_reminders_html($db,date('Y-m-d'));
-    $html .= '<section class="card"><table><thead><tr><th>Клиент</th><th>Системы</th><th>Источник</th><th>Карточка</th></tr></thead><tbody>';
+    $archive=$view==='archive';
+    $query=is_string($_GET['q'] ?? null) ? trim($_GET['q']) : '';
+    if (mb_strlen($query)>80) $query=mb_substr($query,0,80);
+    $demo=in_array($_GET['demo'] ?? '', ['0','1'], true) ? (string)$_GET['demo'] : '';
+    $returnUrl='/?'.http_build_query(['view'=>$view,'q'=>$query,'demo'=>$demo],'','&',PHP_QUERY_RFC3986);
+    $sql='SELECT c.* FROM clients c WHERE '.
+        ($archive
+          ? 'NOT EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")'
+          : 'EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")');
+    $args=[];
+    if ($demo!=='') {
+        $sql.=' AND c.is_demo=?';
+        $args[]=(int)$demo;
+    }
+    if ($query!=='') {
+        // Literal substring search, unlike LIKE this does not treat "%" / "_"
+        // in user text as wildcards.
+        $sql.=' AND (LOCATE(LOWER(?),LOWER(c.name))>0 OR
+            LOCATE(LOWER(?),LOWER(COALESCE(c.platform_text,"")))>0)';
+        $args[]=$query;
+        $args[]=$query;
+    }
+    $sql.=' ORDER BY c.id DESC LIMIT 300';
+    $stmt=$db->prepare($sql);
+    $stmt->execute($args);
+    $clients=$stmt->fetchAll();
+    $html=$archive
+        ? '<h1>Архив</h1><p class="muted">Закрытые сотрудничества сохраняют долги и документы.</p>'
+        : '<h1>Клиенты</h1><p class="muted">Одна карточка для реальных и демонстрационных клиентов.</p>'.
+          adc_w_client_form($db,null);
+    if (!$archive) $html.=adc_reminders_html($db,date('Y-m-d'));
+    $html.='<form class="card" method="get" role="search">'.
+        adc_w_hidden('view',$view).
+        '<div class="grid"><label class="field">Поиск клиента или площадки'.
+        '<input type="search" name="q" maxlength="80" placeholder="Название клиента или рекламная система" value="'.
+        adc_h($query).'"></label><label class="field">Тип клиента<select name="demo">'.
+        '<option value="">Все</option>'.
+        '<option value="0"'.($demo==='0'?' selected':'').'>Реальные</option>'.
+        '<option value="1"'.($demo==='1'?' selected':'').'>Демонстрационные</option>'.
+        '</select></label></div><button type="submit">Найти</button> '.
+        '<a class="btn secondary" href="/?view='.adc_h($view).'">Сбросить</a>'.
+        '</form><section class="card"><p class="muted">Найдено в списке: '.count($clients).
+        (count($clients)===300?' (показаны последние 300, уточните поиск)':'').'</p>'.
+        '<div class="table-scroll"><table><thead><tr>'.
+        '<th>Клиент</th><th>Системы</th><th>Источник</th><th>Карточка</th>'.
+        '</tr></thead><tbody>';
     foreach ($clients as $client) {
-        $html .= '<tr><td><strong>' . adc_h($client['name']) . '</strong>' .
-            ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '') .
-            '</td><td>' . adc_h((string)$client['platform_text']) . '</td><td>' .
-            adc_h((string)$client['source_kind']) . '</td><td><a href="/?view=' . $view .
-            '&client=' . (int)$client['id'] . '">Открыть →</a></td></tr>';
+        $html.='<tr><td><strong>'.adc_h($client['name']).'</strong>'.
+            ((int)$client['is_demo']===1?' <span class="badge demo">Демо</span>':'').
+            '</td><td>'.adc_h((string)$client['platform_text']).'</td><td>'.
+            adc_h((string)$client['source_kind']).'</td><td><a href="'.
+            adc_h($returnUrl.'&client='.(int)$client['id']).'">Открыть →</a></td></tr>';
     }
     if (!$clients) {
-        $html .= '<tr><td colspan="4" class="muted">Здесь пока нет клиентов.</td></tr>';
+        $html.='<tr><td colspan="4" class="muted">Совпадений нет.</td></tr>';
     }
-    $html .= '</tbody></table></section>';
-    $selected = filter_var($_GET['client'] ?? null, FILTER_VALIDATE_INT);
-    if ($selected && $selected > 0) {
-        $html .= adc_w_client_panel($db, $user, (int)$selected, $view);
+    $html.='</tbody></table></div></section>';
+    $selected=filter_var($_GET['client'] ?? null,FILTER_VALIDATE_INT);
+    if ($selected && $selected>0) {
+        $html.=adc_w_client_panel($db,$user,(int)$selected,$view,$returnUrl);
     }
     return $html;
 }
