@@ -47,6 +47,7 @@ try {
     fin_assert($g['CHF']['received']===30 && $g['CHF']['refund']===1,'Refund separated');
     $m=adc_fin_months($db);
     fin_assert($m['CHF|2026-10']['billed']===1030,'Monthly billed 10.30');
+    fin_assert($m['CHF|2026-10']['advertising']===30 && $m['CHF|2026-10']['development']===1001 && $m['CHF|2026-10']['other']===-1,'Monthly category split exact');
     fin_assert($m['CHF|2026-10']['paid']===29,'Monthly received net 0.29');
     $html=adc_fin_render($db);
     fin_assert(str_contains($html,'10,30 CHF') && str_contains($html,'0,29 CHF') &&
