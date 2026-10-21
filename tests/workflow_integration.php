@@ -138,6 +138,25 @@ try {
     if ($db->inTransaction()) $db->rollBack();
 }
 
+check(adc_w_next_cycle_end('2026-01-31',31)==='2026-02-28','January 31 clamp');
+check(adc_w_next_cycle_end('2028-02-29',31)==='2028-03-31','Leap-year clamp and anchor');
+check(adc_w_next_cycle_end('2026-10-02',7)==='2026-10-07','Before billing day');
+run_action($db,$director,'create_next_period',[
+    'client_id'=>(string)$realId,'engagement_id'=>(string)$e
+]);
+$nextPeriod=$db->query("SELECT period_start,period_end FROM billing_periods WHERE engagement_id=$e ORDER BY id DESC LIMIT 1")->fetch();
+check($nextPeriod['period_start']==='2026-10-07' && $nextPeriod['period_end']==='2026-11-07','Automatically generated next period');
+try {
+    run_action($db,$director,'save_period',[
+        'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
+        'period_start'=>'2026-10-01','period_end'=>'2026-10-20'
+    ]);
+    throw new RuntimeException('Accepted overlapping period');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'пересекается'),'Reject overlapping periods');
+    if ($db->inTransaction()) $db->rollBack();
+}
+
 run_action($db,$director,'archive_engagement',[
     'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
     'ended_on'=>'2026-10-07','end_reason'=>'Fixture completion',
