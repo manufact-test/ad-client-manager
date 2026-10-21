@@ -895,7 +895,7 @@ function adc_w_tasks(PDO $db, array $user): string {
         $date = (string)$task['due_date'];
         $taskMonth = substr($date,0,7);
         if ($month!==$taskMonth) {
-            if ($month!=='') $html.='</div></section>';
+            if ($month!=='') $html.='</div></div></section>';
             $month=$taskMonth;$day='';
             $parts=explode('-',$date);
             $caption=$monthNames[(int)$parts[1]].' '.$parts[0];
