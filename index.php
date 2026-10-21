@@ -71,6 +71,7 @@ function adc_flash(string $message): void {
 }
 
 require __DIR__ . '/app/finance.php';
+require __DIR__ . '/app/export.php';
 require __DIR__ . '/app/workflow.php';
 require __DIR__ . '/app/documents.php';
 require __DIR__ . '/app/reminders.php';
@@ -393,6 +394,11 @@ if ((int)$user['must_change_password'] === 1) {
         . '<div class="field"><label>Новый пароль (от 12 символов)</label><input name="new_password" type="password" minlength="12" autocomplete="new-password" required></div>'
         . '<button type="submit">Сохранить новый пароль</button></form></section>';
     adc_page('Пароль', $html, $user);
+}
+
+// Financial downloads follow the same session and temporary-password gates.
+if (isset($_GET['export']) && is_string($_GET['export'])) {
+    adc_export_csv($db,$user,$_GET['export']);
 }
 
 // Only authenticated users who have changed a temporary password can retrieve PDFs.
