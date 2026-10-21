@@ -291,6 +291,39 @@ try:
           "Search value is escaped; cannot inject HTML")
 
 
+    # Reports are exported only after authentication, never for visitors.
+    status, headers, data = request("visitor", "/?export=balances")
+    check(status == 200 and "Вход" in html(data) and
+          "text/csv" not in headers, "Anonymous finance export denied by login screen")
+    status, headers, data = request("director", "/?export=balances")
+    check(status == 200 and "Content-Type: text/csv" in headers and data.startswith(b"\xef\xbb\xbf"),
+          "Director downloads authentic UTF-8 CSV")
+    report = html(data)
+    check("Imported CI client" in report and "0.30" in report and
+          "Disposable CI demo" not in report, "Real-only finance CSV correctly excludes demo")
+    status, headers, data = request("employee", "/?export=balances")
+    check(status == 200 and "text/csv" in headers and
+          "Imported CI client" in html(data), "Employee may export shared real analytics")
+    status, _, data = request("director", "/?export=client")
+    check(status == 400 and "Клиент не указан" in html(data),
+          "Client financial ledger must require a valid ID")
+    status, _, data = request("director", "/?export=bogus")
+    check(status == 404, "Unknown reports do not leak information")
+    status, _, list_page = request("director", "/?view=clients&q=Imported+CI&demo=0")
+    match = re.search(r'client=(\d+)',html(list_page))
+    check(match is not None,"Real imported client found for ledger export")
+    real_id=match.group(1)
+    status, headers, data = request("director", "/?export=client&client_id="+real_id)
+    check(status == 200 and "text/csv" in headers and
+          "Landing" in html(data) and "0.20" in html(data) and
+          "Imported CI client" in html(data),"Per-client detailed ledger CSV downloads securely")
+    status, headers, data = request("employee", "/?export=client&client_id="+real_id)
+    check(status == 200 and "Landing" in html(data),
+          "Employee has read-only ledger export")
+    status, _, data = request("visitor", "/?export=client&client_id="+real_id)
+    check(status == 200 and "Вход" in html(data) and
+          "Landing" not in html(data),"Anonymous user cannot export client ledger")
+
     print("HTTP E2E passed: authentication, client form, PDF upload/download, roles, CSRF, replacement, transfer, cascade")
 finally:
     for file in WORK.iterdir():
