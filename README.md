@@ -17,6 +17,8 @@
 - [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) — матрица автоматических тестов и перечень обязательной ручной приёмки.
 - [docs/RECOVERY.md](docs/RECOVERY.md) — хранение резервных копий и безопасное восстановление SQL+PDF.
 - [docs/RELEASE.md](docs/RELEASE.md) — **единая инструкция выпуска**: ворота A–D, ручная браузерная приёмка, проверка Hostinger, приватизация и ручной запуск деплоя.
+- [docs/HOSTINGER-STAGING.md](docs/HOSTINGER-STAGING.md) — точная безопасная схема независимого тестового Hostinger и протокол B1–B9; **ещё не выполнялась**.
+- [docs/PUBLIC-HISTORY-AUDIT.md](docs/PUBLIC-HISTORY-AUDIT.md) — предварительная ревизия истории публичного GitHub; полный Gate D ещё не пройден.
 - [docs/history-import-template.csv](docs/history-import-template.csv) — вымышленный пример строго поддерживаемого импорта истории.
 
 ## Разработанные возможности в feature-ветке
