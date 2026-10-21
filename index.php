@@ -228,6 +228,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .ac-days small{text-align:center;padding:4px 0;color:#69648b;font-size:11px}
         .ac-calendar .ac-today{width:100%;margin-top:8px;padding:7px;background:#eeecff;color:#4033a7;font-size:12px}
 
+.card-payment-switch{margin-bottom:10px}.doc-upload-form:has(input[name=is_card]:checked) .document-only{display:none}.doc-upload-form:has(input[name=is_card]:checked) .ledger-money-fields{display:block!important}.doc-upload-form:has(input[name=is_card]:checked) .ledger-money-toggle>label.check{display:none}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script>
 (function(){
   "use strict";

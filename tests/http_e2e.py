@@ -151,8 +151,8 @@ try:
     require("280,00 BYN" in page and len(re.findall(r"\?download=(\d+)",page))==2,
             "Corrected amount exactly once, same two PDF identifiers")
     # Card payment is an ordinary standalone record with individual receipt controls.
-    status,_,_=post("director",director,"create_card_entry",{
-        "client_id":demo,"amount":"50.00","currency":"BYN",
+    status,_,_=post("director",director,"upload_document",{
+        "client_id":demo,"is_card":"1","amount":"50.00","currency":"BYN",
         "category":"development","note":"Оплата на карту"})
     require(status==303 and "50,00 BYN" in panel("employee",demo),"Card without PDF")
     page=panel("employee",demo)

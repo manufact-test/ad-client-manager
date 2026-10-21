@@ -186,10 +186,7 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
     if ($user['role']==='director') {
         $html.='<details class="sub-action"><summary>Загрузить документ</summary>'.
             adc_doc_upload_form($db,$clientId).'</details>';
-        $html.='<details class="sub-action"><summary>Добавить оплату на карту</summary>'.
-            adc_w_form_start('create_card_entry').adc_w_hidden('client_id',$clientId).
-            adc_ledger_form_money().adc_w_field('Комментарий','note','Оплата на карту','text','maxlength="500"').
-            '<button type="submit">Добавить</button></form></details>';
+ 
     }
     return $html.'</section>';
 }

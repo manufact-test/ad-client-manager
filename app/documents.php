@@ -139,6 +139,11 @@ function adc_doc_action(PDO $db,array $user,string $action): bool {
         if ($existing['storage_key']) {try {$p=adc_doc_path($existing['storage_key']);if(is_file($p))unlink($p);}catch(Throwable $e){error_log('PDF cleanup failed');}}
         adc_flash('Документ и связанные с ним суммы удалены.');adc_redirect(adc_w_client_location($db,$clientId));
     }
+    // The same upload form can create a card-payment request without a PDF.
+    if ($action==='upload_document' && isset($_POST['is_card'])) {
+        $db->rollBack();
+        return adc_ledger_action($db,$user,'create_card_entry');
+    }
     $newFile=null;$oldPath=null;
     $uploaded=$_FILES['document']??null;
     $hasFile=is_array($uploaded)&&($uploaded['error']??UPLOAD_ERR_NO_FILE)===UPLOAD_ERR_OK;
@@ -284,15 +289,16 @@ function adc_doc_upload_form(PDO $db,int $clientId,?int $replaceId=null): string
     $q=$db->prepare('SELECT p.id,p.period_start FROM billing_periods p
         JOIN engagements e ON e.id=p.engagement_id WHERE e.client_id=? ORDER BY p.period_start DESC LIMIT 100');
     $q->execute([$clientId]);foreach($q as $r)$periods[$r['id']]=$r['period_start'];
-    $h='<form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
+    $h='<form class="doc-upload-form" method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
       adc_w_hidden('action',$replaceId?'edit_document':'upload_document').adc_w_hidden('client_id',$clientId);
     if($replaceId!==null)$h.=adc_w_hidden('document_id',$replaceId);
-    $h.='<label class="field">PDF'.($replaceId!==null?' (можно не менять)':'').
-      '<input type="file" name="document" accept=".pdf,application/pdf"'.($replaceId===null?' required':'').'></label>'.
-      adc_w_check('needs_contract','Договор',(bool)($existing['needs_contract']??false)).
+    if ($replaceId===null) $h.='<div class="card-payment-switch">'.adc_w_check('is_card','Оплата на карту (без PDF)',false).'</div>';
+    $h.='<div class="document-only"><label class="field">PDF'.($replaceId!==null?' (можно не менять)':'').
+      '<input type="file" name="document" accept=".pdf,application/pdf"></label></div>'.
+      '<div class="document-only">'.adc_w_check('needs_contract','Договор',(bool)($existing['needs_contract']??false)).
       adc_w_check('needs_spec','Спецификация',(bool)($existing['needs_spec']??false)).
       adc_w_check('needs_invoice','Счёт',(bool)($existing['needs_invoice']??false)).
-      adc_w_check('needs_act','Акт',(bool)($existing['needs_act']??false)).
+      adc_w_check('needs_act','Акт',(bool)($existing['needs_act']??false)).'</div>'.
       '<div class="ledger-money-toggle">'.adc_w_check('has_amount','Указать сумму к оплате',($current['amount']??null)!==null).
       '<div class="ledger-money-fields">'.str_replace(' required','',adc_ledger_form_money($current?:[])).'</div></div>'.
       adc_w_field('Комментарий','note',(string)($current['note']??''),'text','maxlength="500"').
