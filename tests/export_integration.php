@@ -36,7 +36,7 @@ try {
     $pay=$db->prepare('INSERT INTO payment_events(client_id,event_type,amount,currency,occurred_on,note) VALUES (?,?,?, "CHF","2026-10-21",?)');
     $pay->execute([$real,'received','0.20','@cmd']);
     $pay->execute([$real,'refund','0.01','+formula']);
-    $pay->execute([$demo,'received','9999.00','Fake');
+    $pay->execute([$demo,'received','9999.00','Fake']);
     $report=adc_export_balances($db);
     $rows=array_values(array_filter($report,fn($row)=>isset($row[0]) && (string)$row[0]===(string)$real));
     ex_check(count($rows)===1,'Real included once in client-currency output');
