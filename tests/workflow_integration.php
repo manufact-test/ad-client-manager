@@ -142,7 +142,7 @@ try {
         'client_id'=>(string)$realId,'source_note'=>str_repeat('z',241)
     ]));
     throw new RuntimeException('Accepted oversized acquisition note');
-} catch (RuntimeException $expected) {
+} catch (InvalidArgumentException $expected) {
     check(str_contains($expected->getMessage(),'длина'),'Check source note length independently');
     if ($db->inTransaction()) $db->rollBack();
 }
