@@ -122,7 +122,14 @@ function adc_w_invalidate_period_documents(PDO $db,int $actor,int $periodId): vo
 
 function adc_w_collaboration_fields(): array {
     $date = adc_w_date(adc_input('started_on'));
-    $day = (int)substr($date, 8, 2); // next month follows the start date
+    // In the simplified form the billing day is derived from the start date.
+    // Explicit legacy/CSV API submissions retain their historical billing day.
+    $givenDay = adc_input('billing_day');
+    $day = $givenDay === '' ? (int)substr($date,8,2) :
+        filter_var($givenDay,FILTER_VALIDATE_INT);
+    if (!$day || $day < 1 || $day > 31) {
+        throw new InvalidArgumentException('Расчётный день — от 1 до 31.');
+    }
     return [
         $date,
         $day,
