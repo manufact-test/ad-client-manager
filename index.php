@@ -25,6 +25,7 @@ header('Cache-Control: no-store, max-age=0');
     <h1>Ad Client Manager</h1>
     <p>Тестовая страница развёртывания приложения.</p>
     <small>GitHub → Hostinger. Функциональность клиентов пока не установлена.</small>
+    <p><small>Проверка автообновления: 21.10.2026 · тест №1</small></p>
   </main>
 </body>
 </html>
