@@ -21,7 +21,7 @@ def request(data=None):
     cookie=None
     if COOKIES.exists():
         for line in COOKIES.read_text().splitlines():
-            parts=line.removeprefix("#HttpOnly_").split("\\t")
+            parts=line.removeprefix("#HttpOnly_").split("\t")
             if len(parts) >= 7 and parts[5] == "ADCLIENTSESSID":
                 cookie="ADCLIENTSESSID="+parts[6]
     cmd=["curl","-sS","--max-time","15","-H",f"Host: {HOST}",
