@@ -55,6 +55,14 @@ $realId=(int)$db->query('SELECT MAX(id) FROM clients WHERE name="Fixture real cl
 check($realId>0,'Real client created');
 $e=(int)$db->query("SELECT id FROM engagements WHERE client_id=$realId")->fetchColumn();
 check($e>0,'Engagement created');
+run_action($db,$employee,'save_engagement',[
+    'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
+    'started_on'=>'2026-09-07','billing_day'=>'7','payment_mode'=>'postpayment',
+    'currency'=>'BYN','quoted_amount'=>'1200.00',
+]);
+$engCheck=$db->query("SELECT * FROM engagements WHERE id=$e")->fetch();
+check($engCheck['payment_mode']==='postpayment' && $engCheck['quoted_amount']==='1200.00','Edit financial terms');
+
 run_action($db,$director,'save_period',[
     'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
     'period_start'=>'2026-09-07','period_end'=>'2026-10-07','period_note'=>'September',
@@ -91,6 +99,18 @@ $balance = $db->query("SELECT
     (SELECT SUM(amount) FROM charge_lines WHERE client_id=$realId AND is_void=0) -
     (SELECT SUM(CASE WHEN event_type='received' THEN amount ELSE -amount END) FROM payment_events WHERE client_id=$realId)")->fetchColumn();
 check((string)$balance==='600.00','1500 billed - 900 received net = 600 outstanding');
+try {
+    run_action($db,$employee,'save_engagement',[
+        'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
+        'started_on'=>'2026-09-07','billing_day'=>'7','payment_mode'=>'prepayment',
+        'currency'=>'USD','quoted_amount'=>'1200.00',
+    ]);
+    throw new RuntimeException('Changed currency after payments');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'Нельзя менять валюту'),'Protect historical currency');
+    if ($db->inTransaction()) $db->rollBack();
+}
+
 
 try {
     run_action($db,$employee,'add_payment',[
