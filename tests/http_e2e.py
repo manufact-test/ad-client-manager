@@ -185,6 +185,12 @@ try:
         "category":"development","note":"Incorrect paid category"})
     require(status==200 and "Сначала отмените получение оплаты" in html(blocked),
             "Paid PDF reporting category cannot be silently changed")
+    status,_,blocked=post("director",director,"edit_document",{
+        "client_id":demo,"document_id":doc,"needs_spec":"1",
+        "has_amount":"1","amount":"100.00","currency":"BYN",
+        "category":"advertising","note":"Changed type after receipt"})
+    require(status==200 and "Сначала отмените получение оплаты" in html(blocked),
+            "Paid PDF's document type cannot be changed without undoing receipt")
     status,_,blocked=request("director",files={
         "csrf":director,"action":"edit_document","client_id":str(demo),
         "document_id":str(doc),

@@ -208,8 +208,11 @@ function adc_doc_action(PDO $db,array $user,string $action): bool {
                     ($hasFile || $amount===null ||
                      adc_fin_minor((string)$amount)!==adc_fin_minor((string)$entry['amount']) ||
                      $currency!==$entry['currency'] ||
-                     $category!==$entry['category'])) {
-                    throw new RuntimeException('Сначала отмените получение оплаты, затем измените сумму, валюту, категорию или PDF.');
+                     $category!==$entry['category'] ||
+                     $periodId!==($existing['period_id']===null?null:(int)$existing['period_id']) ||
+                     $flags!==[(int)$existing['needs_contract'],(int)$existing['needs_spec'],
+                               (int)$existing['needs_invoice'],(int)$existing['needs_act']])) {
+                    throw new RuntimeException('Сначала отмените получение оплаты, затем измените сумму, валюту, категорию, тип, период или PDF.');
                 }
                 $db->prepare('UPDATE client_entries SET amount=?,currency=?,category=?,note=?,
                     sent_at=IF(?=1,NULL,sent_at),received_at=IF(? IS NULL,NULL,received_at) WHERE id=?')
