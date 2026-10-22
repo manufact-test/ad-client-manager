@@ -84,6 +84,18 @@ try:
     status,_,body=request("visitor","/?download=1")
     require(status==200 and "Вход" in html(body),"Private document unauthenticated access")
     director=login("director");employee=login("employee")
+    status,_,ctrl=request("employee","/?view=control")
+    require(status==200 and "Контроль клиентов" in html(ctrl) and
+            "План вычисляется по условиям договоров" in html(ctrl),
+            "Shared client paperwork overview is accessible to employees")
+    status,_,tasks=request("director","/?view=tasks")
+    require(status==200 and "Мои задачи" in html(tasks) and
+            "Общий календарь команды" in html(tasks),
+            "Director has personal tasks and shared staff calendar")
+    status,_,tasks=request("employee","/?view=tasks")
+    require(status==200 and "Мои задачи" in html(tasks) and
+            "Общий календарь команды" not in html(tasks),
+            "Employee sees own calendar without director overview")
     status,_,form=request("director","/?view=clients")
     require(status==200 and re.search(
         r'name="quoted_amount" type="number"[^>]*step="0.01"',html(form)),

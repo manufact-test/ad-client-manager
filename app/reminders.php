@@ -175,3 +175,71 @@ function adc_reminders_html(PDO $db, string $today): string {
     }
     return $html.'</details>';
 }
+
+/** Shared read-only client workload; it never adds personal tasks or payments. */
+function adc_reminders_dashboard(PDO $db): string {
+    $today=date('Y-m-d');
+    $kindOptions=['all'=>'Все действия','invoice'=>'Счета','act'=>'Акты',
+        'spec'=>'Спецификации','contract'=>'Договоры',
+        'handover'=>'Передача PDF','replace'=>'Замена PDF'];
+    $scopeOptions=['all'=>'Все сроки','overdue'=>'Просроченные',
+        'today'=>'Сегодня','upcoming'=>'Предстоящие'];
+    $demoOptions=['0'=>'Рабочие клиенты','1'=>'Демо-клиенты','all'=>'Все клиенты'];
+    $kind=(string)($_GET['kind']??'all');
+    if (!isset($kindOptions[$kind])) $kind='all';
+    $scope=(string)($_GET['scope']??'all');
+    if (!isset($scopeOptions[$scope])) $scope='all';
+    $demo=(string)($_GET['demo']??'0');
+    if (!isset($demoOptions[$demo])) $demo='0';
+    $all=adc_client_reminders($db,$today);
+    $rows=array_values(array_filter($all,static function(array $event) use($kind,$scope,$demo,$today):bool {
+        if ($demo!=='all' && (int)$event['is_demo']!==(int)$demo) return false;
+        if ($kind!=='all' && $event['kind']!==$kind) return false;
+        return match($scope){
+            'overdue'=>$event['date']<$today,
+            'today'=>$event['date']===$today,
+            'upcoming'=>$event['date']>$today,
+            default=>true
+        };
+    }));
+    $shown=array_slice($rows,0,120);
+    $html='<h1>Контроль клиентов</h1><section class="card">'.
+        '<p class="muted">Общий план документов и передачи PDF для сотрудников. '.
+        'Показываются даты от 35 дней назад до 45 дней вперёд; '.
+        'старые просрочки за пределами окна не включены. '.
+        'План вычисляется по условиям договоров и не создаёт личных задач или начислений.</p>'.
+        '<form method="get"><input type="hidden" name="view" value="control"><div class="grid">'.
+        '<label class="field">Клиенты<select name="demo">';
+    foreach($demoOptions as $val=>$label){
+        $html.='<option value="'.$val.'"'.($val===$demo?' selected':'').'>'.adc_h($label).'</option>';
+    }
+    $html.='</select></label><label class="field">Действие<select name="kind">';
+    foreach($kindOptions as $val=>$label){
+        $html.='<option value="'.$val.'"'.($val===$kind?' selected':'').'>'.adc_h($label).'</option>';
+    }
+    $html.='</select></label><label class="field">Срок<select name="scope">';
+    foreach($scopeOptions as $val=>$label){
+        $html.='<option value="'.$val.'"'.($val===$scope?' selected':'').'>'.adc_h($label).'</option>';
+    }
+    $html.='</select></label></div><button type="submit">Показать</button></form>'.
+        '<p class="muted">Напоминаний: '.count($rows).
+        (count($rows)>120?' (показаны первые 120, уточните фильтры)':'').'</p>';
+    if (!$shown) return $html.'<p class="muted">Подходящих напоминаний нет.</p></section>';
+    $lastDate='';
+    foreach($shown as $item){
+        $date=(string)$item['date'];
+        if($date!==$lastDate){
+            if($lastDate!=='')$html.='</div>';
+            $lastDate=$date;
+            $html.='<div class="task-day"><h3>'.adc_h(date('d.m.Y',strtotime($date))).
+                ($date<$today?' <span class="badge">Просрочено</span>':
+                ($date===$today?' <span class="badge good">Сегодня</span>':'')).'</h3>';
+        }
+        $html.='<div class="item"><div><strong>'.adc_h((string)$item['label']).'</strong>'.
+            '<p class="muted">'.adc_h((string)$item['client_name']).
+            ((int)$item['is_demo']===1?' · Демо':'').'</p></div>'.
+            '<a class="btn secondary" href="/?view=clients&amp;client='.
+            (int)$item['client_id'].'">Открыть клиента</a></div>';
+    }
+    return $html.'</div></section>';
+}

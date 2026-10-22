@@ -1036,6 +1036,88 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     return $html;
 }
 
+
+/**
+ * Director-only shared task calendar. Ordinary employees keep private tasks;
+ * the director can see all open tasks but cannot complete or edit someone
+ * else's tasks from this read-only overview.
+ */
+function adc_w_team_schedule(PDO $db,array $user): string {
+    if (($user['role']??'')!=='director') return '';
+    $staff=$db->query('SELECT id,display_name,role,is_active FROM users ORDER BY display_name,id')
+        ->fetchAll(PDO::FETCH_ASSOC);
+    $staffIds=array_map(static fn($row)=>(int)$row['id'],$staff);
+    $requested=filter_var($_GET['team_member']??null,FILTER_VALIDATE_INT);
+    $selected=$requested!==false && in_array((int)$requested,$staffIds,true)?(int)$requested:0;
+    $allowed=['current'=>'Актуальные','overdue'=>'Просрочено','today'=>'Сегодня',
+        'upcoming'=>'Следующие 30 дней','all'=>'Все открытые'];
+    $scope=(string)($_GET['team_scope']??'current');
+    if (!isset($allowed[$scope])) $scope='current';
+    $today=date('Y-m-d');
+    $max=(new DateTimeImmutable($today))->modify('+30 days')->format('Y-m-d');
+    $conditions=['t.is_done=0'];$params=[];
+    if ($selected>0) {
+        $conditions[]='t.user_id=?';$params[]=$selected;
+    }
+    if ($scope==='current') {
+        $conditions[]='t.due_date<=?';$params[]=$max;
+    } elseif ($scope==='overdue') {
+        $conditions[]='t.due_date<?';$params[]=$today;
+    } elseif ($scope==='today') {
+        $conditions[]='t.due_date=?';$params[]=$today;
+    } elseif ($scope==='upcoming') {
+        $conditions[]='t.due_date>=? AND t.due_date<=?';$params[]=$today;$params[]=$max;
+    }
+    $sql=' FROM personal_tasks t JOIN users u ON u.id=t.user_id WHERE '.
+        implode(' AND ',$conditions);
+    $stmt=$db->prepare('SELECT t.id,t.title,t.due_date,t.repeat_monthly,
+        u.display_name,u.role,u.is_active'.$sql.
+        ' ORDER BY t.due_date,t.id LIMIT 301');
+    $stmt->execute($params);
+    $tasks=$stmt->fetchAll(PDO::FETCH_ASSOC);
+    $truncated=count($tasks)>300;
+    if ($truncated) $tasks=array_slice($tasks,0,300);
+    $html='<section class="card"><h2>Общий календарь команды</h2>'.
+        '<p class="muted">Все открытые личные задачи по сотрудникам. '.
+        'Это общий просмотр для директора: редактировать и завершать задачу может только её владелец.</p>'.
+        '<form method="get"><input type="hidden" name="view" value="tasks"><div class="grid">'.
+        '<label class="field">Сотрудник<select name="team_member">'.
+        '<option value="0">Вся команда</option>';
+    foreach ($staff as $member) {
+        $uid=(int)$member['id'];
+        $html.='<option value="'.$uid.'"'.($uid===$selected?' selected':'').'>'.
+            adc_h((string)$member['display_name']).' ('.($member['role']==='director'?'директор':'сотрудник').
+            ((int)$member['is_active']===1?'':', отключён').')</option>';
+    }
+    $html.='</select></label><label class="field">Срок<select name="team_scope">';
+    foreach ($allowed as $key=>$label) {
+        $html.='<option value="'.$key.'"'.($key===$scope?' selected':'').'>'.adc_h($label).'</option>';
+    }
+    $html.='</select></label></div><button type="submit">Показать</button></form>'.
+        '<p class="muted">Задач в выборке: '.count($tasks).
+        ($truncated?' (первые 300; уточните сотрудника или срок)':'').'</p>';
+    if (!$tasks) return $html.'<p class="muted">Задач с такими условиями нет.</p></section>';
+    $day='';
+    foreach ($tasks as $task) {
+        $date=(string)$task['due_date'];
+        if ($date!==$day) {
+            if ($day!=='') $html.='</div>';
+            $day=$date;
+            $html.='<div class="task-day"><h3>'.adc_h(date('d.m.Y',strtotime($date))).
+                ($date<$today?' <span class="badge">Просрочено</span>':
+                ($date===$today?' <span class="badge good">Сегодня</span>':'')).'</h3>';
+        }
+        $html.='<div class="task-row"><div class="task-title"><strong>'.
+            adc_h((string)$task['title']).'</strong><div class="muted">'.
+            adc_h((string)$task['display_name']).
+            ($task['role']==='director'?' · директор':' · сотрудник').
+            ((int)$task['is_active']===1?'':' · учётная запись отключена').
+            ((int)$task['repeat_monthly']===1?' · ежемесячно':'').
+            '</div></div></div>';
+    }
+    return $html.'</div></section>';
+}
+
 function adc_w_tasks(PDO $db, array $user): string {
     $stmt = $db->prepare('SELECT * FROM personal_tasks WHERE user_id=? AND is_done=0 ORDER BY due_date,id');
     $stmt->execute([(int)$user['id']]);
@@ -1093,6 +1175,7 @@ function adc_w_tasks(PDO $db, array $user): string {
     }
     if ($month!=='') $html.='</div></div></section>';
     if (!$tasks) $html.='<section class="card"><p class="muted">Пока нет задач.</p></section>';
+    $html.=adc_w_team_schedule($db,$user);
     return $html;
 }
 
@@ -1146,13 +1229,14 @@ function adc_w_team(PDO $db, array $user): string {
 
 function adc_w_page(PDO $db, array $user, string $alert): never {
     $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
-    if (!in_array($view,['clients','tasks','archive','analytics','team'],true)) {
+    if (!in_array($view,['clients','control','tasks','archive','analytics','team'],true)) {
         $view='clients';
     }
     $body = $alert;
     $body .= match ($view) {
         'clients','archive' => adc_w_clients($db, $user, $view),
         'tasks' => adc_w_tasks($db, $user),
+        'control' => adc_reminders_dashboard($db),
         'analytics' => adc_w_analytics($db),
         default => adc_w_team($db, $user),
     };

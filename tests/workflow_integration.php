@@ -5,6 +5,7 @@ require __DIR__ . '/../app/finance.php';
 require __DIR__ . '/../app/workflow.php';
 require __DIR__ . '/../app/documents.php';
 require __DIR__ . '/../app/ledger.php';
+require __DIR__ . '/../app/reminders.php';
 
 class Redirected extends RuntimeException {}
 function adc_input(string $key): string { return is_string($_POST[$key] ?? null) ? trim($_POST[$key]) : ''; }
@@ -463,6 +464,36 @@ run_action($db,$director,'edit_task',[
 ]);
 check((int)$db->query("SELECT anchor_day FROM personal_tasks WHERE id=$clampedTask")->fetchColumn()===31,
     'Preserve original day 31 when editing February reminder');
+    
+// Shared team calendar is director-only. Employee tasks remain private.
+$db->prepare('INSERT INTO personal_tasks(user_id,title,due_date) VALUES (?,?,?)')
+    ->execute([$employee['id'],'Employee private deadline','2026-10-28']);
+$_GET=['team_scope'=>'all'];
+$shared=adc_w_team_schedule($db,$director);
+check(str_contains($shared,'Общий календарь команды') &&
+    str_contains($shared,'Employee private deadline') &&
+    str_contains($shared,'Fixture employee'),
+    'Director sees other staff task and assigned owner');
+check(adc_w_team_schedule($db,$employee)==='',
+    'Ordinary employee cannot read director shared task calendar');
+$_GET=['team_scope'=>'all','team_member'=>(string)$director['id']];
+$mine=adc_w_team_schedule($db,$director);
+check(!str_contains($mine,'Employee private deadline') &&
+    str_contains($mine,'Task A revised'),
+    'Director member filter does not disclose another employee task');
+$_GET=['team_scope'=>'all','team_member'=>(string)$employee['id']];
+$one=adc_w_team_schedule($db,$director);
+check(str_contains($one,'Employee private deadline') &&
+    !str_contains($one,'Task A revised'),
+    'Director can filter team schedule to one employee');
+$_GET=['demo'=>'1','scope'=>'all','kind'=>'invoice'];
+$work=adc_reminders_dashboard($db);
+check(str_contains($work,'Контроль клиентов') &&
+    str_contains($work,'name="kind"') && str_contains($work,'name="scope"') &&
+    str_contains($work,'name="demo"'),
+    'Client document calendar provides reusable filters');
+$_GET=[];
+
 
 
 $key=str_repeat('b',48).'.pdf';
