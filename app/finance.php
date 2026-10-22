@@ -107,8 +107,14 @@ function adc_fin_months(PDO $db): array {
         $v=adc_fin_minor((string)$r['total']);
         $out[$k]['paid']=adc_fin_add($out[$k]['paid'],$r['event_type']==='received'?$v:-$v);
     }
-    $extra=$db->query('SELECT e.currency,SUBSTR(e.created_at,1,7) mon,e.category,SUM(e.amount) billed
+    // Explicitly backdated PDF accrues in its selected billing period;
+    // actual receipt is still grouped by received_at below.
+    $extra=$db->query('SELECT e.currency,
+        SUBSTR(COALESCE(bp.period_start,e.created_at),1,7) mon,
+        e.category,SUM(e.amount) billed
         FROM client_entries e JOIN clients c ON c.id=e.client_id
+        LEFT JOIN document_bundles d ON d.id=e.document_id AND d.client_id=e.client_id
+        LEFT JOIN billing_periods bp ON bp.id=d.period_id
         WHERE e.is_void=0 AND e.amount IS NOT NULL AND '.adc_demo_analytics_predicate('c').'
         GROUP BY e.currency,mon,e.category');
     foreach($extra as $r) {

@@ -56,6 +56,27 @@ try {
     ex_check(str_contains($text,"'@cmd"),'Dangerous payment note escaped');
     ex_check(str_contains($text,'-0.01'),'Signed refund exported');
     ex_check(!str_contains($text,'9999.00'),'Real client ledger does not include unrelated demo');
+    // Late-uploaded PDF retains the older linked billing period in CSV.
+    $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency)
+        VALUES (?,"2026-10-01",1,"prepayment","CHF")')->execute([$real]);
+    $eid=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO billing_periods(engagement_id,period_start,period_end)
+        VALUES (?,"2026-10-01","2026-11-01")')->execute([$eid]);
+    $pid=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO document_bundles(client_id,period_id,original_filename,needs_invoice)
+        VALUES (?,?,"backdated-test.pdf",1)')->execute([$real,$pid]);
+    $did=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO client_entries(client_id,document_id,entry_kind,amount,currency,
+        category,created_at) VALUES (?,?,"document","42.00","CHF","advertising",
+        "2026-12-12 09:00:00")')->execute([$real,$did]);
+    $linkedRows=adc_export_client_ledger($db,$real);
+    $pdfRows=array_values(array_filter($linkedRows,static fn($row)=>
+        isset($row[8]) && str_contains((string)$row[8],"backdated-test.pdf")));
+    ex_check(count($pdfRows)===1
+        && $pdfRows[0][3]===$eid && $pdfRows[0][4]===$pid
+        && $pdfRows[0][5]==="2026-10-01"
+        && $pdfRows[0][7]==="2026-12-12 09:00:00",
+        'Client CSV shows historic period and upload date independently');
     $demoLedger=adc_export_encode(adc_export_client_ledger($db,$demo));
     ex_check(str_contains($demoLedger,'9999.00') && str_contains($demoLedger,'Демо'),
         'Explicitly scoped demo ledger allowed, clearly labeled');

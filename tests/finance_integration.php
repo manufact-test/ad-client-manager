@@ -77,5 +77,30 @@ try {
         'Demo-only analytics renders without SQL exceptions');
     $db->exec('ROLLBACK TO SAVEPOINT analytics_demo_only');
     unset($_GET['currency']);
+    // Historical period chosen explicitly: billed then, paid when received.
+    $db->prepare('INSERT INTO document_bundles(client_id,period_id,needs_invoice)
+        VALUES (?,?,1)')->execute([$real,$period]);
+    $doc=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO client_entries(client_id,document_id,entry_kind,amount,currency,
+        category,created_at,received_at)
+        VALUES (?,?,"document","2.50","CHF","advertising",
+        "2026-12-14 10:00:00","2027-01-03 14:00:00")')->execute([$real,$doc]);
+    $db->prepare('INSERT INTO client_entries(client_id,entry_kind,amount,currency,
+        category,created_at) VALUES (?,"card","1.00","CHF",
+        "development","2026-11-12 10:00:00")')->execute([$real]);
+    $periodBuckets=adc_fin_months($db);
+    fin_assert($periodBuckets['CHF|2026-10']['billed']===1280,
+        'PDF uploaded in December accrues to linked October period');
+    fin_assert($periodBuckets['CHF|2026-11']['billed']===100,
+        'Unlinked card request accrues in creation month');
+    fin_assert(!isset($periodBuckets['CHF|2026-12']),
+        'PDF upload does not invent a December billing month');
+    fin_assert($periodBuckets['CHF|2027-01']['paid']===250,
+        'Actual receipt occurs in January');
+    $aggregate=adc_fin_groups($db);
+    fin_assert($aggregate['CHF']['advertising']===280
+        && $aggregate['CHF']['development']===1101
+        && $aggregate['CHF']['received']===280,
+        'Financial totals and historic operations reconcile');
 } finally {$db->rollBack();}
 echo "Financial analytics passed: cents, refunds, grouped currencies, source client exclusion, LTV and months\n";
