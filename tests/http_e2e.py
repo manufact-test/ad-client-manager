@@ -64,7 +64,8 @@ def create_client(token,name,demo):
     status,headers,_=post("director",token,"save_client",{
         "client_name":name,"platform_text":"Фиктивная реклама",
         "source_kind":"inbound","legal_type":"legal","started_on":"2026-10-21",
-        "payment_mode":"prepayment","currency":"BYN","quoted_amount":"0.00",
+        "payment_mode":"prepayment","currency":"BYN",
+        "quoted_amount":"0.00" if demo else "1250.00",
         **({"is_demo":"1"} if demo else {})})
     m=re.search(r"client=(\d+)",location(headers))
     require(status==303 and m,"Create "+name)
@@ -83,8 +84,15 @@ try:
     status,_,body=request("visitor","/?download=1")
     require(status==200 and "Вход" in html(body),"Private document unauthenticated access")
     director=login("director");employee=login("employee")
+    status,_,form=request("director","/?view=clients")
+    require(status==200 and re.search(
+        r'name="quoted_amount" type="number"[^>]*step="0.01"',html(form)),
+        "Monthly contractual price input appears in Add client")
     demo=create_client(director,"CI demo ledger",True)
     real=create_client(director,"CI real ledger",False)
+    require("Сумма по договору в месяц" in panel("director",real) and
+            "1 250,00 BYN" in panel("director",real),
+            "Contract reference price remains visible in client profile")
     page=panel("director",demo)
     # UI behaviors require an authorized nonce: no unsafe-inline script policy.
     status,headers,rendered=request("director","/?view=clients&client="+str(demo))
@@ -217,8 +225,9 @@ try:
         "category":"advertising","note":"Реальный клиент"})
     require(status==303,"Create real payable entry")
     status,_,report=request("director","/?view=analytics&currency=BYN")
-    require(status==200 and "77,00 BYN" in html(report) and "280,00 BYN" not in html(report),
-            "Analytics includes real requests but excludes demo requests")
+    require(status==200 and "77,00 BYN" in html(report) and "280,00 BYN" not in html(report)
+            and "1 250,00 BYN" not in html(report),
+            "Contract quote never automatically becomes billed or received money")
     status,_,csv=request("director","/?export=balances")
     require(status==200 and "CI real ledger" in html(csv) and "CI demo ledger" not in html(csv),
             "Balance CSV excludes demo accounts, includes new ledger")

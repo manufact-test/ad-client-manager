@@ -109,6 +109,12 @@ try {
 }
 $engCheck=$db->query("SELECT * FROM engagements WHERE id=$e")->fetch();
 check($engCheck['payment_mode']==='postpayment' && $engCheck['quoted_amount']==='1200.00','Edit financial terms');
+$quoteForm=adc_w_engagement_fields($engCheck);
+check(str_contains($quoteForm,'Сумма по договору в месяц') &&
+    str_contains($quoteForm,'name="quoted_amount" type="number" value="1200.00"'),
+    'Saved contract price renders as the original editable quote');
+check(str_contains(adc_w_engagement_fields(),'name="quoted_amount" type="number" value=""'),
+    'New client initial quote is optional and left blank');
 
 run_action($db,$director,'save_period',[
     'client_id'=>(string)$realId,'engagement_id'=>(string)$e,
