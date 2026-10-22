@@ -521,7 +521,22 @@ try {
         'Employee cannot confirm transfer of outdated document');
     if ($db->inTransaction()) $db->rollBack();
 }
-
+// A metadata-only edit cannot clear the invalidation. A real replacement
+// does clear it, but any later charge modification invalidates it again.
+adc_audit($db,(int)$director['id'],'edit_document','document_bundle',$documentId);
+check(adc_doc_requires_replacement($db,$documentId),
+    'Metadata-only edit cannot reactivate a stale invoice');
+adc_audit($db,(int)$director['id'],'replace_document','document_bundle',$documentId);
+check(!adc_doc_requires_replacement($db,$documentId),
+    'Real replacement clears the preceding invalidation');
+run_action($db,$employee,'save_charge',[
+    'client_id'=>(string)$demoId,'period_id'=>(string)$demoP,
+    'category'=>'other','label'=>'Post-replacement amendment','amount'=>'3.00'
+]);
+check(adc_doc_requires_replacement($db,$documentId),
+    'New financial changes invalidate a replaced PDF again');
+check((int)$db->query("SELECT COUNT(*) FROM audit_events WHERE object_type='document_bundle' AND object_id=$documentId AND action='invalidate_document'")->fetchColumn()===2,
+    'Each distinct invalidation is logged once after actual PDF replacement');
 
 // A fresh Edit/Void snapshot still allows a legitimate void exactly once.
 $voidId=(int)$db->query("SELECT id FROM charge_lines WHERE client_id=$demoId AND label='Another amendment'")->fetchColumn();

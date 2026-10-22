@@ -183,6 +183,19 @@ try:
     page=panel("director",demo)
     require("280,00 BYN" in page and len(re.findall(r"\?download=(\d+)",page))==2,
             "Corrected amount exactly once, same two PDF identifiers")
+    # Replacing PDF bytes is a new document version and must be sent again.
+    status,_,_=request("director",files={
+        "csrf":director,"action":"edit_document","client_id":str(demo),
+        "document_id":str(second),"document":"@"+str(pdf)+";filename=corrected.pdf;type=application/pdf",
+        "needs_invoice":"1","has_amount":"1","amount":"280.00",
+        "currency":"BYN","category":"advertising","note":"New PDF version"})
+    require(status==303,"Replaced PDF file successfully")
+    page=panel("employee",demo)
+    require("Отправить документ" in page,"Replaced PDF must be sent again")
+    status,_,_=post("employee",employee,"transfer_document",{
+        "client_id":demo,"document_id":second})
+    require(status==303 and "Ждём оплату" in panel("employee",demo),
+            "Replaced PDF may be handed over again")
     # Card payment is an ordinary standalone record with individual receipt controls.
     status,_,_=post("director",director,"upload_document",{
         "client_id":demo,"is_card":"1","amount":"50.00","currency":"BYN",

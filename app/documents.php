@@ -82,11 +82,14 @@ function adc_doc_record(PDO $db, int $clientId, int $docId, bool $lock = false):
 }
 
 function adc_doc_requires_replacement(PDO $db,int $docId): bool {
-    $stmt=$db->prepare('SELECT 1 FROM audit_events
+    // An actual PDF replacement clears the most recent invalidation.
+    // Metadata-only edits must not make an obsolete PDF appear valid.
+    $stmt=$db->prepare('SELECT action FROM audit_events
         WHERE object_type="document_bundle" AND object_id=?
-          AND action="invalidate_document" LIMIT 1');
+          AND action IN ("invalidate_document","replace_document")
+        ORDER BY id DESC LIMIT 1');
     $stmt->execute([$docId]);
-    return (bool)$stmt->fetchColumn();
+    return $stmt->fetchColumn()==='invalidate_document';
 }
 
 function adc_doc_labels(): array {
@@ -174,8 +177,9 @@ function adc_doc_action(PDO $db,array $user,string $action): bool {
         if ($existing) {
             if ($hasFile && $existing['storage_key']) $oldPath=adc_doc_path($existing['storage_key']);
             $db->prepare('UPDATE document_bundles SET period_id=?,storage_key=?,original_filename=?,content_sha256=?,
-                needs_contract=?,needs_spec=?,needs_invoice=?,needs_act=?,transfer_due_on=? WHERE id=?')
-                ->execute([$periodId,$key,$original,$hash,...$flags,$due===''?null:$due,$docId]);
+                needs_contract=?,needs_spec=?,needs_invoice=?,needs_act=?,transfer_due_on=?,
+                transferred_at=IF(?=1,NULL,transferred_at) WHERE id=?')
+                ->execute([$periodId,$key,$original,$hash,...$flags,$due===''?null:$due,$hasFile?1:0,$docId]);
             $check=$db->prepare('SELECT id,amount,currency,received_at,sent_at FROM client_entries WHERE document_id=? AND is_void=0 FOR UPDATE');
             $check->execute([$docId]);$entry=$check->fetch();
             if ($entry) {
@@ -187,11 +191,12 @@ function adc_doc_action(PDO $db,array $user,string $action): bool {
                      $currency!==$entry['currency'])) {
                     throw new RuntimeException('Сначала отмените получение оплаты, затем измените сумму или валюту.');
                 }
-                $db->prepare('UPDATE client_entries SET amount=?,currency=?,category=?,note=?,received_at=IF(? IS NULL,NULL,received_at) WHERE id=?')
-                    ->execute([$amount,$currency,$category,$note,$amount,$entry['id']]);
+                $db->prepare('UPDATE client_entries SET amount=?,currency=?,category=?,note=?,
+                    sent_at=IF(?=1,NULL,sent_at),received_at=IF(? IS NULL,NULL,received_at) WHERE id=?')
+                    ->execute([$amount,$currency,$category,$note,$hasFile?1:0,$amount,$entry['id']]);
             } else {
                 $db->prepare('INSERT INTO client_entries(client_id,document_id,entry_kind,amount,currency,category,note,sent_at)
-                    VALUES (?,?,"document",?,?,?,?,?)')->execute([$clientId,$docId,$amount,$currency,$category,$note,$existing['transferred_at']]);
+                    VALUES (?,?,"document",?,?,?,?,?)')->execute([$clientId,$docId,$amount,$currency,$category,$note,$hasFile?null:$existing['transferred_at']]);
             }
         } else {
             $q=$db->prepare('INSERT INTO document_bundles(client_id,period_id,storage_key,original_filename,content_sha256,
@@ -202,7 +207,7 @@ function adc_doc_action(PDO $db,array $user,string $action): bool {
             $db->prepare('INSERT INTO client_entries(client_id,document_id,entry_kind,amount,currency,category,note)
                 VALUES (?,?,"document",?,?,?,?)')->execute([$clientId,$docId,$amount,$currency,$category,$note]);
         }
-        adc_audit($db,$actor,$existing?'edit_document':'upload_document','document_bundle',$docId);
+        adc_audit($db,$actor,$existing?($hasFile?'replace_document':'edit_document'):'upload_document','document_bundle',$docId);
         $db->commit();
     } catch(Throwable $e) {if($db->inTransaction())$db->rollBack();if($newFile&&is_file($newFile))unlink($newFile);throw $e;}
     if ($oldPath&&is_file($oldPath))unlink($oldPath);
