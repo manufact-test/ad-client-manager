@@ -136,8 +136,19 @@ try:
     status,_,page=request("director","/?view=tasks")
     check("Worker monthly task" in page and "Общий календарь команды" in page,
           "Director sees employee tasks in shared read-only team schedule")
-    check('name="action" value="edit_team_task"' not in page,
-          "Director cannot modify employee private tasks through team manager")
+    # Other delegated jobs created by prior HTTP smoke tests may have a
+    # legitimate director editor. Verify authorization on this employee's
+    # *private* task by calling the server instead of searching the entire page.
+    status,_,denied=request("director",payload={
+        "csrf":director_token,"action":"edit_team_task","task_id":own_id,
+        "assignee_user_id":foreign_id,"title":"Illicit director rewrite",
+        "due_date":"2026-11-03"
+    })
+    check(status==200 and "Чужую личную задачу" in denied,
+          "Director cannot modify the employee's private task")
+    status,_,page=request("hire","/?view=tasks")
+    check("Illicit director rewrite" not in page and "Worker monthly task" in page,
+          "Private task remains unchanged after forged director POST")
 
     # Lockout belongs to unknown identity, not to either working account.
     for n in range(5):
