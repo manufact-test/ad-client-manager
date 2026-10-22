@@ -73,6 +73,9 @@ try {
     // board must not keep a permanent false red reminder forever.
     $db->prepare('INSERT INTO audit_events(action,object_type,object_id)
         VALUES ("replace_document","document_bundle",?)')->execute([$docId]);
+    // A real PDF replacement also resets the handover timestamp.
+    $db->prepare('UPDATE document_bundles SET transferred_at=NULL WHERE id=?')
+        ->execute([$docId]);
     $events=array_values(array_filter(adc_client_reminders($db,'2026-10-21'),
         static fn($row)=>$row['client_id']===$clientId));
     require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='replace'))===0,
@@ -132,6 +135,25 @@ try {
         'Old billing cycle ends at contract transition');
     require_reminder(adc_w_next_cycle_end_effective($db,$eng,'2026-11-20')==='2026-12-20',
         'New cycle uses the new billing anchor');
+
+    // Enough open fictional contracts to cover two pages without a new DDL.
+    // Avoid one long flat list hiding newer obligations after entry 60.
+    $prefix='Synthetic calendar paging '.bin2hex(random_bytes(5)).' ';
+    $bulk=$db->prepare('INSERT INTO clients(name,is_demo) VALUES (?,1)');
+    for($i=0;$i<65;$i++) $bulk->execute([$prefix.$i]);
+    $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency)
+        SELECT id,CURRENT_DATE(),DAY(CURRENT_DATE()),"prepayment","BYN"
+        FROM clients WHERE name LIKE ?')->execute([$prefix.'%']);
+    $_GET=['demo'=>'1','kind'=>'contract','scope'=>'all','page'=>'1'];
+    $pageOne=adc_reminders_dashboard($db);
+    require_reminder(str_contains($pageOne,'Страница 1 из') &&
+        str_contains($pageOne,'Далее →'),'Control list has a next page when crowded');
+    $_GET['page']='2';
+    $pageTwo=adc_reminders_dashboard($db);
+    require_reminder(str_contains($pageTwo,'Страница 2 из') &&
+        str_contains($pageTwo,'← Ранее'),
+        'Director may inspect remaining reminders on later pages');
+    $_GET=[];
 
     $db->prepare('UPDATE engagements SET status="archived" WHERE id=?')->execute([$engagementId]);
     $events=array_values(array_filter(adc_client_reminders($db,'2026-10-21'),
