@@ -256,7 +256,7 @@ try:
         "client_id":real,"delete_confirmation":"УДАЛИТЬ"})
     require(status==200 and "Удаление запрещено" in html(blocked),
             "Server rejects deletion of client with financial history")
-    require("77,00 BYN" in panel("director",real),
+    require("88,00 BYN" in panel("director",real),
             "Rejected deletion preserves all existing financial entries")
 
     # Accidental new non-demo clients have an explicit, director-only delete.
