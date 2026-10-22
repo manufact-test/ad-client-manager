@@ -309,8 +309,8 @@ function adc_reminders_dashboard(PDO $db,?array $user=null): string {
         $alreadyListed[$key]=true;
         $status=$delegation
             ?'<p class="muted">В работе: '.adc_h($delegation['display_name']).
-                ' · <a href="/?view=tasks&amp;team_scope=all&amp;team_member='.
-                (int)$delegation['assignee_user_id'].'">Общий календарь</a></p>'
+                ($isDirector?' · <a href="/?view=tasks&amp;team_scope=all&amp;team_member='.
+                (int)$delegation['assignee_user_id'].'">Общий календарь</a>':'').'</p>'
             :'';
         $html.='<div class="item"><div><strong>'.adc_h((string)$item['label']).'</strong>'.
             '<p class="muted">'.adc_h((string)$item['client_name']).
