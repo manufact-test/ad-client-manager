@@ -583,14 +583,81 @@ try {
     check(str_contains($blocked->getMessage(),'изменилось'),'Forged reminder rejected');
     if ($db->inTransaction()) $db->rollBack();
 }
+// Operations desk: bulk-assign live control items, expose ownership,
+// and reject duplicates across employees and fabricated selections atomically.
+$contractKey=adc_team_control_key($linkedClient,'contract',(string)$matching[0]['date']);
+$activeAssignments=adc_team_control_assignments($db);
+check(isset($activeAssignments[$contractKey]) &&
+    (int)$activeAssignments[$contractKey]['assignee_user_id']===(int)$employee['id'],
+    'Assigned client paperwork has visible durable ownership');
+$invoiceItems=array_values(array_filter(adc_client_reminders($db,$today),
+    static fn($row)=>$row['client_id']===$linkedClient && $row['kind']==='invoice'));
+check(count($invoiceItems)>0,'Second independent live control event exists');
+$invoiceKey=adc_team_control_key($linkedClient,'invoice',(string)$invoiceItems[0]['date']);
+try {
+    run_action($db,$director,'assign_control_bulk',[
+        'assignee_user_id'=>(string)$employee['id'],
+        'selected_reminders'=>[$invoiceKey,$contractKey]
+    ]);
+    throw new RuntimeException('Partial bulk insert despite duplicate assignment');
+} catch (RuntimeException $blocked) {
+    check(str_contains($blocked->getMessage(),'уже есть'),
+        'Bulk dispatch rejects duplicates without partial writes');
+    if ($db->inTransaction()) $db->rollBack();
+}
+check(!isset(adc_team_control_assignments($db)[$invoiceKey]),
+    'Failed bulk operation leaves other reminders unassigned');
+try {
+    run_action($db,$employee,'assign_control_bulk',[
+        'assignee_user_id'=>(string)$employee['id'],
+        'selected_reminders'=>[$invoiceKey]
+    ]);
+    throw new RuntimeException('Employee assigned control work');
+} catch (RuntimeException $blocked) {
+    check(str_contains($blocked->getMessage(),'Недостаточно прав'),
+        'Bulk dispatch is director-only');
+    if ($db->inTransaction()) $db->rollBack();
+}
+try {
+    run_action($db,$director,'assign_control_bulk',[
+        'assignee_user_id'=>(string)$employee['id'],
+        'selected_reminders'=>[$invoiceKey,'999999:invoice:2026-01-01']
+    ]);
+    throw new RuntimeException('Forged bulk checkbox accepted');
+} catch (RuntimeException $blocked) {
+    check(str_contains($blocked->getMessage(),'изменилось'),
+        'Bulk dispatch recalculates current obligations server-side');
+    if ($db->inTransaction()) $db->rollBack();
+}
+run_action($db,$director,'assign_control_bulk',[
+    'assignee_user_id'=>(string)$employee['id'],
+    'selected_reminders'=>[$invoiceKey]
+]);
+$activeAssignments=adc_team_control_assignments($db);
+check(isset($activeAssignments[$invoiceKey]) &&
+    $activeAssignments[$invoiceKey]['task_id']!==$activeAssignments[$contractKey]['task_id'],
+    'Bulk dispatch creates independent audited paperwork task');
+try {
+    run_action($db,$director,'assign_control_reminder',[
+        'client_id'=>(string)$linkedClient,'reminder_kind'=>'invoice',
+        'reminder_date'=>(string)$invoiceItems[0]['date'],
+        'assignee_user_id'=>(string)$director['id']
+    ]);
+    throw new RuntimeException('Same reminder assigned twice to different staff');
+} catch (RuntimeException $blocked) {
+    check(str_contains($blocked->getMessage(),'уже есть'),
+        'Control assignment is unique across team members');
+    if ($db->inTransaction()) $db->rollBack();
+}
 $_GET=['demo'=>'1','kind'=>'contract','scope'=>'all'];
 $delegatedControl=adc_reminders_dashboard($db,$director);
-check(str_contains($delegatedControl,'name="action" value="assign_control_reminder"') &&
-    str_contains($delegatedControl,'Поручить'),
-    'Director can assign client paperwork straight from control dashboard');
+check(str_contains($delegatedControl,'В работе:') &&
+    str_contains($delegatedControl,'Поручения'),
+    'Director sees who owns a client reminder and can filter assignments');
 $employeeControl=adc_reminders_dashboard($db,$employee);
-check(!str_contains($employeeControl,'name="action" value="assign_control_reminder"'),
-    'Employee cannot see delegation forms on client control dashboard');
+check(!str_contains($employeeControl,'name="action" value="assign_control_reminder"') &&
+    !str_contains($employeeControl,'assign_control_bulk'),
+    'Employee cannot manage or bulk-assign team work');
 $_GET=[];
 
 $_GET=['demo'=>'1','scope'=>'all','kind'=>'invoice'];
