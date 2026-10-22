@@ -3,6 +3,7 @@ declare(strict_types=1);
 require __DIR__.'/../app/core.php';
 require __DIR__.'/../app/workflow.php';
 require __DIR__.'/../app/reminders.php';
+require __DIR__.'/../app/team_tasks.php';
 
 function require_reminder(bool $result,string $label): void {
     if (!$result) throw new RuntimeException('Reminder regression: '.$label);
