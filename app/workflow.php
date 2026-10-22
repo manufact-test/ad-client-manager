@@ -124,6 +124,22 @@ function adc_w_next_cycle_end_effective(PDO $db,array $engagement,string $start)
     return $next===false || $next===null ? $end : (string)$next;
 }
 
+/**
+ * Optimistic concurrency token for the full contract timeline. A client
+ * lock serializes writes; this token rejects a stale second browser tab.
+ * Contract snapshots never contain secret material.
+ */
+function adc_w_terms_revision(PDO $db,array $engagement): string {
+    $q=$db->prepare('SELECT id,effective_on,started_on,billing_day,
+        payment_mode,currency,quoted_amount FROM engagement_terms
+        WHERE engagement_id=? ORDER BY id DESC LIMIT 1');
+    $q->execute([(int)$engagement['id']]);
+    $latest=$q->fetch(PDO::FETCH_ASSOC) ?: null;
+    return hash('sha256',json_encode([
+        adc_w_engagement_revision($engagement),$latest
+    ],JSON_THROW_ON_ERROR));
+}
+
 function adc_w_period(PDO $db, int $clientId, int $periodId): array {
     $stmt = $db->prepare('SELECT p.*, e.currency, e.status FROM billing_periods p JOIN engagements e ON e.id = p.engagement_id
         WHERE p.id = ? AND e.client_id = ?');
@@ -375,14 +391,22 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $eid=adc_w_id('engagement_id');
         $old=adc_w_engagement($db,$clientId,$eid);
         if ($old['status']!=='active') throw new RuntimeException('Нельзя менять закрытое сотрудничество.');
+        $expectedTermsRevision=adc_input('expected_terms_revision');
+        if (!preg_match('/^[a-f0-9]{64}$/D',$expectedTermsRevision) ||
+            !hash_equals(adc_w_terms_revision($db,$old),$expectedTermsRevision)) {
+            throw new RuntimeException('История условий изменена в другой вкладке. Обновите карточку перед сохранением.');
+        }
         $effective=adc_w_date(adc_input('effective_on'));
         if ($effective<=$old['started_on']) throw new RuntimeException('Новые условия должны вступать в силу позже первоначальной даты начала сотрудничества.');
         $day=(int)substr($effective,8,2);
         $mode=adc_w_pick('payment_mode',['prepayment','postpayment']);
         $ccy=adc_w_currency(adc_input('currency'));
         $rawQuote=adc_input('quoted_amount');
-        $quote=in_array($rawQuote,['','0','0.0','0.00'],true)
-            ? '0.00' : adc_w_amount($rawQuote);
+        // An omitted price is unknown, NOT a zero-priced contract.
+        // engagements has a legacy NOT NULL field, but the dated version
+        // records this distinction with the nullable quoted_amount column.
+        $quote=$rawQuote==='' ? null :
+            (in_array($rawQuote,['0','0.0','0.00'],true)?'0.00':adc_w_amount($rawQuote));
         $q=$db->prepare('SELECT MAX(effective_on) FROM engagement_terms WHERE engagement_id=?');
         $q->execute([$eid]);$last=$q->fetchColumn();
         if ($last!==false && $effective<=$last) throw new RuntimeException('Новая дата должна быть позже предыдущих условий.');
@@ -395,24 +419,12 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
                     $eid,$old['started_on'],$old['started_on'],$old['billing_day'],
                     $old['payment_mode'],$old['currency'],$old['quoted_amount']
                 ]);
-        } else {
-            // The latest legacy term is the only one with a known present-day
-            // rate in engagements. Never backfill older, unknown prices.
-            $latest=$db->prepare('SELECT id,quoted_amount FROM engagement_terms
-                WHERE engagement_id=? ORDER BY effective_on DESC,id DESC LIMIT 1');
-            $latest->execute([$eid]);
-            $lastTerms=$latest->fetch();
-            if ($lastTerms && $lastTerms['quoted_amount']===null) {
-                $db->prepare('UPDATE engagement_terms SET quoted_amount=?
-                    WHERE id=? AND quoted_amount IS NULL')
-                    ->execute([$old['quoted_amount'],$lastTerms['id']]);
-            }
         }
         $db->prepare('INSERT INTO engagement_terms
             (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
             VALUES (?,?,?,?,?,?,?)')->execute([$eid,$effective,$effective,$day,$mode,$ccy,$quote]);
         $db->prepare('UPDATE engagements SET billing_day=?,payment_mode=?,currency=?,quoted_amount=? WHERE id=?')
-          ->execute([$day,$mode,$ccy,$quote,$eid]);
+          ->execute([$day,$mode,$ccy,$quote??'0.00',$eid]);
         adc_audit($db,$actor,'add_engagement_terms','engagement',$eid,
             ['effective_on'=>$effective,'quoted_amount'=>$quote,'currency'=>$ccy]);
     } elseif ($action === 'save_engagement') {
@@ -871,6 +883,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $html.='</div><details class="sub-action"><summary>Добавить новые условия</summary>'.
             adc_w_form_start('add_engagement_terms').adc_w_hidden('client_id',$id).
             adc_w_hidden('engagement_id',$eid).
+            adc_w_hidden('expected_terms_revision',adc_w_terms_revision($db,$eng)).
             adc_w_field('Действуют с','effective_on',date('Y-m-d'),'date','required').
             adc_w_select('Условия оплаты','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)$activeTerms['payment_mode']).
             adc_w_select('Валюта','currency',['BYN'=>'BYN','RUB'=>'RUB','EUR'=>'EUR','USD'=>'USD','KZT'=>'KZT'],(string)$activeTerms['currency']).
@@ -878,6 +891,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
                 $activeTerms['quoted_amount']===null?'':(
                     adc_fin_minor((string)$activeTerms['quoted_amount'])===0?'':(string)$activeTerms['quoted_amount']),
                 'number','min="0.01" step="0.01" inputmode="decimal" placeholder="Не указана"').
+            '<p class="muted">Пустая сумма означает, что ставка неизвестна. Это не начисление и не поступление.</p>'.
             '<button type="submit">Сохранить новые условия</button></form></details>'.
             '<details class="sub-action"><summary>Завершить сотрудничество</summary>'.
             adc_w_form_start('archive_engagement').adc_w_hidden('client_id',$id).

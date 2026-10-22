@@ -28,6 +28,10 @@ function run_action(PDO $db, array $user, string $action, array $data): string {
         $row=adc_w_engagement($db,(int)$data['client_id'],(int)$data['engagement_id']);
         $data['expected_revision']=adc_w_engagement_revision($row);
     }
+    if ($action==='add_engagement_terms' && !isset($data['expected_terms_revision'])) {
+        $row=adc_w_engagement($db,(int)$data['client_id'],(int)$data['engagement_id']);
+        $data['expected_terms_revision']=adc_w_terms_revision($db,$row);
+    }
     if (in_array($action,['save_charge','void_charge'],true) &&
         !isset($data['expected_revision']) && !empty($data['charge_id'])) {
         $snapshot=$db->prepare('SELECT * FROM charge_lines WHERE id=?');
@@ -591,6 +595,7 @@ $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_m
     VALUES (?,"2026-10-05",5,"prepayment","BYN","900.00")')->execute([$rateClient]);
 $rateEng=(int)$db->lastInsertId();
 $initial=adc_w_engagement($db,$rateClient,$rateEng);
+$initialBrowserRevision=adc_w_terms_revision($db,$initial);
 run_action($db,$director,'add_engagement_terms',[
     'client_id'=>(string)$rateClient,'engagement_id'=>(string)$rateEng,
     'effective_on'=>'2026-11-20','payment_mode'=>'prepayment',
@@ -608,6 +613,21 @@ check($terms->fetchAll(PDO::FETCH_ASSOC)===[
     ['effective_on'=>'2026-10-05','quoted_amount'=>'900.00'],
     ['effective_on'=>'2026-11-20','quoted_amount'=>'1200.00']
 ], 'Original and newer prices are stored separately');
+try {
+    run_action($db,$director,'add_engagement_terms',[
+        'client_id'=>(string)$rateClient,'engagement_id'=>(string)$rateEng,
+        'expected_terms_revision'=>$initialBrowserRevision,
+        'effective_on'=>'2026-11-25','payment_mode'=>'prepayment',
+        'currency'=>'BYN','quoted_amount'=>'1300.00'
+    ]);
+    throw new RuntimeException('Stale browser unexpectedly changed financial terms');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'в другой вкладке'),
+        'Second tab with stale contract snapshot is rejected');
+    if ($db->inTransaction())$db->rollBack();
+}
+check((int)$db->query("SELECT COUNT(*) FROM engagement_terms WHERE engagement_id=$rateEng")->fetchColumn()===2,
+    'Rejected stale tab did not add a version');
 run_action($db,$director,'add_engagement_terms',[
     'client_id'=>(string)$rateClient,'engagement_id'=>(string)$rateEng,
     'effective_on'=>'2026-12-10','payment_mode'=>'postpayment',
@@ -618,6 +638,27 @@ $nov=adc_w_effective_terms($db,$initial,'2026-11-21');
 check($dec['currency']==='EUR' && (string)$dec['quoted_amount']==='1500.00' &&
     $nov['currency']==='BYN' && (string)$nov['quoted_amount']==='1200.00',
     'Future currency and price do not change prior months');
+$revBeforeUnknown=adc_w_terms_revision($db,adc_w_engagement($db,$rateClient,$rateEng));
+run_action($db,$director,'add_engagement_terms',[
+    'client_id'=>(string)$rateClient,'engagement_id'=>(string)$rateEng,
+    'expected_terms_revision'=>$revBeforeUnknown,
+    'effective_on'=>'2027-01-15','payment_mode'=>'postpayment',
+    'currency'=>'EUR','quoted_amount'=>''
+]);
+$unknown=adc_w_effective_terms($db,$initial,'2027-01-15');
+check($unknown['quoted_amount']===null,
+    'Empty monthly contract price is preserved as unknown, never zero');
+check((string)$db->query("SELECT quoted_amount FROM engagements WHERE id=$rateEng")->fetchColumn()==='0.00',
+    'Legacy NOT NULL amount retains compatible neutral value');
+run_action($db,$director,'add_engagement_terms',[
+    'client_id'=>(string)$rateClient,'engagement_id'=>(string)$rateEng,
+    'effective_on'=>'2027-02-15','payment_mode'=>'prepayment',
+    'currency'=>'USD','quoted_amount'=>'2200.00'
+]);
+$stillUnknown=adc_w_effective_terms($db,$initial,'2027-01-20');
+check($stillUnknown['quoted_amount']===null,
+    'Next price change never backfills a knowingly unknown earlier price');
+
 check((int)$db->query("SELECT COUNT(*) FROM client_entries WHERE client_id=$rateClient")->fetchColumn()===0,
     'Contract price history never generates charges');
 try {
