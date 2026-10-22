@@ -85,7 +85,8 @@ try{
     echo "[PASS] Schema and counts match (".$report['tables']." tables)\n";
     echo "[PASS] Financial totals and ALL database rows (13 tables) match by SHA-256\n";
     echo "[PASS] Document metadata and private PDF SHA-256 hashes match\n";
-    echo "[PASS] Private PDFs checked: ".$report['pdfs']."\n";
+    echo "[PASS] Active PDFs checked: ".$report['pdfs']."\n";
+    echo "[PASS] All stored application PDFs (including history): ".$report['stored_pdfs']."\n";
     echo "CHECKED COPY ONLY: operator must still approve migration, UI tests,\n";
     echo "GitHub PRIVATE, and release. Original backup creation not attested.\n";
 } catch(Throwable $error) {
@@ -111,7 +112,11 @@ try{
         'Private PDF directory is unavailable.',
         'One or more private PDFs are missing.',
         'One or more private PDFs are corrupted.',
-        'Private PDF counts differ.'
+        'Private PDF counts differ.',
+        'Private PDF directory inventory differs.',
+        'Private PDF inventory contains an inaccessible file.',
+        'Private PDF inventory could not be hashed.',
+        'One or more active private PDFs are missing or corrupted.'
     ];
     $message=in_array($error->getMessage(),$known,true)
         ?$error->getMessage():'Comparison could not complete (details withheld).';
