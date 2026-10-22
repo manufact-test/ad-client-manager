@@ -183,8 +183,11 @@ function adc_reminders_html(PDO $db, string $today): string {
 }
 
 /** Shared read-only client workload; it never adds personal tasks or payments. */
+/** Shared client-control board with visible delegation status and safe bulk dispatch. */
 function adc_reminders_dashboard(PDO $db,?array $user=null): string {
-    $staff=(($user['role']??'')==='director')?adc_team_task_staff($db):[];
+    $isDirector=(($user['role']??'')==='director');
+    $staff=$isDirector?adc_team_task_staff($db):[];
+    $assigned=adc_team_control_assignments($db);
     $today=date('Y-m-d');
     $kindOptions=['all'=>'Все действия','invoice'=>'Счета','act'=>'Акты',
         'spec'=>'Спецификации','contract'=>'Договоры',
@@ -192,16 +195,25 @@ function adc_reminders_dashboard(PDO $db,?array $user=null): string {
     $scopeOptions=['all'=>'Все сроки','overdue'=>'Просроченные',
         'today'=>'Сегодня','upcoming'=>'Предстоящие'];
     $demoOptions=['0'=>'Рабочие клиенты','1'=>'Демо-клиенты','all'=>'Все клиенты'];
+    $assignmentOptions=['all'=>'Любые','free'=>'Без исполнителя',
+        'assigned'=>'Уже поручено'];
     $kind=(string)($_GET['kind']??'all');
     if (!isset($kindOptions[$kind])) $kind='all';
     $scope=(string)($_GET['scope']??'all');
     if (!isset($scopeOptions[$scope])) $scope='all';
     $demo=(string)($_GET['demo']??'0');
     if (!isset($demoOptions[$demo])) $demo='0';
+    $assignment=(string)($_GET['assignment']??'all');
+    if (!isset($assignmentOptions[$assignment])) $assignment='all';
     $all=adc_client_reminders($db,$today);
-    $rows=array_values(array_filter($all,static function(array $event) use($kind,$scope,$demo,$today):bool {
+    $rows=array_values(array_filter($all,static function(array $event) use
+        ($kind,$scope,$demo,$assignment,$assigned,$today):bool {
         if ($demo!=='all' && (int)$event['is_demo']!==(int)$demo) return false;
         if ($kind!=='all' && $event['kind']!==$kind) return false;
+        $key=adc_team_control_key((int)$event['client_id'],
+            (string)$event['kind'],(string)$event['date']);
+        if ($assignment==='free' && isset($assigned[$key])) return false;
+        if ($assignment==='assigned' && !isset($assigned[$key])) return false;
         return match($scope){
             'overdue'=>$event['date']<$today,
             'today'=>$event['date']===$today,
@@ -209,8 +221,6 @@ function adc_reminders_dashboard(PDO $db,?array $user=null): string {
             default=>true
         };
     }));
-    // Page the entire matching result set instead of silently dropping
-    // important upcoming obligations when old missed cycles accumulate.
     $perPage=60;
     $total=count($rows);
     $pages=max(1,(int)ceil($total/$perPage));
@@ -220,7 +230,7 @@ function adc_reminders_dashboard(PDO $db,?array $user=null): string {
     $shown=array_slice($rows,($page-1)*$perPage,$perPage);
     $pageLink=static fn(int $destination):string => '/?'.http_build_query([
         'view'=>'control','demo'=>$demo,'kind'=>$kind,'scope'=>$scope,
-        'page'=>$destination
+        'assignment'=>$assignment,'page'=>$destination
     ],'','&',PHP_QUERY_RFC3986);
     $navigation='';
     if ($pages>1) {
@@ -250,10 +260,35 @@ function adc_reminders_dashboard(PDO $db,?array $user=null): string {
     foreach($scopeOptions as $val=>$label){
         $html.='<option value="'.$val.'"'.($val===$scope?' selected':'').'>'.adc_h($label).'</option>';
     }
+    $html.='</select></label><label class="field">Поручения<select name="assignment">';
+    foreach($assignmentOptions as $val=>$label){
+        $html.='<option value="'.$val.'"'.($val===$assignment?' selected':'').'>'.adc_h($label).'</option>';
+    }
     $html.='</select></label></div><button type="submit">Показать</button></form>'.
-        '<p class="muted">Напоминаний: '.$total.'</p>'.$navigation;
+        '<p class="muted">Напоминаний: '.$total.'. Поручение не закрывает документ автоматически: '.
+        'после выполнения проверьте сам документ в карточке клиента.</p>'.$navigation;
     if (!$shown) return $html.'<p class="muted">Подходящих напоминаний нет.</p></section>';
+    $available=0;
+    $unique=[];
+    foreach ($shown as $event) {
+        $key=adc_team_control_key((int)$event['client_id'],
+            (string)$event['kind'],(string)$event['date']);
+        if (!isset($assigned[$key]) && !isset($unique[$key])) {
+            $unique[$key]=true;
+            $available++;
+        }
+    }
+    if ($staff && $available>0) {
+        $html.='<form id="control-bulk-assign" method="post" class="card">'.
+            adc_w_hidden('csrf',adc_csrf()).
+            adc_w_hidden('action','assign_control_bulk').
+            '<p><strong>Распределить несколько дел сразу</strong> — отметьте действия '.
+            'ниже (до 60 на странице), выберите исполнителя и назначьте за один раз.</p>'.
+            adc_w_select('Исполнитель','assignee_user_id',adc_team_task_options($staff)).
+            '<button type="submit">Назначить выбранные поручения</button></form>';
+    }
     $lastDate='';
+    $alreadyListed=[];
     foreach($shown as $item){
         $date=(string)$item['date'];
         if($date!==$lastDate){
@@ -263,12 +298,26 @@ function adc_reminders_dashboard(PDO $db,?array $user=null): string {
                 ($date<$today?' <span class="badge">Просрочено</span>':
                 ($date===$today?' <span class="badge good">Сегодня</span>':'')).'</h3>';
         }
+        $key=adc_team_control_key((int)$item['client_id'],
+            (string)$item['kind'],(string)$item['date']);
+        $delegation=$assigned[$key]??null;
+        $selection='';
+        if ($staff && !$delegation && !isset($alreadyListed[$key])) {
+            $selection='<label class="check"><input form="control-bulk-assign" type="checkbox" '.
+                'name="selected_reminders[]" value="'.adc_h($key).'"> В общий список</label>';
+        }
+        $alreadyListed[$key]=true;
+        $status=$delegation
+            ?'<p class="muted">В работе: '.adc_h($delegation['display_name']).
+                ' · <a href="/?view=tasks&amp;team_scope=all&amp;team_member='.
+                (int)$delegation['assignee_user_id'].'">Общий календарь</a></p>'
+            :'';
         $html.='<div class="item"><div><strong>'.adc_h((string)$item['label']).'</strong>'.
             '<p class="muted">'.adc_h((string)$item['client_name']).
-            ((int)$item['is_demo']===1?' · Демо':'').'</p></div>'.
+            ((int)$item['is_demo']===1?' · Демо':'').'</p>'.$status.$selection.'</div>'.
             '<a class="btn secondary" href="/?view=clients&amp;client='.
             (int)$item['client_id'].'">Открыть клиента</a>'.
-            ($staff?adc_team_task_control_form($staff,$item):'').'</div>';
+            ($staff && !$delegation?adc_team_task_control_form($staff,$item):'').'</div>';
     }
     return $html.'</div>'.$navigation.'</section>';
 }
