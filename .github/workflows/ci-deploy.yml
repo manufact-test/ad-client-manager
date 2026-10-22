@@ -211,8 +211,13 @@ jobs:
             echo "Modified client data unexpectedly verified" >&2
             exit 1
           fi
+          # updated_at changed automatically during the deliberate mutation:
+          # put back BOTH the name and timestamp from the isolated source.
           mysql -h 127.0.0.1 -u root adclients_restore_test -e \
-            "UPDATE clients SET name='Restorable fictional client' WHERE name='Restorable fictional client tampered'"
+            "UPDATE adclients_restore_test.clients AS restored
+             JOIN adclients_restore_source_test.clients AS original ON original.id=restored.id
+             SET restored.name=original.name, restored.updated_at=original.updated_at
+             WHERE restored.name='Restorable fictional client tampered'"
           TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare
 
 
