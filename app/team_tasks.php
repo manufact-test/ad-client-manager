@@ -59,65 +59,137 @@ function adc_team_task_marker(PDO $db,int $taskId): bool {
     return (bool)$stmt->fetchColumn();
 }
 
+/**
+ * Open, auditable control assignments. A task is linked to the original
+ * client/kind/date, even if the director later changes its title or deadline.
+ * No personal tasks are exposed or treated as delegated work.
+ */
+function adc_team_control_key(int $clientId,string $kind,string $date): string {
+    return $clientId.':'.$kind.':'.$date;
+}
+
+function adc_team_control_assignments(PDO $db): array {
+    $rows=$db->query('SELECT t.id,t.user_id,u.display_name,a.details_json
+        FROM audit_events a
+        JOIN personal_tasks t ON t.id=a.object_id AND t.is_done=0
+        JOIN users u ON u.id=t.user_id
+        WHERE a.object_type="personal_task" AND a.action="assign_team_task"
+        ORDER BY a.id DESC');
+    $assigned=[];
+    foreach ($rows as $row) {
+        $detail=json_decode((string)$row['details_json'],true);
+        if (!is_array($detail) || ($detail['source']??'')!=='control') continue;
+        $id=(int)($detail['client_id']??0);
+        $kind=(string)($detail['kind']??'');
+        $date=(string)($detail['reminder_date']??'');
+        if ($id<=0 || !adc_valid_date($date) || !in_array($kind,
+            ['invoice','act','spec','contract','handover','replace'],true)) continue;
+        $key=adc_team_control_key($id,$kind,$date);
+        // Historical duplicates are tolerated but never generate extra tasks.
+        if (!isset($assigned[$key])) {
+            $assigned[$key]=[
+                'task_id'=>(int)$row['id'],
+                'assignee_user_id'=>(int)$row['user_id'],
+                'display_name'=>(string)$row['display_name']
+            ];
+        }
+    }
+    return $assigned;
+}
+
 function adc_team_task_action(PDO $db,array $user,string $action): bool {
     if (!in_array($action,[
-        'assign_team_task','assign_control_reminder','edit_team_task','cancel_team_task'
+        'assign_team_task','assign_control_reminder','assign_control_bulk',
+        'edit_team_task','cancel_team_task'
     ],true)) return false;
     adc_require_director($user);
     $actor=(int)$user['id'];
     $db->beginTransaction();
     try {
-        if ($action==='assign_team_task' || $action==='assign_control_reminder') {
+        if (in_array($action,['assign_team_task','assign_control_reminder','assign_control_bulk'],true)) {
+            $isControl=$action!=='assign_team_task';
+            if ($isControl) {
+                // Serialize concurrent control dispatches, even to DIFFERENT
+                // employees. Locks are released automatically by commit/rollback.
+                $db->query('SELECT id FROM users WHERE role="director"
+                    ORDER BY id LIMIT 1 FOR UPDATE')->fetchColumn();
+            }
             $assignee=adc_w_id('assignee_user_id');
             adc_team_task_assignee($db,$assignee);
-            $repeat=$action==='assign_team_task' && isset($_POST['repeat_monthly'])?1:0;
-            $source=['source'=>'manual'];
-            if ($action==='assign_control_reminder') {
-                $clientId=adc_w_id('client_id');
-                $kind=adc_input('reminder_kind');
-                $date=adc_w_date(adc_input('reminder_date'));
-                $matching=null;
-                // Never trust a forged client name/title from a POST; derive
-                // the work item from the current shared plan on the server.
-                foreach (adc_client_reminders($db,date('Y-m-d')) as $row) {
-                    if ((int)$row['client_id']===$clientId &&
-                        $row['kind']===$kind && $row['date']===$date) {
-                        $matching=$row;
-                        break;
+            if ($isControl) {
+                $requested=[];
+                if ($action==='assign_control_bulk') {
+                    $selected=$_POST['selected_reminders']??null;
+                    if (!is_array($selected) || count($selected)<1 || count($selected)>60) {
+                        throw new RuntimeException('Выберите от 1 до 60 действий для назначения.');
                     }
+                    foreach ($selected as $raw) {
+                        if (!is_string($raw) || !preg_match(
+                            '/\A[1-9][0-9]{0,15}:(invoice|act|spec|contract|handover|replace):[0-9]{4}-[0-9]{2}-[0-9]{2}\z/D',
+                            $raw)) {
+                            throw new RuntimeException('Некорректный выбор действий. Обновите «Контроль».');
+                        }
+                        $requested[$raw]=true;
+                    }
+                } else {
+                    $id=adc_w_id('client_id');
+                    $kind=adc_input('reminder_kind');
+                    $date=adc_w_date(adc_input('reminder_date'));
+                    $requested[adc_team_control_key($id,$kind,$date)]=true;
                 }
-                if ($matching===null) {
+                // Every item must exist in the CURRENT server-derived plan.
+                // A forged title, client, or obsolete checkbox is rejected.
+                $matching=[];
+                foreach (adc_client_reminders($db,date('Y-m-d')) as $row) {
+                    $key=adc_team_control_key((int)$row['client_id'],
+                        (string)$row['kind'],(string)$row['date']);
+                    if (isset($requested[$key])) $matching[$key]=$row;
+                }
+                if (count($matching)!==count($requested)) {
                     throw new RuntimeException('Напоминание изменилось. Обновите раздел «Контроль».');
                 }
-                $title=adc_validate_task_title(mb_substr(
-                    (string)$matching['label'].' — '.(string)$matching['client_name'],0,240));
-                $due=$date;
-                $source=['source'=>'control','client_id'=>$clientId,
-                    'kind'=>$kind,'reminder_date'=>$date];
+                $existing=adc_team_control_assignments($db);
+                foreach ($requested as $key=>$_) {
+                    if (isset($existing[$key])) {
+                        throw new RuntimeException('Это поручение уже есть у исполнителя. Обновите «Контроль».');
+                    }
+                }
             } else {
                 $title=adc_validate_task_title(adc_input('title'));
                 $due=adc_w_date(adc_input('due_date'));
+                $repeat=isset($_POST['repeat_monthly'])?1:0;
             }
-            // The locked staff row serializes two director clicks targeting
-            // one person, preventing duplicate *open* reminders for that owner.
-            if ($action==='assign_control_reminder') {
-                $exists=$db->prepare('SELECT id FROM personal_tasks
-                    WHERE user_id=? AND title=? AND due_date=? AND is_done=0 LIMIT 1');
-                $exists->execute([$assignee,$title,$due]);
-                if ($exists->fetchColumn()) {
-                    throw new RuntimeException('Такое поручение уже есть у исполнителя.');
-                }
-            }
-            $anchor=$repeat?(int)substr($due,8,2):null;
             $insert=$db->prepare('INSERT INTO personal_tasks
                 (user_id,title,due_date,repeat_monthly,anchor_day) VALUES (?,?,?,?,?)');
-            $insert->execute([$assignee,$title,$due,$repeat,$anchor]);
-            $id=(int)$db->lastInsertId();
-            adc_audit($db,$actor,'assign_team_task','personal_task',$id,
-                $source+['assignee_user_id'=>$assignee,'due_date'=>$due]);
+            $created=0;
+            if (!$isControl) {
+                $insert->execute([$assignee,$title,$due,$repeat,
+                    $repeat?(int)substr($due,8,2):null]);
+                $id=(int)$db->lastInsertId();
+                adc_audit($db,$actor,'assign_team_task','personal_task',$id,
+                    ['source'=>'manual','assignee_user_id'=>$assignee,'due_date'=>$due]);
+                $created=1;
+            } else {
+                foreach ($requested as $key=>$_) {
+                    $row=$matching[$key];
+                    $due=(string)$row['date'];
+                    $title=adc_validate_task_title(mb_substr(
+                        (string)$row['label'].' — '.(string)$row['client_name'],0,240));
+                    $insert->execute([$assignee,$title,$due,0,null]);
+                    $id=(int)$db->lastInsertId();
+                    adc_audit($db,$actor,'assign_team_task','personal_task',$id,[
+                        'source'=>'control','client_id'=>(int)$row['client_id'],
+                        'kind'=>(string)$row['kind'],'reminder_date'=>$due,
+                        'assignee_user_id'=>$assignee,'due_date'=>$due
+                    ]);
+                    $created++;
+                }
+            }
             $db->commit();
-            adc_flash('Поручение назначено. Исполнитель увидит его в «Моих задачах».');
-            adc_redirect($action==='assign_control_reminder'?'?view=control':'?view=tasks');
+            adc_flash($isControl
+                ?'Назначено поручений: '.$created.'. Исполнитель увидит их в «Моих задачах».'
+                :'Поручение назначено. Исполнитель увидит его в «Моих задачах».');
+            adc_redirect($isControl?'?view=control':'?view=tasks');
         }
         $taskId=adc_w_id('task_id');
         $q=$db->prepare('SELECT * FROM personal_tasks WHERE id=? AND is_done=0 FOR UPDATE');
@@ -127,7 +199,6 @@ function adc_team_task_action(PDO $db,array $user,string $action): bool {
             throw new RuntimeException('Чужую личную задачу или завершённое поручение менять нельзя.');
         }
         if ($action==='cancel_team_task') {
-            // Preserve previous completion records and the audit trail.
             $db->prepare('UPDATE personal_tasks SET is_done=1,completed_at=NULL WHERE id=?')
                 ->execute([$taskId]);
             adc_audit($db,$actor,'cancel_team_task','personal_task',$taskId,
@@ -158,7 +229,6 @@ function adc_team_task_action(PDO $db,array $user,string $action): bool {
         throw $error;
     }
 }
-
 function adc_team_task_create_html(array $staff): string {
     if (!$staff) return '';
     return '<details class="card"><summary>Поручить задачу сотруднику</summary>'.
