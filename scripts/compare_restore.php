@@ -83,7 +83,8 @@ try{
     $report=adc_restore_compare($source,$restored,$one,$two);
     echo "[PASS] Isolated SQL+PDF copy read-only comparison\n";
     echo "[PASS] Schema and counts match (".$report['tables']." tables)\n";
-    echo "[PASS] Financial aggregates, document metadata and SHA-256 hashes match\n";
+    echo "[PASS] Financial totals and ALL database rows (13 tables) match by SHA-256\n";
+    echo "[PASS] Document metadata and private PDF SHA-256 hashes match\n";
     echo "[PASS] Private PDFs checked: ".$report['pdfs']."\n";
     echo "CHECKED COPY ONLY: operator must still approve migration, UI tests,\n";
     echo "GitHub PRIVATE, and release. Original backup creation not attested.\n";
@@ -98,6 +99,11 @@ try{
         'CI source must be a disposable test database.',
         'Required database schema is incomplete.',
         'Table row counts differ between databases.',
+        'Full database row fingerprints differ.',
+        'Unknown table in restore verifier.',
+        'Database column name is unsupported.',
+        'Primary key is required for safe streaming.',
+        'Primary key definition does not match the table.',
         'Financial ledger aggregates differ.',
         'Private PDF metadata is invalid.',
         'Conflicting private PDF metadata.',
