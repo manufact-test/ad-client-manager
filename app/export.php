@@ -29,14 +29,14 @@ function adc_export_decimal(int $minor): string {
         str_pad((string)($absolute % 100),2,'0',STR_PAD_LEFT);
 }
 
-function adc_export_encode(array $rows): string {
+function adc_export_encode(array $rows,string $delimiter=';'): string {
     $stream=fopen('php://temp','w+');
     if (!$stream) throw new RuntimeException('Не удалось сформировать CSV.');
     try {
         fwrite($stream,"\xEF\xBB\xBF");
         foreach ($rows as $row) {
             $cells=array_map(static fn($cell)=>adc_export_safe_cell((string)$cell),$row);
-            if (fputcsv($stream,$cells,';','"','')===false) {
+            if (fputcsv($stream,$cells,$delimiter,'"','')===false) {
                 throw new RuntimeException('Не удалось записать строку CSV.');
             }
         }
@@ -258,7 +258,7 @@ function adc_export_csv(PDO $db,array $user,string $report): never {
         http_response_code(404);
         exit('Отчёт не найден.');
     }
-    $data=adc_export_encode($rows);
+    $data=adc_export_encode($rows,$report==='quick_clients_template'?',':';');
     header('Content-Type: text/csv; charset=UTF-8');
     header('Content-Disposition: attachment; filename="'.$filename.'"');
     header('Content-Length: '.strlen($data));
