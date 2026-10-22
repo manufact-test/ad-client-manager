@@ -20,7 +20,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     if ($user) {
         $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
         $menu = '<div class="header-inner"><nav class="top-nav" aria-label="Основные разделы">';
-        foreach (['overview'=>'Обзор','clients'=>'Клиенты','control'=>'Контроль','tasks'=>'Мои задачи','archive'=>'Архив',
+        foreach (['overview'=>'Обзор','clients'=>'Клиенты','payments'=>'Оплаты','control'=>'Контроль','tasks'=>'Мои задачи','archive'=>'Архив',
                   'analytics'=>'Аналитика','team'=>'Настройки'] as $id=>$label) {
             $menu .= '<a href="/?view='.$id.'"'.($view===$id?' class="active" aria-current="page"':'').
                 '>'.adc_h($label).'</a>';
@@ -446,6 +446,7 @@ require __DIR__ . '/app/documents.php';
 require __DIR__ . '/app/reminders.php';
 require __DIR__ . '/app/team_tasks.php';
 require __DIR__ . '/app/operations.php';
+require __DIR__ . '/app/collections.php';
 require __DIR__ . '/app/import.php';
 require __DIR__ . '/app/audit.php';
 

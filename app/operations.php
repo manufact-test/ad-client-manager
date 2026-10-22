@@ -94,7 +94,7 @@ function adc_operations_html(PDO $db,array $user): string {
         '<div><strong>'.(int)$data['unpaid_count'].'</strong>'.
             '<p class="muted">Отправленных запросов без подтверждения оплаты · '.
             (int)$data['unpaid_clients'].' клиентов</p>'.
-            '<a href="/?view=analytics">Финансовая аналитика</a></div>'.
+            '<a href="/?view=payments">Перейти к оплатам</a></div>'.
         '</div></section>';
     $html.='<section class="card"><h2>Ожидают оплаты</h2>'.
         '<p class="muted">Суммы только по отправленным неоплаченным записям нового учёта. '.
@@ -121,7 +121,8 @@ function adc_operations_html(PDO $db,array $user): string {
         if($data['unpaid_clients']>16)$html.='<p class="muted">Показана часть клиентов. '.
             'Все суммы по валютам учтены выше; подробности доступны в аналитике.</p>';
     }
-    $html.='</section><section class="card"><div class="actions"><h2>Ближайшая работа с документами</h2>'.
+    $html.='<p><a class="btn secondary" href="/?view=payments">Вся очередь оплат и просрочек</a></p>'.
+        '</section><section class="card"><div class="actions"><h2>Ближайшая работа с документами</h2>'.
         '<a class="btn secondary" href="/?export=control">Скачать план CSV</a>'.
         '<a class="btn secondary" href="/?view=control">Весь контроль</a></div>'.
         '<p class="muted">Просрочено: '.(int)$counts['overdue'].

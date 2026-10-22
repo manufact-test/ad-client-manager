@@ -82,6 +82,21 @@ function adc_ledger_action(PDO $db,array $user,string $action): bool {
     }
     $db->commit();
     adc_flash('Данные сохранены, статусы и аналитика обновлены.');
+    // Opt-in navigation for the new payments desk; the same locked
+    // ledger mutation and audit rules apply as in the client drawer.
+    if ($action==='receive_entry' && adc_input('return_view')==='payments') {
+        $filters=adc_collections_filters([
+            'scope'=>adc_input('return_scope'),
+            'currency'=>adc_input('return_currency'),
+            'q'=>adc_input('return_query'),
+            'page'=>adc_input('return_page')
+        ]);
+        adc_redirect('?'.http_build_query([
+            'view'=>'payments','scope'=>$filters['scope'],
+            'currency'=>$filters['currency'],
+            'q'=>$filters['q'],'page'=>$filters['page']
+        ],'','&',PHP_QUERY_RFC3986));
+    }
     adc_redirect(adc_w_client_location($db,$clientId));
 }
 function adc_ledger_category(string $cat): string {

@@ -1274,12 +1274,13 @@ function adc_w_team(PDO $db, array $user): string {
 
 function adc_w_page(PDO $db, array $user, string $alert): never {
     $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
-    if (!in_array($view,['overview','clients','control','tasks','archive','analytics','team'],true)) {
+    if (!in_array($view,['overview','clients','payments','control','tasks','archive','analytics','team'],true)) {
         $view='clients';
     }
     $body = $alert;
     $body .= match ($view) {
         'overview' => adc_operations_html($db,$user),
+        'payments' => adc_collections_html($db,$user),
         'clients','archive' => adc_w_clients($db, $user, $view),
         'tasks' => adc_w_tasks($db, $user),
         'control' => adc_reminders_dashboard($db,$user),

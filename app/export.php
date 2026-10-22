@@ -208,6 +208,26 @@ function adc_export_control(PDO $db,string $today): array {
     return $rows;
 }
 
+/** Read-only reconciliation list for real unpaid entries only. */
+function adc_export_payments(PDO $db,string $today):array {
+    $rows=[['Запись ID','Клиент ID','Клиент','Тип','Категория',
+        'Сумма','Валюта','Отправлено','Расчётный срок','Статус срока','Комментарий']];
+    foreach(adc_collections_open($db,$today) as $r) {
+        $status=match($r['payment_state']){
+            'overdue'=>'Просрочено','grace'=>'Три льготных дня',
+            'upcoming'=>'Ожидаем','unknown'=>'Срок неизвестен'
+        };
+        $rows[]=[(int)$r['id'],(int)$r['client_id'],
+            (string)$r['client_name'],
+            $r['entry_kind']==='document'?'Документ':'Оплата на карту',
+            adc_ledger_category((string)$r['category']),
+            (string)$r['amount'],(string)$r['currency'],
+            substr((string)$r['sent_at'],0,10),$r['due_date']??'',
+            $status,(string)($r['note']??'')];
+    }
+    return $rows;
+}
+
 function adc_export_csv(PDO $db,array $user,string $report): never {
     if (!in_array($user['role']??'', ['director','employee'],true)) {
         http_response_code(403);
@@ -216,6 +236,9 @@ function adc_export_csv(PDO $db,array $user,string $report): never {
     if ($report==='balances') {
         $rows=adc_export_balances($db);
         $filename='adclients-real-balances.csv';
+    } elseif ($report==='payments') {
+        $rows=adc_export_payments($db,date('Y-m-d'));
+        $filename='adclients-real-open-payments.csv';
     } elseif ($report==='control') {
         $rows=adc_export_control($db,date('Y-m-d'));
         $filename='adclients-real-control-plan.csv';
