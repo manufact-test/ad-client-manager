@@ -183,6 +183,25 @@ jobs:
           mysql -h 127.0.0.1 -u root adclients_restore_test < "$tempdir/backup.sql"
           cp -p "$tempdir/backup-pdfs/"*.pdf "$tempdir/restored-pdfs/"
           TEST_DB_NAME=adclients_restore_test ADC_RESTORE_PDF_DIR="$tempdir/restored-pdfs" php tests/restore_fixture.php verify
+          # Compare BOTH existing databases and their private PDFs read-only.
+          # This never creates or restores a real Hostinger database.
+          export ADC_RESTORE_COMPARE=READ_ONLY_APPROVED
+          export ADC_RESTORE_COMPARE_CI=isolated-github-actions
+          export ADC_RESTORE_DB_HOST=127.0.0.1
+          export ADC_RESTORE_DB_NAME=adclients_restore_test
+          export ADC_RESTORE_DB_USER=root
+          export ADC_RESTORE_DB_PASSWORD="$TEST_DB_PASSWORD"
+          export ADC_RESTORE_PDF_DIR="$tempdir/restored-pdfs"
+          php scripts/compare_restore.php --compare
+          # Negative proof: a damaged restored PDF MUST block the comparison.
+          fixture_pdf="$tempdir/restored-pdfs/$(printf 'd%.0s' {1..48}).pdf"
+          printf 'broken' >> "$fixture_pdf"
+          if php scripts/compare_restore.php --compare; then
+            echo "Corrupt restored PDF unexpectedly verified" >&2
+            exit 1
+          fi
+          cp -p "$tempdir/backup-pdfs/$(printf 'd%.0s' {1..48}).pdf" "$fixture_pdf"
+          php scripts/compare_restore.php --compare
 
 
 
