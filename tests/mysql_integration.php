@@ -14,6 +14,25 @@ $connection = [
 $db = adc_db($connection);
 adc_schema($db);
 adc_schema($db); // Re-running schema must be safe.
+// Simulate an earlier test installation which contains terms without a
+// monthly-price column. Unknown old values must remain NULL after upgrade.
+$db->exec('INSERT INTO clients(name,is_demo) VALUES ("Fictional legacy rates",1)');
+$legacyClient=(int)$db->lastInsertId();
+$db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency,quoted_amount)
+    VALUES (?,"2026-04-01",1,"prepayment","BYN","1250.00")')->execute([$legacyClient]);
+$legacyEng=(int)$db->lastInsertId();
+$db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
+    VALUES (?,"2026-04-01","2026-04-01",1,"prepayment","BYN")')->execute([$legacyEng]);
+$db->exec('ALTER TABLE engagement_terms DROP COLUMN quoted_amount');
+adc_schema($db);
+adc_schema($db);
+$historicalColumn=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
+if (!$historicalColumn || strtolower((string)$historicalColumn['Type'])!=='decimal(16,2)' ||
+    $historicalColumn['Null']!=='YES') throw new RuntimeException('Historical price upgrade failed');
+$stmt=$db->prepare('SELECT quoted_amount FROM engagement_terms WHERE engagement_id=?');
+$stmt->execute([$legacyEng]);
+if ($stmt->fetchColumn()!==null)
+    throw new RuntimeException('Migration fabricated unknown historical rates');
 // Simulate an old installation without the idempotency column in disposable CI.
 // Migration must preserve old financial rows and be rerunnable.
 $db->exec('ALTER TABLE payment_events DROP INDEX uq_payment_submission, DROP COLUMN submission_key');

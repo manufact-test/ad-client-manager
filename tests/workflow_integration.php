@@ -584,4 +584,52 @@ if ($fixtureCreatedDir) {
     check($remaining!==false && count($remaining)===2,'No leaked private fixture files');
     check(rmdir(adc_doc_directory()),'Clean up CI-only storage directory');
 }
-echo "Integrated client workflow passed: clients, finance, demo, archive, permissions, tasks\n";
+// Historical monthly prices are reference values, not automatic charges.
+$db->exec('INSERT INTO clients(name,is_demo) VALUES ("Fictional dated-rate client",1)');
+$rateClient=(int)$db->lastInsertId();
+$db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency,quoted_amount)
+    VALUES (?,"2026-10-05",5,"prepayment","BYN","900.00")')->execute([$rateClient]);
+$rateEng=(int)$db->lastInsertId();
+$initial=adc_w_engagement($db,$rateClient,$rateEng);
+run_action($db,$director,'add_engagement_terms',[
+    'client_id'=>(string)$rateClient,'engagement_id'=>(string)$rateEng,
+    'effective_on'=>'2026-11-20','payment_mode'=>'prepayment',
+    'currency'=>'BYN','quoted_amount'=>'1200.00'
+]);
+$before=adc_w_effective_terms($db,$initial,'2026-11-19');
+$after=adc_w_effective_terms($db,$initial,'2026-11-20');
+check((string)$before['quoted_amount']==='900.00' &&
+    (string)$after['quoted_amount']==='1200.00',
+    'Monthly price stays at 900 until Nov 20; 1200 starts Nov 20');
+$terms=$db->prepare('SELECT effective_on,quoted_amount FROM engagement_terms
+    WHERE engagement_id=? ORDER BY effective_on');
+$terms->execute([$rateEng]);
+check($terms->fetchAll(PDO::FETCH_ASSOC)===[
+    ['effective_on'=>'2026-10-05','quoted_amount'=>'900.00'],
+    ['effective_on'=>'2026-11-20','quoted_amount'=>'1200.00']
+], 'Original and newer prices are stored separately');
+run_action($db,$director,'add_engagement_terms',[
+    'client_id'=>(string)$rateClient,'engagement_id'=>(string)$rateEng,
+    'effective_on'=>'2026-12-10','payment_mode'=>'postpayment',
+    'currency'=>'EUR','quoted_amount'=>'1500.00'
+]);
+$dec=adc_w_effective_terms($db,$initial,'2026-12-10');
+$nov=adc_w_effective_terms($db,$initial,'2026-11-21');
+check($dec['currency']==='EUR' && (string)$dec['quoted_amount']==='1500.00' &&
+    $nov['currency']==='BYN' && (string)$nov['quoted_amount']==='1200.00',
+    'Future currency and price do not change prior months');
+check((int)$db->query("SELECT COUNT(*) FROM client_entries WHERE client_id=$rateClient")->fetchColumn()===0,
+    'Contract price history never generates charges');
+try {
+    run_action($db,$director,'save_engagement',[
+        'client_id'=>(string)$rateClient,'engagement_id'=>(string)$rateEng,
+        'started_on'=>'2026-10-05','billing_day'=>'5',
+        'payment_mode'=>'postpayment','currency'=>'EUR','quoted_amount'=>'9999.00'
+    ]);
+    throw new RuntimeException('Old contract terms were overwritten');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'Добавить новые условия'),
+        'Edited form cannot silently overwrite dated contract history');
+    if ($db->inTransaction())$db->rollBack();
+}
+echo "Integrated client workflow passed: clients, finance, demo, archive, permissions, tasks, monthly rate history\n";
