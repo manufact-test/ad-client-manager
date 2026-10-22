@@ -140,15 +140,23 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
             (string)$line['category'],(string)($line['label']??''),
             adc_export_decimal($amount),(string)$line['currency'],(int)$line['operation_id']];
     }
-    $entries=$db->prepare('SELECT e.*,d.original_filename FROM client_entries e
-        LEFT JOIN document_bundles d ON d.id=e.document_id WHERE e.client_id=? ORDER BY e.created_at,e.id');
+    $entries=$db->prepare('SELECT e.*,d.original_filename,
+        bp.id linked_period_id,bp.period_start,bp.period_end,g.id linked_engagement_id
+        FROM client_entries e
+        LEFT JOIN document_bundles d ON d.id=e.document_id AND d.client_id=e.client_id
+        LEFT JOIN billing_periods bp ON bp.id=d.period_id
+        LEFT JOIN engagements g ON g.id=bp.engagement_id
+        WHERE e.client_id=? ORDER BY e.created_at,e.id');
     $entries->execute([$clientId]);
     foreach($entries as $e){
         $status=(int)$e['is_void']===1?'Удалено':
             ($e['received_at']!==null?'Получено':($e['sent_at']!==null?'Ждём оплату':'Отправить документ'));
         $label=$e['entry_kind']==='card'?'Оплата на карту':(string)($e['original_filename']??'PDF');
         $rows[]=[(int)$clientId,(string)$client['name'],(int)$client['is_demo'],
-            '', '', '', '', (string)$e['created_at'],
+            $e['linked_engagement_id']===null?'':(int)$e['linked_engagement_id'],
+            $e['linked_period_id']===null?'':(int)$e['linked_period_id'],
+            (string)($e['period_start']??''),(string)($e['period_end']??''),
+            (string)$e['created_at'],
             $label.' · '.$status,(string)$e['category'],(string)($e['note']??''),
             $e['amount']===null?'':adc_export_decimal(adc_fin_minor((string)$e['amount'])),
             (string)($e['currency']??''),(int)$e['id']];
