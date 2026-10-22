@@ -134,7 +134,10 @@ try:
           "Recurrence clamps 31st to November 30")
     check("Director confidential task" not in page,"Task isolation remains intact")
     status,_,page=request("director","/?view=tasks")
-    check("Worker monthly task" not in page,"Director is not shown employee private tasks")
+    check("Worker monthly task" in page and "Общий календарь команды" in page,
+          "Director sees employee tasks in shared read-only team schedule")
+    check('name="action" value="edit_team_task"' not in page,
+          "Director cannot modify employee private tasks through team manager")
 
     # Lockout belongs to unknown identity, not to either working account.
     for n in range(5):
