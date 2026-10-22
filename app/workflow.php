@@ -92,6 +92,24 @@ function adc_w_engagement(PDO $db, int $clientId, int $engagementId): array {
     return $row;
 }
 
+/** Resolve terms as of the requested date, not the latest scheduled change.
+ * Adding a future condition keeps the historical snapshot in engagement_terms
+ * even though engagements stores the latest settings for compatibility.
+ */
+function adc_w_effective_terms(PDO $db,array $engagement,string $today): array {
+    $q=$db->prepare('SELECT effective_on,billing_day,payment_mode,currency
+        FROM engagement_terms WHERE engagement_id=? AND effective_on<=?
+        ORDER BY effective_on DESC,id DESC LIMIT 1');
+    $q->execute([(int)$engagement['id'],$today]);
+    $term=$q->fetch();
+    return $term?:[
+        'effective_on'=>$engagement['started_on'],
+        'billing_day'=>$engagement['billing_day'],
+        'payment_mode'=>$engagement['payment_mode'],
+        'currency'=>$engagement['currency'],
+    ];
+}
+
 function adc_w_period(PDO $db, int $clientId, int $periodId): array {
     $stmt = $db->prepare('SELECT p.*, e.currency, e.status FROM billing_periods p JOIN engagements e ON e.id = p.engagement_id
         WHERE p.id = ? AND e.client_id = ?');
@@ -718,16 +736,15 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         '<div><small>Тип</small><strong>'.((string)$client['legal_type']==='legal'?'Юридическое лицо':'Физическое лицо').'</strong></div>'.
         '<div><small>Откуда пришёл</small><strong>'.adc_h($source).'</strong></div>';
     if ($current) {
-        $effective=$db->prepare('SELECT effective_on FROM engagement_terms WHERE engagement_id=? ORDER BY effective_on DESC,id DESC LIMIT 1');
-        $effective->execute([(int)$current['id']]);
-        $activeFrom=$effective->fetchColumn() ?: $current['started_on'];
+        $currentTerms=adc_w_effective_terms($db,$current,date('Y-m-d'));
+        $activeFrom=$currentTerms['effective_on'];
         $html .= '<div><small>Дата начала текущих условий</small><strong>'.adc_h($qDate((string)$activeFrom)).'</strong></div>';
         if (adc_fin_minor((string)($current['quoted_amount'] ?? '0.00'))!==0) {
             $html.='<div><small>Исторический ориентир стоимости за месяц</small><strong>'.
                 adc_w_money($current['quoted_amount'],(string)$current['currency']).'</strong></div>';
         }
         $html.='<div><small>Условия оплаты</small><strong>'.
-            ($current['payment_mode']==='prepayment'?'Предоплата':'Постоплата').'</strong></div>';
+            ($currentTerms['payment_mode']==='prepayment'?'Предоплата':'Постоплата').'</strong></div>';
     }
     if ($client['previous_client_id'] !== null || trim((string)$client['previous_name_text']) !== '') {
         $html .= '<div><small>Сотрудничали ранее</small><strong>'.
@@ -759,10 +776,11 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $eid=(int)$eng['id'];
         $history=$db->prepare('SELECT * FROM engagement_terms WHERE engagement_id=? ORDER BY effective_on DESC,id DESC');
         $history->execute([$eid]);$terms=$history->fetchAll();
+        $activeTerms=adc_w_effective_terms($db,$eng,date('Y-m-d'));
         $html.='<div class="terms-list"><h4>Текущие условия</h4>'.
-            '<p>'.adc_h($qDate((string)$eng['started_on'])).' · '.
-            ((string)$eng['payment_mode']==='prepayment'?'Предоплата':'Постоплата').
-            ' · '.adc_h((string)$eng['currency']).' · расчётный день '.(int)$eng['billing_day'].'</p>';
+            '<p>'.adc_h($qDate((string)$activeTerms['effective_on'])).' · '.
+            ((string)$activeTerms['payment_mode']==='prepayment'?'Предоплата':'Постоплата').
+            ' · '.adc_h((string)$activeTerms['currency']).' · расчётный день '.(int)$activeTerms['billing_day'].'</p>';
         if ($terms) {
             $html.='<details><summary>История условий · '.count($terms).'</summary>';
             foreach($terms as $term) {

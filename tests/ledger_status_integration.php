@@ -86,6 +86,26 @@ try {
         'November 1 billing anchor creates preparation reminder from October');
     status_check(adc_ledger_client_status($db,$newClient,'2026-10-20')[0]==='Выполнено',
         'Preparation reminder does not persist all month');
+    // A future effective change cannot move an earlier document deadline.
+    $futureEng=(int)$db->query("SELECT id FROM engagements WHERE client_id=$newClient")->fetchColumn();
+    $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
+        VALUES (?,"2026-10-01","2026-10-01",1,"prepayment","BYN")')->execute([$futureEng]);
+    $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
+        VALUES (?,"2026-12-10","2026-12-10",10,"postpayment","EUR")')->execute([$futureEng]);
+    $db->prepare('UPDATE engagements SET billing_day=10,payment_mode="postpayment",currency="EUR" WHERE id=?')
+        ->execute([$futureEng]);
+    $termBefore=adc_w_effective_terms($db,["id"=>$futureEng,"started_on"=>"2026-10-01",
+        "billing_day"=>10,"payment_mode"=>"postpayment","currency"=>"EUR"],"2026-11-29");
+    status_check($termBefore['billing_day']==1 && $termBefore['currency']==='BYN',
+        'Scheduled new terms do not affect earlier October-November billing');
+    status_check(adc_ledger_client_status($db,$newClient,'2026-11-29')[0]==='Подготовить документы',
+        'November 29 still prepares for original December 1 billing date');
+    status_check(adc_ledger_client_status($db,$newClient,'2026-12-07')[0]==='Выполнено',
+        'New billing day is not effective before December 10');
+    $termAfter=adc_w_effective_terms($db,["id"=>$futureEng,"started_on"=>"2026-10-01",
+        "billing_day"=>10,"payment_mode"=>"postpayment","currency"=>"EUR"],"2026-12-10");
+    status_check($termAfter['billing_day']==10 && $termAfter['payment_mode']==='postpayment',
+        'New conditions become active on their actual effective date');
     $db->exec('INSERT INTO clients(name,is_demo) VALUES ("CI initial billing window",1)');
     $laterClient=(int)$db->lastInsertId();
     $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency)
