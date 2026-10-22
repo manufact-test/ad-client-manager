@@ -86,8 +86,9 @@ try:
     director=login("director");employee=login("employee")
     status,_,ctrl=request("employee","/?view=control")
     require(status==200 and "Контроль клиентов" in html(ctrl) and
-            "План вычисляется по условиям договоров" in html(ctrl),
-            "Shared client paperwork overview is accessible to employees")
+            "План вычисляется по условиям договоров" in html(ctrl) and
+            "последние 183 дня" in html(ctrl),
+            "Shared client paperwork overview uses longer overdue lookback")
     status,_,tasks=request("director","/?view=tasks")
     require(status==200 and "Мои задачи" in html(tasks) and
             "Общий календарь команды" in html(tasks),

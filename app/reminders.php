@@ -34,7 +34,8 @@ function adc_reminder_billing_days(PDO $db,array $eng,DateTimeImmutable $first,
         return $current;
     };
     $days=[];
-    for($i=0,$cursor=$first;$i<6;$i++,$cursor=$cursor->modify('+1 month')){
+    for($i=0,$cursor=$first;$i<18 && $cursor->format('Y-m-d')<=$maxDate;
+        $i++,$cursor=$cursor->modify('+1 month')){
         foreach($anchors as $anchor){
             $date=adc_reminder_month_day($cursor,(int)$anchor);
             if($date<$minDate || $date>$maxDate || $date<$eng['started_on']) continue;
@@ -90,7 +91,9 @@ function adc_client_reminders(PDO $db, string $today): array {
         throw new InvalidArgumentException('Invalid reminder reference date');
     }
     $now=new DateTimeImmutable($today);
-    $minDate=$now->modify('-35 days')->format('Y-m-d');
+    // Keep up to six months of missed paperwork visible in the control
+    // board. Older unresolved PDF handovers/contracts remain visible too.
+    $minDate=$now->modify('-183 days')->format('Y-m-d');
     $maxDate=$now->modify('+45 days')->format('Y-m-d');
     $first=(new DateTimeImmutable($minDate))->modify('first day of this month');
     $stmt=$db->query('SELECT c.id,c.name,c.is_demo,c.requires_specs,c.requires_acts,
@@ -99,8 +102,10 @@ function adc_client_reminders(PDO $db, string $today): array {
         WHERE e.status="active" ORDER BY c.id');
     $events=[];
     $docsStmt=$db->prepare('SELECT d.id,d.is_void,d.storage_key,d.created_at,d.transfer_due_on,d.transferred_at,
-        EXISTS(SELECT 1 FROM audit_events a WHERE a.object_type="document_bundle" AND a.object_id=d.id
-          AND a.action="invalidate_document") AS needs_replacement,
+        COALESCE((SELECT a.action FROM audit_events a
+          WHERE a.object_type="document_bundle" AND a.object_id=d.id
+            AND a.action IN ("invalidate_document","replace_document")
+          ORDER BY a.id DESC LIMIT 1),"")="invalidate_document" AS needs_replacement,
         d.needs_contract,d.needs_spec,d.needs_invoice,d.needs_act,p.period_start,p.period_end
         FROM document_bundles d LEFT JOIN billing_periods p ON p.id=d.period_id
         WHERE d.client_id=? AND d.is_void=0');
@@ -124,17 +129,18 @@ function adc_client_reminders(PDO $db, string $today): array {
             }
             if ($doc['storage_key'] !== null && $doc['transferred_at'] === null) {
                 $date=$doc['transfer_due_on'] ?: $today;
-                if ($date < $minDate) $date=$minDate; // keep old overdue visible
+                // Retain the contractual/original deadline, even when it is
+                // older than the generated monthly reminder lookback window.
                 if ($date <= $maxDate) $push($date,'handover','Передать подготовленный документ');
             }
         }
         if ($eng['started_on'] <= $maxDate &&
             !adc_reminder_document_found($documents,'needs_contract',$today,'prepayment')) {
-            $date=max($eng['started_on'],$minDate);
-            $push($date,'contract','Подготовить договор');
+            $push((string)$eng['started_on'],'contract','Подготовить договор');
         }
         $billingDays=adc_reminder_billing_days($db,$eng,$first,$minDate,$maxDate);
-        for ($i=0,$cursor=$first;$i<6;$i++,$cursor=$cursor->modify('+1 month')) {
+        for ($i=0,$cursor=$first;$i<18 && $cursor->format('Y-m-d')<=$maxDate;
+            $i++,$cursor=$cursor->modify('+1 month')) {
             $last=$cursor->format('Y-m-t');
             if ((int)$eng['requires_acts']===1 &&
                 $last >= $minDate && $last <= $maxDate && $last >= $eng['started_on'] &&
@@ -202,11 +208,33 @@ function adc_reminders_dashboard(PDO $db): string {
             default=>true
         };
     }));
-    $shown=array_slice($rows,0,120);
+    // Page the entire matching result set instead of silently dropping
+    // important upcoming obligations when old missed cycles accumulate.
+    $perPage=60;
+    $total=count($rows);
+    $pages=max(1,(int)ceil($total/$perPage));
+    $requestedPage=filter_var($_GET['page']??null,FILTER_VALIDATE_INT);
+    $page=($requestedPage!==false && $requestedPage!==null)
+        ?min(max(1,(int)$requestedPage),$pages):1;
+    $shown=array_slice($rows,($page-1)*$perPage,$perPage);
+    $pageLink=static fn(int $destination):string => '/?'.http_build_query([
+        'view'=>'control','demo'=>$demo,'kind'=>$kind,'scope'=>$scope,
+        'page'=>$destination
+    ],'','&',PHP_QUERY_RFC3986);
+    $navigation='';
+    if ($pages>1) {
+        $navigation='<nav class="task-pagination" aria-label="Страницы контрольных напоминаний">';
+        if ($page>1) $navigation.='<a class="btn secondary" href="'.
+            adc_h($pageLink($page-1)).'">← Ранее</a> ';
+        $navigation.='<span class="muted">Страница '.$page.' из '.$pages.'</span>';
+        if ($page<$pages) $navigation.=' <a class="btn secondary" href="'.
+            adc_h($pageLink($page+1)).'">Далее →</a>';
+        $navigation.='</nav>';
+    }
     $html='<h1>Контроль клиентов</h1><section class="card">'.
         '<p class="muted">Общий план документов и передачи PDF для сотрудников. '.
-        'Показываются даты от 35 дней назад до 45 дней вперёд; '.
-        'старые просрочки за пределами окна не включены. '.
+        'Расчётные события: последние 183 дня и следующие 45 дней; '.
+        'непереданные PDF и договоры с более ранними сроками также показаны. '.
         'План вычисляется по условиям договоров и не создаёт личных задач или начислений.</p>'.
         '<form method="get"><input type="hidden" name="view" value="control"><div class="grid">'.
         '<label class="field">Клиенты<select name="demo">';
@@ -222,8 +250,7 @@ function adc_reminders_dashboard(PDO $db): string {
         $html.='<option value="'.$val.'"'.($val===$scope?' selected':'').'>'.adc_h($label).'</option>';
     }
     $html.='</select></label></div><button type="submit">Показать</button></form>'.
-        '<p class="muted">Напоминаний: '.count($rows).
-        (count($rows)>120?' (показаны первые 120, уточните фильтры)':'').'</p>';
+        '<p class="muted">Напоминаний: '.$total.'</p>'.$navigation;
     if (!$shown) return $html.'<p class="muted">Подходящих напоминаний нет.</p></section>';
     $lastDate='';
     foreach($shown as $item){
@@ -241,5 +268,5 @@ function adc_reminders_dashboard(PDO $db): string {
             '<a class="btn secondary" href="/?view=clients&amp;client='.
             (int)$item['client_id'].'">Открыть клиента</a></div>';
     }
-    return $html.'</div></section>';
+    return $html.'</div>'.$navigation.'</section>';
 }

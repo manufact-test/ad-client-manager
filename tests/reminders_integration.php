@@ -69,6 +69,34 @@ try {
         'Finance edit makes an explicit replacement reminder');
     require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='handover'))===0,
         'Stale PDF must not produce a transferable reminder');
+    // A real PDF replacement ends the previous invalidation. The control
+    // board must not keep a permanent false red reminder forever.
+    $db->prepare('INSERT INTO audit_events(action,object_type,object_id)
+        VALUES ("replace_document","document_bundle",?)')->execute([$docId]);
+    $events=array_values(array_filter(adc_client_reminders($db,'2026-10-21'),
+        static fn($row)=>$row['client_id']===$clientId));
+    require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='replace'))===0,
+        'Latest replacement event clears obsolete-PDF reminder');
+    require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='handover'))===1,
+        'Replaced PDF once again requires normal handover');
+    $db->prepare('INSERT INTO audit_events(action,object_type,object_id)
+        VALUES ("invalidate_document","document_bundle",?)')->execute([$docId]);
+    $events=array_values(array_filter(adc_client_reminders($db,'2026-10-21'),
+        static fn($row)=>$row['client_id']===$clientId));
+    require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='replace'))===1,
+        'A later genuine invalidation reopens replacement reminder');
+    $db->prepare('INSERT INTO audit_events(action,object_type,object_id)
+        VALUES ("replace_document","document_bundle",?)')->execute([$docId]);
+    // Even if the transfer deadline predates the calendar lookback,
+    // the original due date remains visible as an old overdue item.
+    $db->prepare('UPDATE document_bundles SET transfer_due_on="2025-12-01",
+        transferred_at=NULL WHERE id=?')->execute([$docId]);
+    $oldEvents=array_values(array_filter(adc_client_reminders($db,'2026-10-21'),
+        static fn($row)=>$row['client_id']===$clientId && $row['kind']==='handover'));
+    require_reminder(count(array_filter($oldEvents,
+        static fn($row)=>$row['date']==='2025-12-01'))===1,
+        'Very old open PDF handover retains its actual overdue date');
+
 
     $db->prepare('UPDATE document_bundles SET is_void=1 WHERE id=?')->execute([$docId]);
     $events=array_values(array_filter(adc_client_reminders($db,'2026-10-21'),
