@@ -275,8 +275,7 @@ function adc_fin_render(PDO $db): string {
     }
     $html.='</div></section>';
 
-    $html.='<section class="card"><h2>По месяцам</h2>'.
-        '<p class="muted">Фиолетовый — начислено, голубой — получено. Наведите на строку, чтобы увидеть суммы.</p>';
+    $html.='<section class="card"><h2>По месяцам</h2>';
     $chart=[];
     foreach ($history as $month=>$r) {
         if ($selected!=='all' && !str_starts_with($month,$selected))continue;

@@ -231,6 +231,27 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .ac-calendar .ac-today{width:100%;margin-top:8px;padding:7px;background:#eeecff;color:#4033a7;font-size:12px}
 
 .card-payment-switch{margin-bottom:10px}.doc-upload-form:has(input[name=is_card]:checked) .document-only{display:none}.doc-upload-form:has(input[name=is_card]:checked) .ledger-money-fields{display:block!important}.doc-upload-form:has(input[name=is_card]:checked) .ledger-money-toggle>label.check{display:none}
+
+        /* Final client list: round entire highlighted rows, with breathing room. */
+        .client-table-scroll{border-radius:12px;overflow-x:auto}
+        .client-list-table{border-collapse:separate;border-spacing:0 5px;min-width:650px}
+        .client-list-table thead th{padding:12px 18px;border-bottom:1px solid #e5e6f2}
+        .client-list-table tbody td{padding:15px 18px;vertical-align:middle;border:0;background:#fff}
+        .client-list-table tbody tr:nth-child(even) td{background:#f3f1ff}
+        .client-list-table tbody tr:hover td{background:#eae7ff}
+        .client-list-table tbody td:first-child{border-radius:11px 0 0 11px}
+        .client-list-table tbody td:last-child{border-radius:0 11px 11px 0}
+        .client-list-table .status-cell{padding-left:20px;padding-right:20px}
+        .client-list-table .badge{display:inline-block;line-height:1.5;padding:3px 10px}
+        .ac-date-wrap{gap:8px}
+        .ac-date-wrap .ac-date-btn{min-width:44px;border-radius:10px;background:#efedff;color:#4535b6;display:inline-flex;align-items:center;justify-content:center}
+        .ac-date-btn svg{width:20px;height:20px;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+        .ac-date-btn:hover{background:#e1dcff;color:#35269e}
+        .ac-calendar{border-radius:13px;box-shadow:0 14px 38px #30206029}
+        .ac-days button{border-radius:9px}
+        .ac-days button.is-selected{border-radius:9px}
+        .task-actions [data-task-toggle][aria-expanded=true]{background:#eeebff;color:#3326a4;border-color:#9d93e7}
+        @media(max-width:700px){.client-list-table tbody td{padding:12px 14px}.client-list-table .status-cell{padding:12px 16px}}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script nonce="' . adc_h($adcJsNonce) . '">
 (function(){
   "use strict";
@@ -243,7 +264,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var id=(toggle||close).getAttribute(toggle?"data-task-toggle":"data-task-close");
     var target=document.getElementById(id);
     if(!target)return;
-    var opened=toggle?!target.hidden:false;
+    var opened=toggle?target.hidden:false;
     target.hidden=!opened;
     var button=document.querySelector("[data-task-toggle=\""+id+"\"]");
     if(button)button.setAttribute("aria-expanded",opened?"true":"false");
@@ -298,17 +319,52 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var monthNames=["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
     function pad(n){return String(n).padStart(2,"0");}
     function iso(y,m,d){return y+"-"+pad(m)+"-"+pad(d);}
+    function dateIso(text){
+      var match=/^(\d{2})\.(\d{2})\.(\d{4})$/.exec(text);
+      var value=match?(match[3]+"-"+match[2]+"-"+match[1]):text;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return "";
+      var y=Number(value.slice(0,4)),m=Number(value.slice(5,7)),d=Number(value.slice(8,10));
+      var date=new Date(y,m-1,d);
+      return date.getFullYear()===y&&date.getMonth()===m-1&&date.getDate()===d?value:"";
+    }
+    function showDate(text){var v=dateIso(text);return v?v.slice(8,10)+"."+v.slice(5,7)+"."+v.slice(0,4):text;}
     document.querySelectorAll("input[type=date]").forEach(function(input){
       var wrap=document.createElement("div");wrap.className="ac-date-wrap";
       input.parentNode.insertBefore(wrap,input);wrap.appendChild(input);
-      input.type="text";input.placeholder="ГГГГ-ММ-ДД";input.maxLength=10;
-      input.pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}";
+      input.type="text";input.placeholder="ДД.ММ.ГГГГ";input.maxLength=10;
+      input.pattern="[0-9]{2}\.[0-9]{2}\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2}";
+      input.value=showDate(input.value);
+      input.addEventListener("input",function(){input.setCustomValidity("");});
+      input.addEventListener("blur",function(){
+        if(!input.value){input.setCustomValidity("");return;}
+        var v=dateIso(input.value);
+        if(v){input.value=showDate(v);input.setCustomValidity("");}
+        else input.setCustomValidity("Укажите существующую дату в формате ДД.ММ.ГГГГ");
+      });
+      if(input.form)input.form.addEventListener("submit",function(event){
+        if(!input.value)return;
+        var date=dateIso(input.value);
+        if(!date){
+          event.preventDefault();
+          input.setCustomValidity("Укажите существующую дату в формате ДД.ММ.ГГГГ");
+          input.reportValidity();
+          return;
+        }
+        input.value=date;
+        input.setCustomValidity("");
+      });
       input.autocomplete="off";
       var trigger=document.createElement("button");trigger.type="button";trigger.className="ac-date-btn";
-      trigger.textContent="▦";trigger.setAttribute("aria-label","Выбрать дату");
+      trigger.setAttribute("aria-label","Выбрать дату");
+      var calendarIcon=document.createElementNS("http://www.w3.org/2000/svg","svg");
+      calendarIcon.setAttribute("viewBox","0 0 24 24");
+      calendarIcon.setAttribute("fill","none");
+      calendarIcon.setAttribute("aria-hidden","true");
+      calendarIcon.innerHTML="<rect x=\"3\" y=\"5\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M8 3v4M16 3v4M3 10h18\"/>";
+      trigger.appendChild(calendarIcon);
       var picker=document.createElement("div");picker.className="ac-calendar";picker.hidden=true;
       wrap.appendChild(trigger);wrap.appendChild(picker);
-      var v=/^\d{4}-\d{2}-\d{2}$/.test(input.value)?input.value:"";
+      var v=dateIso(input.value);
       var selected=v?new Date(Number(v.slice(0,4)),Number(v.slice(5,7))-1,Number(v.slice(8,10))):new Date();
       var year=selected.getFullYear(),month=selected.getMonth();
       function draw(){
@@ -330,22 +386,22 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           let day=d;
           var b=document.createElement("button");b.type="button";b.textContent=String(day);
           var value=iso(year,month+1,day);
-          if(value===input.value)b.classList.add("is-selected");
+          if(value===dateIso(input.value))b.classList.add("is-selected");
           if(value===iso(today.getFullYear(),today.getMonth()+1,today.getDate()))b.classList.add("is-today");
-          b.onclick=function(){input.value=value;input.dispatchEvent(new Event("change",{bubbles:true}));closeMenus();};
+          b.onclick=function(){input.value=showDate(value);input.setCustomValidity("");input.dispatchEvent(new Event("change",{bubbles:true}));closeMenus();};
           days.appendChild(b);
         }
         picker.appendChild(days);
         var todayButton=document.createElement("button");todayButton.type="button";
         todayButton.className="ac-today";todayButton.textContent="Сегодня";
         todayButton.onclick=function(){
-          var d=new Date();input.value=iso(d.getFullYear(),d.getMonth()+1,d.getDate());
+          var d=new Date();input.value=showDate(iso(d.getFullYear(),d.getMonth()+1,d.getDate()));input.setCustomValidity("");
           input.dispatchEvent(new Event("change",{bubbles:true}));closeMenus();
         };
         picker.appendChild(todayButton);
       }
       trigger.onclick=function(){
-        var opening=picker.hidden;closeMenus();if(opening){var parsed=/^\d{4}-\d{2}-\d{2}$/.test(input.value)?new Date(Number(input.value.slice(0,4)),Number(input.value.slice(5,7))-1,Number(input.value.slice(8,10))):new Date();year=parsed.getFullYear();month=parsed.getMonth();draw();}
+        var opening=picker.hidden;closeMenus();if(opening){var current=dateIso(input.value);var parsed=current?new Date(Number(current.slice(0,4)),Number(current.slice(5,7))-1,Number(current.slice(8,10))):new Date();year=parsed.getFullYear();month=parsed.getMonth();draw();}
         picker.hidden=!opening;
       };
       input.addEventListener("keydown",function(e){if(e.key==="ArrowDown"){e.preventDefault();trigger.click();}});

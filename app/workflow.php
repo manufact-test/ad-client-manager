@@ -860,7 +860,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '<a class="btn secondary" href="/?view='.adc_h($view).'">Сбросить</a>'.
         '</form><section class="card"><p class="muted">Найдено в списке: '.count($clients).
         (count($clients)===300?' (показаны последние 300, уточните поиск)':'').'</p>'.
-        '<div class="table-scroll" tabindex="0" role="region" aria-label="Список клиентов: таблицу можно прокручивать по горизонтали"><table><thead><tr>'.
+        '<div class="table-scroll client-table-scroll" tabindex="0" role="region" aria-label="Список клиентов: таблицу можно прокручивать по горизонтали"><table class="client-list-table"><thead><tr>'.
         '<th>Клиент</th><th>Услуги</th><th aria-label="Открыть"></th><th>Статус</th>'.
         '</tr></thead><tbody>';
     foreach ($clients as $client) {

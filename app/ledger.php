@@ -192,7 +192,7 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
     $needsDocument=false;
     if($r && $r['started_on']<=$today) {
         $due=adc_ledger_preparation_due($today,(int)$r['billing_day']);
-        if ($due!==null && $due >= $r['started_on']) {
+        if ($due!==null && $due > $r['started_on']) {
             $needsDocument=!adc_ledger_has_request_for_due($db,$clientId,$due,$today);
         }
     }
@@ -203,7 +203,7 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
             $late?'danger':'warning'];
     }
     if ((int)$s['paid']>0) return ['Оплачено','good'];
-    return ['В работе',''];
+    return ['Выполнено','good'];
 }
 
 function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
@@ -211,8 +211,7 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
         FROM client_entries e LEFT JOIN document_bundles d ON d.id=e.document_id
         WHERE e.client_id=? AND e.is_void=0 ORDER BY e.received_at IS NOT NULL,e.id DESC');
     $q->execute([$clientId]);$rows=$q->fetchAll();
-    $html='<section class="card ledger-panel"><h3>Документы и оплаты</h3>'.
-      '<p class="muted">Каждый документ и каждая оплата на карту учитываются отдельно. Никаких автоматических начислений.</p>';
+    $html='<section class="card ledger-panel"><h3>Документы и оплаты</h3>';
     $pending=[];$done=[];
     foreach ($rows as $r) {if ($r['received_at']===null) $pending[]=$r;else $done[]=$r;}
     $render=static function (array $r) use($db,$clientId,$user): string {

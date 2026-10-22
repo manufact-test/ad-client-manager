@@ -80,9 +80,11 @@ try {
     $newClient=(int)$db->lastInsertId();
     $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency)
         VALUES (?,"2026-10-01",1,"prepayment","BYN")')->execute([$newClient]);
+    status_check(adc_ledger_client_status($db,$newClient,'2026-10-01')[0]==='Выполнено',
+        'Newly activated collaboration is neutral on its first contractual billing date');
     status_check(adc_ledger_client_status($db,$newClient,'2026-10-30')[0]==='Подготовить документы',
         'November 1 billing anchor creates preparation reminder from October');
-    status_check(adc_ledger_client_status($db,$newClient,'2026-10-20')[0]==='В работе',
+    status_check(adc_ledger_client_status($db,$newClient,'2026-10-20')[0]==='Выполнено',
         'Preparation reminder does not persist all month');
 } finally {
     if($db->inTransaction())$db->rollBack();
