@@ -218,6 +218,7 @@ function adc_schema(PDO $db): void {
             billing_day TINYINT UNSIGNED NOT NULL,
             payment_mode ENUM("prepayment","postpayment") NOT NULL,
             currency CHAR(3) NOT NULL,
+            quoted_amount DECIMAL(16,2) NULL DEFAULT NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uq_terms_effective(engagement_id,effective_on),
             CONSTRAINT fk_terms_engagement FOREIGN KEY(engagement_id) REFERENCES engagements(id) ON DELETE CASCADE
@@ -225,6 +226,12 @@ function adc_schema(PDO $db): void {
     ];
     foreach ($statements as $sql) {
         $db->exec($sql . $options);
+    }
+    // Earlier releases had no price in historic terms. Unknown rates remain
+    // SQL NULL rather than being filled with invented historic amounts.
+    if (!$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch()) {
+        $db->exec('ALTER TABLE engagement_terms
+            ADD COLUMN quoted_amount DECIMAL(16,2) NULL DEFAULT NULL');
     }
     // Migrate existing documents into the unified list without fabricating money.
     // Backfill is idempotent: one linked entry per existing PDF.

@@ -490,6 +490,9 @@ function adc_staging_schema_upgrade_needed(PDO $db): bool {
     foreach (['client_entries','engagement_terms'] as $table) {
         if (!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()) return true;
     }
+    $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
+    if (!$price || strtolower((string)$price['Type'])!=='decimal(16,2)' ||
+        $price['Null']!=='YES') return true;
     foreach ([
         ['payment_events', 'submission_key', 'uq_payment_submission'],
         ['billing_periods', 'creation_key', 'uq_period_creation_key'],
@@ -524,6 +527,11 @@ function adc_staging_schema_upgrade_eligible(PDO $db): bool {
     )->fetchColumn();
     if ($directorCount < 1) {
         return false;
+    }
+    if (in_array('engagement_terms',$tables,true)) {
+        $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
+        if ($price && (strtolower((string)$price['Type'])!=='decimal(16,2)' ||
+            $price['Null']!=='YES')) return false;
     }
     foreach ([
         ['payment_events', 'submission_key', 'uq_payment_submission'],
@@ -909,7 +917,7 @@ if ($schemaUpgradeRequired) {
         $eligible = adc_staging_schema_upgrade_eligible($db);
         $body = '<section class="card narrow"><h1>Обновление тестовой базы</h1>'
             . $alert
-            . '<p>Новая версия добавляет учёт документов и оплат по отдельным записям и историю условий. '
+            . '<p>Новая версия добавляет историю месячных договорных сумм без пересчёта прежних оплат. '
             . 'Директор, сотрудники, клиенты, задачи и существующие документы сохраняются. Новые записи учитываются отдельно от старых.</p>'
             . '<p><strong>Сейчас в тестовой базе:</strong> '
             . adc_h(implode('; ', adc_staging_existing_record_counts($db))) . '.</p>'

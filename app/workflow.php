@@ -97,7 +97,7 @@ function adc_w_engagement(PDO $db, int $clientId, int $engagementId): array {
  * even though engagements stores the latest settings for compatibility.
  */
 function adc_w_effective_terms(PDO $db,array $engagement,string $today): array {
-    $q=$db->prepare('SELECT effective_on,billing_day,payment_mode,currency
+    $q=$db->prepare('SELECT effective_on,billing_day,payment_mode,currency,quoted_amount
         FROM engagement_terms WHERE engagement_id=? AND effective_on<=?
         ORDER BY effective_on DESC,id DESC LIMIT 1');
     $q->execute([(int)$engagement['id'],$today]);
@@ -107,6 +107,7 @@ function adc_w_effective_terms(PDO $db,array $engagement,string $today): array {
         'billing_day'=>$engagement['billing_day'],
         'payment_mode'=>$engagement['payment_mode'],
         'currency'=>$engagement['currency'],
+        'quoted_amount'=>$engagement['quoted_amount'],
     ];
 }
 
@@ -366,20 +367,41 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $day=(int)substr($effective,8,2);
         $mode=adc_w_pick('payment_mode',['prepayment','postpayment']);
         $ccy=adc_w_currency(adc_input('currency'));
+        $rawQuote=adc_input('quoted_amount');
+        $quote=in_array($rawQuote,['','0','0.0','0.00'],true)
+            ? '0.00' : adc_w_amount($rawQuote);
         $q=$db->prepare('SELECT MAX(effective_on) FROM engagement_terms WHERE engagement_id=?');
         $q->execute([$eid]);$last=$q->fetchColumn();
         if ($last!==false && $effective<=$last) throw new RuntimeException('Новая дата должна быть позже предыдущих условий.');
         $q=$db->prepare('SELECT COUNT(*) FROM engagement_terms WHERE engagement_id=?');
         $q->execute([$eid]);
         if ((int)$q->fetchColumn()===0) {
-            $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
-              VALUES (?,?,?,?,?,?)')->execute([$eid,$old['started_on'],$old['started_on'],$old['billing_day'],$old['payment_mode'],$old['currency']]);
+            $db->prepare('INSERT INTO engagement_terms
+                (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
+                VALUES (?,?,?,?,?,?,?)')->execute([
+                    $eid,$old['started_on'],$old['started_on'],$old['billing_day'],
+                    $old['payment_mode'],$old['currency'],$old['quoted_amount']
+                ]);
+        } else {
+            // The latest legacy term is the only one with a known present-day
+            // rate in engagements. Never backfill older, unknown prices.
+            $latest=$db->prepare('SELECT id,quoted_amount FROM engagement_terms
+                WHERE engagement_id=? ORDER BY effective_on DESC,id DESC LIMIT 1');
+            $latest->execute([$eid]);
+            $lastTerms=$latest->fetch();
+            if ($lastTerms && $lastTerms['quoted_amount']===null) {
+                $db->prepare('UPDATE engagement_terms SET quoted_amount=?
+                    WHERE id=? AND quoted_amount IS NULL')
+                    ->execute([$old['quoted_amount'],$lastTerms['id']]);
+            }
         }
-        $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
-          VALUES (?,?,?,?,?,?)')->execute([$eid,$effective,$effective,$day,$mode,$ccy]);
-        $db->prepare('UPDATE engagements SET billing_day=?,payment_mode=?,currency=? WHERE id=?')
-          ->execute([$day,$mode,$ccy,$eid]);
-        adc_audit($db,$actor,'add_engagement_terms','engagement',$eid,['effective_on'=>$effective]);
+        $db->prepare('INSERT INTO engagement_terms
+            (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
+            VALUES (?,?,?,?,?,?,?)')->execute([$eid,$effective,$effective,$day,$mode,$ccy,$quote]);
+        $db->prepare('UPDATE engagements SET billing_day=?,payment_mode=?,currency=?,quoted_amount=? WHERE id=?')
+          ->execute([$day,$mode,$ccy,$quote,$eid]);
+        adc_audit($db,$actor,'add_engagement_terms','engagement',$eid,
+            ['effective_on'=>$effective,'quoted_amount'=>$quote,'currency'=>$ccy]);
     } elseif ($action === 'save_engagement') {
         $eid=adc_w_id('engagement_id');
         $old=adc_w_engagement($db,$clientId,$eid);
@@ -404,6 +426,14 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $first=$stmt->fetchColumn();
         if ($first !== null && $started > $first) {
             throw new RuntimeException('Начало сотрудничества не может быть позже существующего периода.');
+        }
+        $versionCount=$db->prepare('SELECT COUNT(*) FROM engagement_terms WHERE engagement_id=?');
+        $versionCount->execute([$eid]);
+        if ((int)$versionCount->fetchColumn()>0 &&
+            ($old['started_on']!==$started || (int)$old['billing_day']!==$day ||
+             $old['payment_mode']!==$mode || $old['currency']!==$currency ||
+             adc_fin_minor((string)$old['quoted_amount'])!==adc_fin_minor($quote))) {
+            throw new RuntimeException('Используйте «Добавить новые условия», чтобы сохранить историю изменения суммы и дат.');
         }
         if ($old['currency'] !== $currency) {
             $stmt=$db->prepare('SELECT
@@ -769,9 +799,10 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $currentTerms=adc_w_effective_terms($db,$current,date('Y-m-d'));
         $activeFrom=$currentTerms['effective_on'];
         $html .= '<div><small>Дата начала текущих условий</small><strong>'.adc_h($qDate((string)$activeFrom)).'</strong></div>';
-        if (adc_fin_minor((string)($current['quoted_amount'] ?? '0.00'))!==0) {
+        if ($currentTerms['quoted_amount']!==null &&
+            adc_fin_minor((string)$currentTerms['quoted_amount'])!==0) {
             $html.='<div><small>Сумма по договору в месяц</small><strong>'.
-                adc_w_money($current['quoted_amount'],(string)$current['currency']).'</strong></div>';
+                adc_w_money($currentTerms['quoted_amount'],(string)$currentTerms['currency']).'</strong></div>';
         }
         $html.='<div><small>Условия оплаты</small><strong>'.
             ($currentTerms['payment_mode']==='prepayment'?'Предоплата':'Постоплата').'</strong></div>';
@@ -814,9 +845,13 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         if ($terms) {
             $html.='<details><summary>История условий · '.count($terms).'</summary>';
             foreach($terms as $term) {
+                $price=$term['quoted_amount']===null ? 'Старая сумма неизвестна'
+                    : (adc_fin_minor((string)$term['quoted_amount'])===0 ? 'Без суммы'
+                    : adc_w_money($term['quoted_amount'],(string)$term['currency']).' в месяц');
                 $html.='<p>'.adc_h($qDate((string)$term['effective_on'])).' · '.
                     ((string)$term['payment_mode']==='prepayment'?'Предоплата':'Постоплата').
-                    ' · '.adc_h((string)$term['currency']).' · день '.(int)$term['billing_day'].'</p>';
+                    ' · '.adc_h((string)$term['currency']).' · день '.(int)$term['billing_day'].
+                    ' · '.adc_h($price).'</p>';
             }
             $html.='</details>';
         }
@@ -824,8 +859,12 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
             adc_w_form_start('add_engagement_terms').adc_w_hidden('client_id',$id).
             adc_w_hidden('engagement_id',$eid).
             adc_w_field('Действуют с','effective_on',date('Y-m-d'),'date','required').
-            adc_w_select('Условия оплаты','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)$eng['payment_mode']).
-            adc_w_select('Валюта','currency',['BYN'=>'BYN','RUB'=>'RUB','EUR'=>'EUR','USD'=>'USD','KZT'=>'KZT'],(string)$eng['currency']).
+            adc_w_select('Условия оплаты','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)$activeTerms['payment_mode']).
+            adc_w_select('Валюта','currency',['BYN'=>'BYN','RUB'=>'RUB','EUR'=>'EUR','USD'=>'USD','KZT'=>'KZT'],(string)$activeTerms['currency']).
+            adc_w_field('Сумма по договору в месяц','quoted_amount',
+                $activeTerms['quoted_amount']===null?'':(
+                    adc_fin_minor((string)$activeTerms['quoted_amount'])===0?'':(string)$activeTerms['quoted_amount']),
+                'number','min="0.01" step="0.01" inputmode="decimal" placeholder="Не указана"').
             '<button type="submit">Сохранить новые условия</button></form></details>'.
             '<details class="sub-action"><summary>Завершить сотрудничество</summary>'.
             adc_w_form_start('archive_engagement').adc_w_hidden('client_id',$id).
