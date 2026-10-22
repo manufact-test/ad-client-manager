@@ -151,6 +151,17 @@ try:
     require(status==303 and "Ждём оплату" in panel("employee",demo),"Mistaken receipt reversed")
     status,_,_=post("employee",employee,"receive_entry",{"client_id":demo,"entry_id":first})
     require(status==303,"Can confirm correct receipt")
+    # Confirmed receipt cannot be wiped by deleting the parent PDF.
+    require(not forms(panel("director",demo),"void_document") or
+            "Для удаления сначала отмените получение" in panel("director",demo),
+            "Paid PDF displays reversal-before-deletion guidance")
+    status,_,blocked=post("director",director,"void_document",{
+        "client_id":demo,"document_id":doc})
+    require(status==200 and "Сначала отмените получение оплаты" in html(blocked),
+            "Deleting a paid document is rejected on the server")
+    require("100,00 BYN" in panel("director",demo) and
+            len(re.findall(r"\\?download=(\\d+)",panel("director",demo)))==1,
+            "Rejected deletion preserves paid invoice and original PDF")
     # Editing a received document's amount must not retroactively change cash.
     status,_,error=post("director",director,"edit_document",{
         "client_id":demo,"document_id":doc,"needs_invoice":"1",
@@ -168,6 +179,23 @@ try:
         "category":"advertising","note":"Correct paid invoice"})
     require(status==303 and "Correct paid invoice" in panel("director",demo),
             "Nonfinancial metadata edits remain possible on paid PDF")
+    status,_,blocked=post("director",director,"edit_document",{
+        "client_id":demo,"document_id":doc,"needs_invoice":"1",
+        "has_amount":"1","amount":"100.00","currency":"BYN",
+        "category":"development","note":"Incorrect paid category"})
+    require(status==200 and "Сначала отмените получение оплаты" in html(blocked),
+            "Paid PDF reporting category cannot be silently changed")
+    status,_,blocked=request("director",files={
+        "csrf":director,"action":"edit_document","client_id":str(demo),
+        "document_id":str(doc),
+        "document":"@"+str(pdf)+";filename=already-paid-new.pdf;type=application/pdf",
+        "needs_invoice":"1","has_amount":"1","amount":"100.00",
+        "currency":"BYN","category":"advertising"})
+    require(status==200 and "Сначала отмените получение оплаты" in html(blocked),
+            "Paid PDF version cannot be silently replaced, even for equal money")
+    require("Оплаченные · 1" in panel("employee",demo) and
+            len(re.findall(r"\\?download=(\\d+)",panel("employee",demo)))==1,
+            "Blocked paid PDF changes preserve full receipt and original document")
     # Independent second month's request must never merge into the first receipt.
     status,_,_=upload(director,demo,pdf,"250.00")
     require(status==303,"Second separate month PDF")
@@ -235,6 +263,20 @@ try:
     entry=form_entry_id(panel("director",real),"receive_entry")
     status,_,_=post("director",director,"receive_entry",{"client_id":real,"entry_id":entry})
     require(status==303,"Card receipt recorded")
+    require("Для удаления сначала отмените получение" in panel("director",real),
+            "Paid card request displays reversal-before-deletion guidance")
+    status,_,blocked=post("director",director,"delete_card_entry",{
+        "client_id":real,"entry_id":entry})
+    require(status==200 and "Сначала отмените получение оплаты" in html(blocked),
+            "Paid card entry cannot be deleted without receipt reversal")
+    require("77,00 BYN" in panel("director",real) and
+            "Оплаченные · 1" in panel("director",real),
+            "Paid card deletion refused without changing ledger")
+    status,_,blocked=post("director",director,"edit_card_entry",{
+        "client_id":real,"entry_id":entry,"amount":"77.00","currency":"BYN",
+        "category":"development","note":"Incorrect category edit"})
+    require(status==200 and "Сначала отмените получение оплаты" in html(blocked),
+            "Paid card category cannot be silently changed")
     status,_,error=post("director",director,"edit_card_entry",{
         "client_id":real,"entry_id":entry,"amount":"88.00","currency":"BYN",
         "category":"advertising","note":"Incorrect paid card edit"})
