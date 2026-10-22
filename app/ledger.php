@@ -192,7 +192,10 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
     $needsDocument=false;
     if($r && $r['started_on']<=$today) {
         $due=adc_ledger_preparation_due($today,(int)$r['billing_day']);
-        if ($due!==null && $due > $r['started_on']) {
+        // The start of a collaboration is its first billing cycle, not an
+        // immediate request to prepare another month's documents.
+        $initialDue=adc_ledger_due_date((string)$r['started_on'],(int)$r['billing_day']);
+        if ($due!==null && $due > $initialDue) {
             $needsDocument=!adc_ledger_has_request_for_due($db,$clientId,$due,$today);
         }
     }

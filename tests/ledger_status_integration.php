@@ -86,6 +86,14 @@ try {
         'November 1 billing anchor creates preparation reminder from October');
     status_check(adc_ledger_client_status($db,$newClient,'2026-10-20')[0]==='Выполнено',
         'Preparation reminder does not persist all month');
+    $db->exec('INSERT INTO clients(name,is_demo) VALUES ("CI initial billing window",1)');
+    $laterClient=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency)
+        VALUES (?,"2026-10-20",21,"prepayment","BYN")')->execute([$laterClient]);
+    status_check(adc_ledger_client_status($db,$laterClient,'2026-10-22')[0]==='Выполнено',
+        'Starting the day before billing date does not demand new paperwork');
+    status_check(adc_ledger_client_status($db,$laterClient,'2026-11-18')[0]==='Подготовить документы',
+        'First reminder is for the next monthly billing cycle');
 } finally {
     if($db->inTransaction())$db->rollBack();
 }

@@ -95,6 +95,13 @@ try:
             "script-src 'nonce-"+match.group(1)+"'" in policy.group(1),
             "CSP permits the task editor, dropdowns and calendars without unsafe inline scripts")
     require("script-src 'unsafe-inline'" not in policy.group(1),"No JavaScript unsafe-inline bypass")
+    inline_script=re.search(r'<script nonce="[A-Za-z0-9+/=]+">([\s\S]*?)</script>',page)
+    require(inline_script is not None,"Authorized browser interaction script is present")
+    js_check=subprocess.run(["node","--check"],input=inline_script.group(1),
+                            text=True,capture_output=True)
+    require(js_check.returncode==0,"Inline calendar and task JavaScript has valid syntax")
+    require("var opened=toggle?target.hidden:false;" in inline_script.group(1),
+            "Task edit button opens previously hidden form")
     require("Документы и оплаты" in page and "Загрузить документ" in page,"New document-centered drawer exists")
     require("Выгрузить историю в CSV" in page,"Client CSV is in overview")
     require("Добавить новые условия" in page and "Добавить расчётный период вручную" not in page,

@@ -332,7 +332,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       var wrap=document.createElement("div");wrap.className="ac-date-wrap";
       input.parentNode.insertBefore(wrap,input);wrap.appendChild(input);
       input.type="text";input.placeholder="ДД.ММ.ГГГГ";input.maxLength=10;
-      input.pattern="[0-9]{2}\.[0-9]{2}\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2}";
+      input.pattern="[0-9]{2}\\.[0-9]{2}\\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2}";
       input.value=showDate(input.value);
       input.addEventListener("input",function(){input.setCustomValidity("");});
       input.addEventListener("blur",function(){
