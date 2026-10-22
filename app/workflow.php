@@ -1071,16 +1071,15 @@ function adc_w_team_schedule(PDO $db,array $user): string {
     $sql=' FROM personal_tasks t JOIN users u ON u.id=t.user_id WHERE '.
         implode(' AND ',$conditions);
     $stmt=$db->prepare('SELECT t.id,t.user_id,t.title,t.due_date,t.repeat_monthly,t.anchor_day,
-        EXISTS(SELECT 1 FROM audit_events a WHERE a.object_type="personal_task"
-            AND a.object_id=t.id AND a.action="assign_team_task") AS is_delegated,
-        (SELECT JSON_UNQUOTE(JSON_EXTRACT(a.details_json,"$.client_id"))
-          FROM audit_events a WHERE a.object_type="personal_task"
-            AND a.object_id=t.id AND a.action="assign_team_task"
-          ORDER BY a.id DESC LIMIT 1) AS linked_client_id,
         u.display_name,u.role,u.is_active'.$sql.
         ' ORDER BY t.due_date,t.id LIMIT 301');
     $stmt->execute($params);
     $tasks=$stmt->fetchAll(PDO::FETCH_ASSOC);
+    $metadata=adc_team_task_metadata($db,$tasks);
+    foreach ($tasks as &$task) {
+        $task+=($metadata[(int)$task['id']]??['is_delegated'=>0,'linked_client_id'=>0]);
+    }
+    unset($task);
     $truncated=count($tasks)>300;
     if ($truncated) $tasks=array_slice($tasks,0,300);
     $activeStaff=array_values(array_filter($staff,
@@ -1134,16 +1133,15 @@ function adc_w_team_schedule(PDO $db,array $user): string {
 }
 
 function adc_w_tasks(PDO $db, array $user): string {
-    $stmt = $db->prepare('SELECT t.*,EXISTS(SELECT 1 FROM audit_events a
-        WHERE a.object_type="personal_task" AND a.object_id=t.id
-          AND a.action="assign_team_task") AS is_delegated,
-        (SELECT JSON_UNQUOTE(JSON_EXTRACT(a.details_json,"$.client_id"))
-          FROM audit_events a WHERE a.object_type="personal_task"
-            AND a.object_id=t.id AND a.action="assign_team_task"
-          ORDER BY a.id DESC LIMIT 1) AS linked_client_id
-        FROM personal_tasks t WHERE t.user_id=? AND t.is_done=0 ORDER BY t.due_date,t.id');
+    $stmt = $db->prepare('SELECT * FROM personal_tasks
+        WHERE user_id=? AND is_done=0 ORDER BY due_date,id');
     $stmt->execute([(int)$user['id']]);
     $tasks = $stmt->fetchAll();
+    $metadata=adc_team_task_metadata($db,$tasks);
+    foreach ($tasks as &$task) {
+        $task+=($metadata[(int)$task['id']]??['is_delegated'=>0,'linked_client_id'=>0]);
+    }
+    unset($task);
     $monthNames = [1=>'Январь',2=>'Февраль',3=>'Март',4=>'Апрель',5=>'Май',
         6=>'Июнь',7=>'Июль',8=>'Август',9=>'Сентябрь',10=>'Октябрь',
         11=>'Ноябрь',12=>'Декабрь'];

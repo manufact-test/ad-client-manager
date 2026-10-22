@@ -11,6 +11,29 @@ function adc_team_task_staff(PDO $db): array {
         ORDER BY role,display_name,id')->fetchAll(PDO::FETCH_ASSOC);
 }
 
+
+/** Load assignment ownership and optional client links in one audit query. */
+function adc_team_task_metadata(PDO $db,array $tasks):array {
+    $ids=array_values(array_unique(array_map(static fn($task)=>(int)$task['id'],$tasks)));
+    if (!$ids)return [];
+    $markers=implode(',',array_fill(0,count($ids),'?'));
+    $stmt=$db->prepare('SELECT object_id,details_json FROM audit_events
+        WHERE object_type="personal_task" AND action="assign_team_task"
+        AND object_id IN ('.$markers.') ORDER BY id DESC');
+    $stmt->execute($ids);
+    $metadata=[];
+    foreach($stmt as $row){
+        $id=(int)$row['object_id'];
+        if (isset($metadata[$id]))continue;
+        $detail=json_decode((string)$row['details_json'],true);
+        $metadata[$id]=[
+            'is_delegated'=>1,
+            'linked_client_id'=>(int)(is_array($detail)?($detail['client_id']??0):0)
+        ];
+    }
+    return $metadata;
+}
+
 function adc_team_task_options(array $staff): array {
     $options=[];
     foreach ($staff as $member) {

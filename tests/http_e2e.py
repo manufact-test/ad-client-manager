@@ -112,18 +112,18 @@ try:
     require(status==200 and "HTTP delegated test task" in html(emplTasks) and
             "Поручение директора" in html(emplTasks),
             "Director delegation visible to employee over real HTTP")
-    status,_,controlPage=request("director","/?view=control")
-    require(status==200 and 'name="action" value="assign_control_reminder"' in html(controlPage),
-            "Director may delegate client paperwork from control view")
-    status,_,employeeControl=request("employee","/?view=control")
-    require(status==200 and 'name="action" value="assign_control_reminder"' not in html(employeeControl),
-            "Employee control has no assignment actions")
     status,_,form=request("director","/?view=clients")
     require(status==200 and re.search(
         r'name="quoted_amount" type="number"[^>]*step="0.01"',html(form)),
         "Monthly contractual price input appears in Add client")
     demo=create_client(director,"CI demo ledger",True)
     real=create_client(director,"CI real ledger",False)
+    status,_,controlPage=request("director","/?view=control")
+    require(status==200 and 'name="action" value="assign_control_reminder"' in html(controlPage),
+            "Director may delegate client paperwork from control view")
+    status,_,employeeControl=request("employee","/?view=control")
+    require(status==200 and 'name="action" value="assign_control_reminder"' not in html(employeeControl),
+            "Employee control has no assignment actions")
     require("Сумма по договору в месяц" in panel("director",real) and
             "1 250,00 BYN" in panel("director",real),
             "Contract reference price remains visible in client profile")
