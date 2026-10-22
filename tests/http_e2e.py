@@ -249,7 +249,37 @@ try:
         "category":"advertising","note":"Corrected after undo"})
     require(status==303 and "88,00 BYN" in panel("director",real),
             "Corrected card amount permitted after undo")
-    print("Unified ledger HTTP E2E passed: upload, send, receive, undo, protected edits, void, monthly stacking, demo exclusion, CSV")
+    # A financial client must never be removable, even by the director.
+    require(not forms(panel("director",real),"delete_empty_client"),
+            "Real client with payments/requests never exposes a destructive delete")
+    status,_,blocked=post("director",director,"delete_empty_client",{
+        "client_id":real,"delete_confirmation":"УДАЛИТЬ"})
+    require(status==200 and "Удаление запрещено" in html(blocked),
+            "Server rejects deletion of client with financial history")
+    require("77,00 BYN" in panel("director",real),
+            "Rejected deletion preserves all existing financial entries")
+
+    # Accidental new non-demo clients have an explicit, director-only delete.
+    accidental=create_client(director,"CI empty accidental client",False)
+    require(forms(panel("director",accidental),"delete_empty_client"),
+            "Director can delete brand-new, empty, real client")
+    require(not forms(panel("employee",accidental),"delete_empty_client"),
+            "Employees never see ordinary client deletion")
+    status,_,denied=post("employee",employee,"delete_empty_client",{
+        "client_id":accidental,"delete_confirmation":"УДАЛИТЬ"})
+    require(status==200 and "Недостаточно прав" in html(denied),
+            "Ordinary client removal enforces server-side director role")
+    status,_,denied=post("director",director,"delete_empty_client",{
+        "client_id":accidental,"delete_confirmation":"no"})
+    require(status==200 and "Удаление запрещено" in html(denied),
+            "Client delete requires explicit typed confirmation")
+    status,headers,_=post("director",director,"delete_empty_client",{
+        "client_id":accidental,"delete_confirmation":"УДАЛИТЬ"})
+    require(status==303 and location(headers)=="/?view=clients",
+            "Confirmed empty client deletion succeeds")
+    require("CI empty accidental client" not in html(request("director","/?view=clients")[2]),
+            "Accidental client removed from list without changing others")
+    print("Unified ledger HTTP E2E passed: upload, send, receive, undo, protected edits, empty-client cleanup, void, monthly stacking, demo exclusion, CSV")
 finally:
     for p in WORK.glob("*"):
         if p.is_file():p.unlink()
