@@ -219,6 +219,16 @@ jobs:
              SET restored.name=original.name, restored.updated_at=original.updated_at
              WHERE restored.name='Restorable fictional client tampered'"
           TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare
+          # Negative proof: a lost/hallucinated historical PDF must fail, even
+          # when every active PDF and all 13 SQL tables still match exactly.
+          historical_pdf="$tempdir/restored-pdfs/$(printf 'e%.0s' {1..48}).pdf"
+          printf '%%PDF-1.4\n%%EOF\n' > "$historical_pdf"
+          if TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare; then
+            echo "Unexpected extra private PDF was accepted" >&2
+            exit 1
+          fi
+          rm -f "$historical_pdf"
+          TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare
 
 
 
