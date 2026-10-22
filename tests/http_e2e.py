@@ -160,7 +160,7 @@ try:
     require(status==200 and "Сначала отмените получение оплаты" in html(blocked),
             "Deleting a paid document is rejected on the server")
     require("100,00 BYN" in panel("director",demo) and
-            len(re.findall(r"\\?download=(\\d+)",panel("director",demo)))==1,
+            len(re.findall(r"\?download=(\d+)",panel("director",demo)))==1,
             "Rejected deletion preserves paid invoice and original PDF")
     # Editing a received document's amount must not retroactively change cash.
     status,_,error=post("director",director,"edit_document",{
@@ -194,7 +194,7 @@ try:
     require(status==200 and "Сначала отмените получение оплаты" in html(blocked),
             "Paid PDF version cannot be silently replaced, even for equal money")
     require("Оплаченные · 1" in panel("employee",demo) and
-            len(re.findall(r"\\?download=(\\d+)",panel("employee",demo)))==1,
+            len(re.findall(r"\?download=(\d+)",panel("employee",demo)))==1,
             "Blocked paid PDF changes preserve full receipt and original document")
     # Independent second month's request must never merge into the first receipt.
     status,_,_=upload(director,demo,pdf,"250.00")
