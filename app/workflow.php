@@ -824,11 +824,13 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $currentTerms=adc_w_effective_terms($db,$current,date('Y-m-d'));
         $activeFrom=$currentTerms['effective_on'];
         $html .= '<div><small>Дата начала текущих условий</small><strong>'.adc_h($qDate((string)$activeFrom)).'</strong></div>';
-        if ($currentTerms['quoted_amount']!==null &&
-            adc_fin_minor((string)$currentTerms['quoted_amount'])!==0) {
-            $html.='<div><small>Сумма по договору в месяц</small><strong>'.
-                adc_w_money($currentTerms['quoted_amount'],(string)$currentTerms['currency']).'</strong></div>';
-        }
+        $currentPrice=$currentTerms['quoted_amount']===null
+            ? 'Не указана'
+            : (adc_fin_minor((string)$currentTerms['quoted_amount'])===0
+                ? 'Без суммы'
+                : adc_w_money($currentTerms['quoted_amount'],(string)$currentTerms['currency']));
+        $html.='<div><small>Сумма по договору в месяц</small><strong>'.
+            adc_h($currentPrice).'</strong></div>';
         $html.='<div><small>Условия оплаты</small><strong>'.
             ($currentTerms['payment_mode']==='prepayment'?'Предоплата':'Постоплата').'</strong></div>';
     }
@@ -862,11 +864,34 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $eid=(int)$eng['id'];
         $history=$db->prepare('SELECT * FROM engagement_terms WHERE engagement_id=? ORDER BY effective_on DESC,id DESC');
         $history->execute([$eid]);$terms=$history->fetchAll();
-        $activeTerms=adc_w_effective_terms($db,$eng,date('Y-m-d'));
+        $today=date('Y-m-d');
+        $activeTerms=adc_w_effective_terms($db,$eng,$today);
+        $latestTerms=$terms[0]??$activeTerms;
+        $lastEffective=$terms ? (string)$terms[0]['effective_on'] : (string)$eng['started_on'];
+        $newTermsDefaultDate=max($today,(new DateTimeImmutable($lastEffective))
+            ->modify('+1 day')->format('Y-m-d'));
+        $nextScheduled=null;
+        foreach (array_reverse($terms) as $futureTerm) {
+            if ((string)$futureTerm['effective_on']>$today) {
+                $nextScheduled=$futureTerm;
+                break;
+            }
+        }
         $html.='<div class="terms-list"><h4>Текущие условия</h4>'.
             '<p>'.adc_h($qDate((string)$activeTerms['effective_on'])).' · '.
             ((string)$activeTerms['payment_mode']==='prepayment'?'Предоплата':'Постоплата').
             ' · '.adc_h((string)$activeTerms['currency']).' · расчётный день '.(int)$activeTerms['billing_day'].'</p>';
+        if ($nextScheduled!==null) {
+            $upcomingRate=$nextScheduled['quoted_amount']===null ? 'сумма не указана' :
+                (adc_fin_minor((string)$nextScheduled['quoted_amount'])===0 ? 'без суммы'
+                : adc_w_money($nextScheduled['quoted_amount'],(string)$nextScheduled['currency']).' в месяц');
+            $html.='<p class="muted"><strong>Запланированы новые условия с '.
+                adc_h($qDate((string)$nextScheduled['effective_on'])).':</strong> '.
+                ((string)$nextScheduled['payment_mode']==='prepayment'?'предоплата':'постоплата').
+                ', '.adc_h((string)$nextScheduled['currency']).', день '.
+                (int)$nextScheduled['billing_day'].', '.adc_h($upcomingRate).
+                '. До этой даты действуют текущие условия.</p>';
+        }
         if ($terms) {
             $html.='<details><summary>История условий · '.count($terms).'</summary>';
             foreach($terms as $term) {
@@ -884,12 +909,12 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
             adc_w_form_start('add_engagement_terms').adc_w_hidden('client_id',$id).
             adc_w_hidden('engagement_id',$eid).
             adc_w_hidden('expected_terms_revision',adc_w_terms_revision($db,$eng)).
-            adc_w_field('Действуют с','effective_on',date('Y-m-d'),'date','required').
-            adc_w_select('Условия оплаты','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)$activeTerms['payment_mode']).
-            adc_w_select('Валюта','currency',['BYN'=>'BYN','RUB'=>'RUB','EUR'=>'EUR','USD'=>'USD','KZT'=>'KZT'],(string)$activeTerms['currency']).
+            adc_w_field('Действуют с','effective_on',$newTermsDefaultDate,'date','required').
+            adc_w_select('Условия оплаты','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)$latestTerms['payment_mode']).
+            adc_w_select('Валюта','currency',['BYN'=>'BYN','RUB'=>'RUB','EUR'=>'EUR','USD'=>'USD','KZT'=>'KZT'],(string)$latestTerms['currency']).
             adc_w_field('Сумма по договору в месяц','quoted_amount',
-                $activeTerms['quoted_amount']===null?'':(
-                    adc_fin_minor((string)$activeTerms['quoted_amount'])===0?'':(string)$activeTerms['quoted_amount']),
+                $latestTerms['quoted_amount']===null?'':(
+                    adc_fin_minor((string)$latestTerms['quoted_amount'])===0?'':(string)$latestTerms['quoted_amount']),
                 'number','min="0.01" step="0.01" inputmode="decimal" placeholder="Не указана"').
             '<p class="muted">Пустая сумма означает, что ставка неизвестна. Это не начисление и не поступление.</p>'.
             '<button type="submit">Сохранить новые условия</button></form></details>'.
