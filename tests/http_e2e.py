@@ -267,8 +267,8 @@ try:
             "Employees never see ordinary client deletion")
     status,_,denied=post("employee",employee,"delete_empty_client",{
         "client_id":accidental,"delete_confirmation":"УДАЛИТЬ"})
-    require(status==200 and "Недостаточно прав" in html(denied),
-            "Ordinary client removal enforces server-side director role")
+    require(status==403 and "Недостаточно прав" in html(denied),
+            "Ordinary client removal enforces HTTP 403 and server-side director role")
     status,_,denied=post("director",director,"delete_empty_client",{
         "client_id":accidental,"delete_confirmation":"no"})
     require(status==200 and "Удаление запрещено" in html(denied),
