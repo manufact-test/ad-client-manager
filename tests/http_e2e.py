@@ -149,6 +149,8 @@ try:
     require(status==200 and "Готово к импорту: 2" in html(settings) and
             'name="action" value="commit_quick_clients"' in html(settings),
             "Director sees approved preview with two employees/demo categories")
+    require('id="quick-import" open' in html(settings),
+            "Confirmation panel stays expanded after CSV preview")
     status,headers,_=request("director",files={
         "csrf":director,"action":"commit_quick_clients",
         "quick_csv":"@"+str(bulkCsv)+";filename=clients.csv;type=text/csv"})

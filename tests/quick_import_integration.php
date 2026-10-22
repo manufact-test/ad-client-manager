@@ -116,6 +116,13 @@ try {
         'preview_quick_clients') &&
         !str_contains(adc_quick_import_panel(['role'=>'employee']),
         'preview_quick_clients'),'Director-only UI');
+    $_SESSION['quick_clients_preview']=['sha256'=>$parsed['sha256'],
+        'count'=>2,'real'=>1,'demo'=>1,'names'=>['Fixture One','Fixture Two']];
+    quick_assert(str_contains(adc_quick_import_panel(['role'=>'director']),
+        'id="quick-import" open') &&
+        str_contains(adc_quick_import_panel(['role'=>'director']),
+            'commit_quick_clients'),'After preview, next confirmation is expanded');
+    unset($_SESSION['quick_clients_preview']);
     echo "Quick onboarding passed: 2-step CSV, full client cards, no fake payments, demo, atomic duplicates and audit\n";
 } finally {
     if(is_file($filename))unlink($filename);

@@ -197,7 +197,10 @@ function adc_quick_import_action(PDO $db,array $user,string $action): bool {
 function adc_quick_import_panel(array $user):string {
     if(($user['role']??'')!=='director')return '';
     $csrf=adc_csrf();
-    $html='<details class="card settings-disclosure" id="quick-import">'.
+    // Keep the validated two-step confirmation visible after preview redirect.
+    $preview=$_SESSION['quick_clients_preview']??null;
+    $html='<details class="card settings-disclosure" id="quick-import"'.
+        (is_array($preview)?' open':'').'>'.
         '<summary>Массовое добавление клиентов — быстрый CSV</summary>'.
         '<p class="muted">Одна строка = один новый клиент с первоначальными условиями. '.
         'Никаких начислений, оплат или документов этот способ не создаёт. '.
@@ -214,7 +217,6 @@ function adc_quick_import_panel(array $user):string {
         '<label class="field">Файл новых клиентов<input name="quick_csv" type="file" '.
         'accept=".csv,text/csv" required></label>'.
         '<button type="submit">Проверить перед импортом</button></form>';
-    $preview=$_SESSION['quick_clients_preview']??null;
     if(is_array($preview)){
         $html.='<p><strong>Готово к импорту: '.(int)$preview['count'].
             ' · реальных: '.(int)$preview['real'].
