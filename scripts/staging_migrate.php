@@ -87,6 +87,13 @@ try {
             echo ($ok ? '[PASS] ' : '[PENDING] ')."$table: required new workflow table\n";
             if (!$ok) $ready=false;
         }
+        if (in_array('engagement_terms',$present,true)) {
+            $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
+            $ok=$price && strtolower((string)$price['Type'])==='decimal(16,2)'
+                && $price['Null']==='YES';
+            echo ($ok ? '[PASS] ' : '[PENDING] ')."engagement_terms: historical monthly fee\n";
+            if (!$ok) $ready=false;
+        }
         return $ready;
     };
     echo "Ad Client Manager test-site schema inspection (no private values):\n";

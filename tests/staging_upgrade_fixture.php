@@ -73,6 +73,8 @@ if ($mode === 'seed') {
         VALUES (?,?,"fictional-existing-document.pdf",1)')
         ->execute([$realClient,$period]);
     adc_audit($db,null,'fixture_existing','client',$realClient);
+    // Simulate the previous deployed schema: no monthly-price snapshots.
+    $db->exec('ALTER TABLE engagement_terms DROP COLUMN quoted_amount');
     $db->exec('ALTER TABLE payment_events DROP INDEX uq_payment_submission, DROP COLUMN submission_key');
     $db->exec('ALTER TABLE billing_periods DROP INDEX uq_period_creation_key, DROP COLUMN creation_key');
     $conf='<?php return '.var_export([
@@ -98,6 +100,9 @@ foreach ([
         throw new RuntimeException('Required schema upgrade did not complete');
     }
 }
+$priceCol=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
+if (!$priceCol || strtolower((string)$priceCol['Type'])!=='decimal(16,2)' ||
+    $priceCol['Null']!=='YES') throw new RuntimeException('Monthly contract price migration failed');
 // Every row from the pre-migration fictional business dataset must remain.
 $expectedCounts = [
     'users'=>2, 'clients'=>2, 'engagements'=>1, 'billing_periods'=>1,

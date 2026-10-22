@@ -81,12 +81,15 @@ $requiredColumns = [
     'client_entries'=>['client_id','document_id','entry_kind','amount','currency',
                        'category','sent_at','received_at','is_void'],
     'engagement_terms'=>['engagement_id','effective_on','started_on','billing_day',
-                         'payment_mode','currency'],
+                         'payment_mode','currency','quoted_amount'],
 ];
 foreach ($requiredColumns as $table=>$columns) {
     $actualColumns=$db->query("SHOW COLUMNS FROM `$table`")->fetchAll(PDO::FETCH_COLUMN);
     $check(!array_diff($columns,$actualColumns),"$table mandatory columns");
 }
+$priceCol=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
+$check($priceCol && strtolower((string)$priceCol['Type'])==='decimal(16,2)' &&
+    $priceCol['Null']==='YES','Historical monthly fees are nullable DECIMAL(16,2)');
 $hasDirector=$db->query('SELECT COUNT(*) FROM users WHERE role="director" AND is_active=1')
     ->fetchColumn();
 $check((int)$hasDirector>0,'Active director account exists');
