@@ -107,7 +107,7 @@ function adc_w_effective_terms(PDO $db,array $engagement,string $today): array {
         'billing_day'=>$engagement['billing_day'],
         'payment_mode'=>$engagement['payment_mode'],
         'currency'=>$engagement['currency'],
-        'quoted_amount'=>$engagement['quoted_amount'],
+        'quoted_amount'=>$engagement['quoted_amount'] ?? null,
     ];
 }
 
