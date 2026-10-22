@@ -143,6 +143,23 @@ try:
     require(status==303 and "Ждём оплату" in panel("employee",demo),"Mistaken receipt reversed")
     status,_,_=post("employee",employee,"receive_entry",{"client_id":demo,"entry_id":first})
     require(status==303,"Can confirm correct receipt")
+    # Editing a received document's amount must not retroactively change cash.
+    status,_,error=post("director",director,"edit_document",{
+        "client_id":demo,"document_id":doc,"needs_invoice":"1",
+        "has_amount":"1","amount":"180.00","currency":"BYN",
+        "category":"advertising","note":"Incorrect paid edit"})
+    require(status==200 and "Сначала отмените получение оплаты" in html(error),
+            "Editing already-paid PDF amount is safely rejected")
+    require("100,00 BYN" in panel("director",demo) and
+            "180,00 BYN" not in panel("director",demo),
+            "Failed paid PDF edit does not change invoice or recorded receipt")
+    # Editing a descriptive note with the same money is still allowed.
+    status,_,_=post("director",director,"edit_document",{
+        "client_id":demo,"document_id":doc,"needs_invoice":"1",
+        "has_amount":"1","amount":"100.00","currency":"BYN",
+        "category":"advertising","note":"Correct paid invoice"})
+    require(status==303 and "Correct paid invoice" in panel("director",demo),
+            "Nonfinancial metadata edits remain possible on paid PDF")
     # Independent second month's request must never merge into the first receipt.
     status,_,_=upload(director,demo,pdf,"250.00")
     require(status==303,"Second separate month PDF")
@@ -192,7 +209,25 @@ try:
     status,_,csv=request("director","/?export=balances")
     require(status==200 and "CI real ledger" in html(csv) and "CI demo ledger" not in html(csv),
             "Balance CSV excludes demo accounts, includes new ledger")
-    print("Unified ledger HTTP E2E passed: upload, send, receive, undo, edit, void, monthly stacking, demo exclusion, CSV")
+    # Card entries need the same accounting protection as received PDF entries.
+    entry=form_entry_id(panel("director",real),"receive_entry")
+    status,_,_=post("director",director,"receive_entry",{"client_id":real,"entry_id":entry})
+    require(status==303,"Card receipt recorded")
+    status,_,error=post("director",director,"edit_card_entry",{
+        "client_id":real,"entry_id":entry,"amount":"88.00","currency":"BYN",
+        "category":"advertising","note":"Incorrect paid card edit"})
+    require(status==200 and "Сначала отмените получение оплаты" in html(error),
+            "Editing a received card request's amount is rejected")
+    require("77,00 BYN" in panel("director",real) and "88,00 BYN" not in panel("director",real),
+            "Paid card edit cannot rewrite receipts")
+    status,_,_=post("director",director,"undo_entry_receipt",{"client_id":real,"entry_id":entry})
+    require(status==303,"Card receipt explicitly undone")
+    status,_,_=post("director",director,"edit_card_entry",{
+        "client_id":real,"entry_id":entry,"amount":"88.00","currency":"BYN",
+        "category":"advertising","note":"Corrected after undo"})
+    require(status==303 and "88,00 BYN" in panel("director",real),
+            "Corrected card amount permitted after undo")
+    print("Unified ledger HTTP E2E passed: upload, send, receive, undo, protected edits, void, monthly stacking, demo exclusion, CSV")
 finally:
     for p in WORK.glob("*"):
         if p.is_file():p.unlink()

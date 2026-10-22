@@ -45,6 +45,13 @@ function adc_ledger_action(PDO $db,array $user,string $action): bool {
             $note=adc_input('note');
             $category=adc_w_pick('category',['advertising','development','other']);
             if (mb_strlen($note)>500) throw new RuntimeException('Комментарий слишком длинный.');
+            // Never rewrite a confirmed receipt simply by editing its billed
+            // amount/currency: the receipt must be explicitly undone first.
+            if ($r['received_at']!==null &&
+                (adc_fin_minor((string)$amount)!==adc_fin_minor((string)$r['amount']) ||
+                 $ccy!==$r['currency'])) {
+                throw new RuntimeException('Сначала отмените получение оплаты, затем измените сумму или валюту.');
+            }
             $db->prepare('UPDATE client_entries SET amount=?,currency=?,category=?,note=? WHERE id=?')
                 ->execute([$amount,$ccy,$category,$note,$id]);
         }

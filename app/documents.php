@@ -176,9 +176,17 @@ function adc_doc_action(PDO $db,array $user,string $action): bool {
             $db->prepare('UPDATE document_bundles SET period_id=?,storage_key=?,original_filename=?,content_sha256=?,
                 needs_contract=?,needs_spec=?,needs_invoice=?,needs_act=?,transfer_due_on=? WHERE id=?')
                 ->execute([$periodId,$key,$original,$hash,...$flags,$due===''?null:$due,$docId]);
-            $check=$db->prepare('SELECT id,received_at,sent_at FROM client_entries WHERE document_id=? AND is_void=0 FOR UPDATE');
+            $check=$db->prepare('SELECT id,amount,currency,received_at,sent_at FROM client_entries WHERE document_id=? AND is_void=0 FOR UPDATE');
             $check->execute([$docId]);$entry=$check->fetch();
             if ($entry) {
+                // Editing the amount of an already received invoice must
+                // not silently rewrite historical cash receipts.
+                if ($entry['received_at']!==null &&
+                    ($amount===null ||
+                     adc_fin_minor((string)$amount)!==adc_fin_minor((string)$entry['amount']) ||
+                     $currency!==$entry['currency'])) {
+                    throw new RuntimeException('Сначала отмените получение оплаты, затем измените сумму или валюту.');
+                }
                 $db->prepare('UPDATE client_entries SET amount=?,currency=?,category=?,note=?,received_at=IF(? IS NULL,NULL,received_at) WHERE id=?')
                     ->execute([$amount,$currency,$category,$note,$amount,$entry['id']]);
             } else {
