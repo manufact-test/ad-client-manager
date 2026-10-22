@@ -444,6 +444,7 @@ require __DIR__ . '/app/workflow.php';
 require __DIR__ . '/app/ledger.php';
 require __DIR__ . '/app/documents.php';
 require __DIR__ . '/app/reminders.php';
+require __DIR__ . '/app/team_tasks.php';
 require __DIR__ . '/app/import.php';
 require __DIR__ . '/app/audit.php';
 
@@ -711,6 +712,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Connected workflow actions share the established authentication and CSRF gates.
+        if (adc_team_task_action($db, $current, $action)) {
+            adc_redirect();
+        }
         if (adc_ledger_action($db, $current, $action)) {
             adc_redirect();
         }

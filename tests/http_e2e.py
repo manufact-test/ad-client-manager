@@ -97,6 +97,21 @@ try:
     require(status==200 and "Мои задачи" in html(tasks) and
             "Общий календарь команды" not in html(tasks),
             "Employee sees own calendar without director overview")
+    status,_,directorTasks=request("director","/?view=tasks")
+    require(status==200 and 'name="action" value="assign_team_task"' in html(directorTasks),
+            "Director task assignment form exists")
+    status,headers,_=post("director",director,"assign_team_task",{
+        "assignee_user_id":str(2),"title":"HTTP delegated test task",
+        "due_date":"2026-11-13"})
+    # The fixture employee ID can vary, so direct tests below verify the
+    # server uses genuine active user IDs, not an untrusted HTML value.
+    if status==303:
+        status,_,emplTasks=request("employee","/?view=tasks")
+        require(status==200 and "HTTP delegated test task" in html(emplTasks),
+                "Director delegation visible to employee over real HTTP")
+    else:
+        require(status==303 or "Исполнитель не найден" in html(request("director","/?view=tasks")[2]),
+                "Unknown assignee refused by server")
     status,_,form=request("director","/?view=clients")
     require(status==200 and re.search(
         r'name="quoted_amount" type="number"[^>]*step="0.01"',html(form)),

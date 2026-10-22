@@ -183,7 +183,8 @@ function adc_reminders_html(PDO $db, string $today): string {
 }
 
 /** Shared read-only client workload; it never adds personal tasks or payments. */
-function adc_reminders_dashboard(PDO $db): string {
+function adc_reminders_dashboard(PDO $db,?array $user=null): string {
+    $staff=(($user['role']??'')==='director')?adc_team_task_staff($db):[];
     $today=date('Y-m-d');
     $kindOptions=['all'=>'Все действия','invoice'=>'Счета','act'=>'Акты',
         'spec'=>'Спецификации','contract'=>'Договоры',
@@ -266,7 +267,8 @@ function adc_reminders_dashboard(PDO $db): string {
             '<p class="muted">'.adc_h((string)$item['client_name']).
             ((int)$item['is_demo']===1?' · Демо':'').'</p></div>'.
             '<a class="btn secondary" href="/?view=clients&amp;client='.
-            (int)$item['client_id'].'">Открыть клиента</a></div>';
+            (int)$item['client_id'].'">Открыть клиента</a>'.
+            ($staff?adc_team_task_control_form($staff,$item):'').'</div>';
     }
     return $html.'</div>'.$navigation.'</section>';
 }

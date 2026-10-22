@@ -1070,16 +1070,20 @@ function adc_w_team_schedule(PDO $db,array $user): string {
     }
     $sql=' FROM personal_tasks t JOIN users u ON u.id=t.user_id WHERE '.
         implode(' AND ',$conditions);
-    $stmt=$db->prepare('SELECT t.id,t.title,t.due_date,t.repeat_monthly,
+    $stmt=$db->prepare('SELECT t.id,t.user_id,t.title,t.due_date,t.repeat_monthly,t.anchor_day,
+        EXISTS(SELECT 1 FROM audit_events a WHERE a.object_type="personal_task"
+            AND a.object_id=t.id AND a.action="assign_team_task") AS is_delegated,
         u.display_name,u.role,u.is_active'.$sql.
         ' ORDER BY t.due_date,t.id LIMIT 301');
     $stmt->execute($params);
     $tasks=$stmt->fetchAll(PDO::FETCH_ASSOC);
     $truncated=count($tasks)>300;
     if ($truncated) $tasks=array_slice($tasks,0,300);
-    $html='<section class="card"><h2>Общий календарь команды</h2>'.
-        '<p class="muted">Все открытые личные задачи по сотрудникам. '.
-        'Это общий просмотр для директора: редактировать и завершать задачу может только её владелец.</p>'.
+    $html=adc_team_task_create_html($staff).
+        '<section class="card"><h2>Общий календарь команды</h2>'.
+        '<p class="muted">Личные задачи сотрудников доступны для просмотра; '.
+        'поручения директора можно изменять, переназначать и отменять, '.
+        'а завершать задачи может только их исполнитель.</p>'.
         '<form method="get"><input type="hidden" name="view" value="tasks"><div class="grid">'.
         '<label class="field">Сотрудник<select name="team_member">'.
         '<option value="0">Вся команда</option>';
@@ -1113,13 +1117,18 @@ function adc_w_team_schedule(PDO $db,array $user): string {
             ($task['role']==='director'?' · директор':' · сотрудник').
             ((int)$task['is_active']===1?'':' · учётная запись отключена').
             ((int)$task['repeat_monthly']===1?' · ежемесячно':'').
-            '</div></div></div>';
+            ((int)$task['is_delegated']===1?' · поручено директором':'').
+            '</div></div></div>'.
+            ((int)$task['is_delegated']===1?adc_team_task_manage_html($task,$staff):'');
     }
     return $html.'</div></section>';
 }
 
 function adc_w_tasks(PDO $db, array $user): string {
-    $stmt = $db->prepare('SELECT * FROM personal_tasks WHERE user_id=? AND is_done=0 ORDER BY due_date,id');
+    $stmt = $db->prepare('SELECT t.*,EXISTS(SELECT 1 FROM audit_events a
+        WHERE a.object_type="personal_task" AND a.object_id=t.id
+          AND a.action="assign_team_task") AS is_delegated
+        FROM personal_tasks t WHERE t.user_id=? AND t.is_done=0 ORDER BY t.due_date,t.id');
     $stmt->execute([(int)$user['id']]);
     $tasks = $stmt->fetchAll();
     $monthNames = [1=>'Январь',2=>'Февраль',3=>'Март',4=>'Апрель',5=>'Май',
@@ -1154,7 +1163,8 @@ function adc_w_tasks(PDO $db, array $user): string {
         $id=(int)$task['id'];
         $html.='<div class="task-row"><div class="task-title"><strong>'.
             adc_h((string)$task['title']).'</strong>'.
-            ((int)$task['repeat_monthly']===1?' <small>↻ Каждый месяц</small>':'').'</div>'.
+            ((int)$task['repeat_monthly']===1?' <small>↻ Каждый месяц</small>':'').
+            ((int)$task['is_delegated']===1?' <small>· Поручение директора</small>':'').'</div>'.
             '<div class="task-actions"><button type="button" class="secondary" '.
             'aria-expanded="false" aria-controls="task-'.$id.'" data-task-toggle="task-'.$id.'">Изменить</button>'.
             adc_w_form_start('complete_task').adc_w_hidden('task_id',$id).
@@ -1176,6 +1186,7 @@ function adc_w_tasks(PDO $db, array $user): string {
     if ($month!=='') $html.='</div></div></section>';
     if (!$tasks) $html.='<section class="card"><p class="muted">Пока нет задач.</p></section>';
     $html.=adc_w_team_schedule($db,$user);
+    if (($user['role']??'')==='director') $html.=adc_team_task_completions($db);
     return $html;
 }
 
@@ -1236,7 +1247,7 @@ function adc_w_page(PDO $db, array $user, string $alert): never {
     $body .= match ($view) {
         'clients','archive' => adc_w_clients($db, $user, $view),
         'tasks' => adc_w_tasks($db, $user),
-        'control' => adc_reminders_dashboard($db),
+        'control' => adc_reminders_dashboard($db,$user),
         'analytics' => adc_w_analytics($db),
         default => adc_w_team($db, $user),
     };

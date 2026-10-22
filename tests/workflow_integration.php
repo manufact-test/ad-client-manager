@@ -6,6 +6,7 @@ require __DIR__ . '/../app/workflow.php';
 require __DIR__ . '/../app/documents.php';
 require __DIR__ . '/../app/ledger.php';
 require __DIR__ . '/../app/reminders.php';
+require __DIR__ . '/../app/team_tasks.php';
 
 class Redirected extends RuntimeException {}
 function adc_input(string $key): string { return is_string($_POST[$key] ?? null) ? trim($_POST[$key]) : ''; }
@@ -51,7 +52,8 @@ function run_action(PDO $db, array $user, string $action, array $data): string {
     }
     $_POST = $data;
     try {
-        $handled = adc_w_action($db, $user, $action) || adc_doc_action($db, $user, $action);
+        $handled = adc_team_task_action($db,$user,$action) ||
+            adc_w_action($db, $user, $action) || adc_doc_action($db, $user, $action);
         throw new RuntimeException('Action was not handled: ' . $action . ' ' . (int)$handled);
     } catch (Redirected $ok) {
         check(!$db->inTransaction(), 'Transaction committed: ' . $action);
@@ -486,6 +488,111 @@ $one=adc_w_team_schedule($db,$director);
 check(str_contains($one,'Employee private deadline') &&
     !str_contains($one,'Task A revised'),
     'Director can filter team schedule to one employee');
+// Director creates auditable team assignments without touching private tasks.
+run_action($db,$director,'assign_team_task',[
+    'assignee_user_id'=>(string)$employee['id'],
+    'title'=>'Director delegated invoice','due_date'=>'2026-11-07','repeat_monthly'=>'1'
+]);
+$q=$db->prepare('SELECT * FROM personal_tasks WHERE title=? ORDER BY id DESC LIMIT 1');
+$q->execute(['Director delegated invoice']);$delegated=$q->fetch();
+check($delegated && (int)$delegated['user_id']===(int)$employee['id'] &&
+    (int)$delegated['anchor_day']===7 &&
+    adc_team_task_marker($db,(int)$delegated['id']),
+    'Director task delegated and recorded in durable audit');
+check(str_contains(adc_w_tasks($db,$employee),'Поручение директора'),
+    'Assigned work appears on employee private task calendar');
+$_GET=['team_scope'=>'all'];
+$assignedView=adc_w_team_schedule($db,$director);
+check(str_contains($assignedView,'Управлять поручением') &&
+    str_contains($assignedView,'Director delegated invoice'),
+    'Director shared calendar offers management for director-issued task');
+try {
+    run_action($db,$employee,'cancel_team_task',['task_id'=>(string)$delegated['id']]);
+    throw new RuntimeException('Employee could cancel director assignment');
+} catch (RuntimeException $blocked) {
+    check(str_contains($blocked->getMessage(),'директор'),'Assignment mutations require director');
+    if ($db->inTransaction()) $db->rollBack();
+}
+try {
+    run_action($db,$director,'edit_team_task',[
+        'task_id'=>(string)$task,'assignee_user_id'=>(string)$employee['id'],
+        'title'=>'Hijacked private task','due_date'=>'2026-11-08'
+    ]);
+    throw new RuntimeException('Director changed employee or personal task via team manager');
+} catch (RuntimeException $blocked) {
+    check(str_contains($blocked->getMessage(),'личную'),'Private tasks cannot be modified via delegation');
+    if ($db->inTransaction()) $db->rollBack();
+}
+run_action($db,$director,'edit_team_task',[
+    'task_id'=>(string)$delegated['id'],'assignee_user_id'=>(string)$director['id'],
+    'title'=>'Reassigned director task','due_date'=>'2026-11-30','repeat_monthly'=>'1'
+]);
+$reassigned=$db->query('SELECT * FROM personal_tasks WHERE id='.(int)$delegated['id'])->fetch();
+check((int)$reassigned['user_id']===(int)$director['id'] &&
+    (int)$reassigned['anchor_day']===30,'Director can reassign with monthly anchor intact');
+run_action($db,$director,'cancel_team_task',['task_id'=>(string)$delegated['id']]);
+check((int)$db->query('SELECT is_done FROM personal_tasks WHERE id='.(int)$delegated['id'])->fetchColumn()===1 &&
+    (int)$db->query('SELECT COUNT(*) FROM audit_events WHERE object_type="personal_task"
+        AND object_id='.(int)$delegated['id'].' AND action="cancel_team_task"')->fetchColumn()===1,
+    'Cancellation preserves row and auditable history');
+
+$today=date('Y-m-d');
+$db->prepare('INSERT INTO clients(name,is_demo) VALUES (?,1)')
+    ->execute(['Synthetic delegated paperwork '.$unique]);
+$linkedClient=(int)$db->lastInsertId();
+$db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency)
+    VALUES (?,?,20,"prepayment","BYN")')->execute([$linkedClient,$today]);
+$matching=array_values(array_filter(adc_client_reminders($db,$today),
+    static fn($row)=>$row['client_id']===$linkedClient && $row['kind']==='contract'));
+check(count($matching)===1,'Fixture has a real computed document-control reminder');
+$assignment=[
+    'client_id'=>(string)$linkedClient,'reminder_kind'=>'contract',
+    'reminder_date'=>(string)$matching[0]['date'],
+    'assignee_user_id'=>(string)$employee['id'],
+    'title'=>'Forged title must be ignored'
+];
+run_action($db,$director,'assign_control_reminder',$assignment);
+$q=$db->prepare('SELECT * FROM personal_tasks WHERE user_id=? AND title LIKE ?
+    ORDER BY id DESC LIMIT 1');
+$q->execute([$employee['id'],'%Synthetic delegated paperwork '.$unique.'%']);
+$linked=$q->fetch();
+check($linked && !str_contains($linked['title'],'Forged title') &&
+    $linked['due_date']===$matching[0]['date'],
+    'Server generates assigned client reminder title and due date');
+try {
+    run_action($db,$director,'assign_control_reminder',$assignment);
+    throw new RuntimeException('Duplicate open reminder assigned to same employee');
+} catch (RuntimeException $blocked) {
+    check(str_contains($blocked->getMessage(),'уже есть'),'Open control assignments deduplicated');
+    if ($db->inTransaction()) $db->rollBack();
+}
+try {
+    run_action($db,$director,'assign_control_reminder',$assignment+['fake'=>'ignored']);
+    throw new RuntimeException('Duplicate bypassed');
+} catch (RuntimeException $blocked) {
+    check(str_contains($blocked->getMessage(),'уже есть'),'Repeated POST cannot duplicate assignment');
+    if ($db->inTransaction()) $db->rollBack();
+}
+try {
+    run_action($db,$director,'assign_control_reminder',[
+        'client_id'=>(string)$linkedClient,'reminder_kind'=>'invoice',
+        'reminder_date'=>'2000-01-01','assignee_user_id'=>(string)$employee['id']
+    ]);
+    throw new RuntimeException('Forged past reminder created');
+} catch (RuntimeException $blocked) {
+    check(str_contains($blocked->getMessage(),'изменилось'),'Forged reminder rejected');
+    if ($db->inTransaction()) $db->rollBack();
+}
+$_GET=['demo'=>'1','kind'=>'contract','scope'=>'all'];
+$delegatedControl=adc_reminders_dashboard($db,$director);
+check(str_contains($delegatedControl,'name="action" value="assign_control_reminder"') &&
+    str_contains($delegatedControl,'Поручить'),
+    'Director can assign client paperwork straight from control dashboard');
+$employeeControl=adc_reminders_dashboard($db,$employee);
+check(!str_contains($employeeControl,'name="action" value="assign_control_reminder"'),
+    'Employee cannot see delegation forms on client control dashboard');
+$_GET=[];
+
 $_GET=['demo'=>'1','scope'=>'all','kind'=>'invoice'];
 $work=adc_reminders_dashboard($db);
 check(str_contains($work,'Контроль клиентов') &&
