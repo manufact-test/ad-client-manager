@@ -194,7 +194,7 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
     if ((int)$s['unsent']>0) return ['Отправить документы · '.$s['unsent'],'warning'];
     // The monthly contract only reminds staff to prepare documentation; it
     // never creates a charge or a personal task for each employee.
-    $e=$db->prepare('SELECT started_on,billing_day FROM engagements WHERE client_id=? AND status="active" ORDER BY id DESC LIMIT 1');
+    $e=$db->prepare('SELECT id,started_on,billing_day,payment_mode,currency FROM engagements WHERE client_id=? AND status="active" ORDER BY id DESC LIMIT 1');
     $e->execute([$clientId]);$r=$e->fetch();
     $needsDocument=false;
     if($r && $r['started_on']<=$today) {
