@@ -97,21 +97,131 @@ function adc_restore_verify_files(string $directory,array $files): int {
     return $count;
 }
 
+/**
+ * SHA-256 of every column of every row, in PRIMARY KEY order.
+ *
+ * PDO unbuffered reads ensure that even a large restored SQL database does
+ * not require loading complete tables into memory. Values are length-framed
+ * as raw DB bytes with a distinct NULL tag, so NULL, empty, 0, binary and
+ * different UTF-8 strings cannot be silently confused.
+ *
+ * Only the hardcoded table list is accepted; column names are validated
+ * against the MySQL identifier grammar before being used in ORDER BY.
+ */
+function adc_restore_table_fingerprint(PDO $db,string $table): array {
+    if(!in_array($table,adc_restore_tables(),true)){
+        throw new RuntimeException('Unknown table in restore verifier.');
+    }
+    $columnsQuery=$db->query('SHOW COLUMNS FROM '.$table);
+    $columns=$columnsQuery->fetchAll(PDO::FETCH_ASSOC);
+    $columnsQuery->closeCursor();
+    if(!$columns)throw new RuntimeException('Required database schema is incomplete.');
+    $names=[];
+    $meta=[];
+    foreach($columns as $column){
+        $name=(string)$column['Field'];
+        if(!preg_match('/\A[A-Za-z_][A-Za-z0-9_]*\z/D',$name)){
+            throw new RuntimeException('Database column name is unsupported.');
+        }
+        $names[]=$name;
+        $meta[]=[$name,(string)$column['Type'],(string)$column['Null'],
+            $column['Default'],(string)$column['Extra']];
+    }
+    $indexQuery=$db->query("SHOW INDEX FROM ".$table." WHERE Key_name='PRIMARY'");
+    $indices=$indexQuery->fetchAll(PDO::FETCH_ASSOC);
+    $indexQuery->closeCursor();
+    if(!$indices)throw new RuntimeException('Primary key is required for safe streaming.');
+    usort($indices,static fn($a,$b)=>
+        (int)$a['Seq_in_index']<=>(int)$b['Seq_in_index']);
+    $keys=[];
+    foreach($indices as $index){
+        $key=(string)$index['Column_name'];
+        if(!in_array($key,$names,true)){
+            throw new RuntimeException('Primary key definition does not match the table.');
+        }
+        $keys[]=$key;
+    }
+    $schema=hash('sha256',json_encode([$meta,$keys],JSON_THROW_ON_ERROR));
+    $hasher=hash_init('sha256');
+    hash_update($hasher,"adc-db-rows-v2\0".$table."\0");
+    $count=0;
+    $db->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY,false);
+    $query=null;
+    try{
+        $query=$db->query('SELECT * FROM '.$table.' ORDER BY '.implode(',',$keys));
+        while(($row=$query->fetch(PDO::FETCH_ASSOC))!==false){
+            hash_update($hasher,"R");
+            foreach($names as $name){
+                $value=$row[$name];
+                if($value===null){
+                    hash_update($hasher,"N");
+                    continue;
+                }
+                $bytes=(string)$value;
+                hash_update($hasher,"V");
+                hash_update($hasher,pack('N',strlen($bytes)));
+                hash_update($hasher,$bytes);
+            }
+            $count++;
+        }
+    } finally {
+        if($query instanceof PDOStatement)$query->closeCursor();
+        $db->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY,true);
+    }
+    return ['schema'=>$schema,'records'=>$count,'sha256'=>hash_final($hasher)];
+}
+
+function adc_restore_row_fingerprints(PDO $db):array{
+    $result=[];
+    foreach(adc_restore_tables() as $table){
+        $result[$table]=adc_restore_table_fingerprint($db,$table);
+    }
+    return $result;
+}
+
+/** Open stable read-only InnoDB snapshots. No SQL writes or schema changes. */
+function adc_restore_snapshot(PDO $db):void{
+    $db->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    $db->exec('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY');
+}
+
 /** Does not write to the filesystem or database; a mismatch blocks release. */
 function adc_restore_compare(PDO $source,PDO $restored,
                              string $sourcePdfDir,string $restoredPdfDir): array {
-    $sourceCounts=adc_restore_counts($source);
-    $restoredCounts=adc_restore_counts($restored);
-    if($sourceCounts!==$restoredCounts)
-        throw new RuntimeException('Table row counts differ between databases.');
-    if(adc_restore_finance($source)!==adc_restore_finance($restored))
-        throw new RuntimeException('Financial ledger aggregates differ.');
+    // An InnoDB point-in-time view prevents a write in another request from
+    // making a single side internally inconsistent during a long comparison.
+    // Copies still MUST refer to the same logical backup moment.
+    $sourceStarted=false;
+    $restoredStarted=false;
+    try {
+        adc_restore_snapshot($source);
+        $sourceStarted=true;
+        adc_restore_snapshot($restored);
+        $restoredStarted=true;
+        $sourceCounts=adc_restore_counts($source);
+        $restoredCounts=adc_restore_counts($restored);
+        if($sourceCounts!==$restoredCounts)
+            throw new RuntimeException('Table row counts differ between databases.');
+        if(adc_restore_finance($source)!==adc_restore_finance($restored))
+            throw new RuntimeException('Financial ledger aggregates differ.');
 
-    $s=adc_restore_pdf_index($source);
-    $r=adc_restore_pdf_index($restored);
-    if($s['records']!==$r['records'] ||
-        !hash_equals($s['fingerprint'],$r['fingerprint'])){
-        throw new RuntimeException('Private PDF database metadata differs.');
+        // Unlike counts/totals, full row digests also detect corrupted names,
+        // employee tasks, authentication fields, comments and audit events.
+        if(adc_restore_row_fingerprints($source)!==
+           adc_restore_row_fingerprints($restored)){
+            throw new RuntimeException('Full database row fingerprints differ.');
+        }
+        $s=adc_restore_pdf_index($source);
+        $r=adc_restore_pdf_index($restored);
+        if($s['records']!==$r['records'] ||
+            !hash_equals($s['fingerprint'],$r['fingerprint'])){
+            throw new RuntimeException('Private PDF database metadata differs.');
+        }
+        $source->exec('COMMIT'); $sourceStarted=false;
+        $restored->exec('COMMIT'); $restoredStarted=false;
+    } finally {
+        if($sourceStarted)try{$source->exec('ROLLBACK');}catch(Throwable $ignored){}
+        if($restoredStarted)try{$restored->exec('ROLLBACK');}catch(Throwable $ignored){}
     }
     $sourceNum=adc_restore_verify_files($sourcePdfDir,$s['files']);
     $restoredNum=adc_restore_verify_files($restoredPdfDir,$r['files']);
@@ -119,5 +229,5 @@ function adc_restore_compare(PDO $source,PDO $restored,
         throw new RuntimeException('Private PDF counts differ.');
     return ['tables'=>count($sourceCounts),
             'rows'=>array_sum(array_map('intval',$sourceCounts)),
-            'pdfs'=>$restoredNum,'fingerprint_match'=>true,'finance_match'=>true];
+            'pdfs'=>$restoredNum,'fingerprint_match'=>true,'finance_match'=>true,'full_rows_match'=>true];
 }
