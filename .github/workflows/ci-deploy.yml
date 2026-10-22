@@ -203,6 +203,17 @@ jobs:
           fi
           cp -p "$tempdir/backup-pdfs/$(printf 'd%.0s' {1..48}).pdf" "$fixture_pdf"
           TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare
+          # Negative proof: row counts, money and PDFs can all stay identical
+          # while a non-financial client value has silently been corrupted.
+          mysql -h 127.0.0.1 -u root adclients_restore_test -e \
+            "UPDATE clients SET name='Restorable fictional client tampered' WHERE name='Restorable fictional client'"
+          if TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare; then
+            echo "Modified client data unexpectedly verified" >&2
+            exit 1
+          fi
+          mysql -h 127.0.0.1 -u root adclients_restore_test -e \
+            "UPDATE clients SET name='Restorable fictional client' WHERE name='Restorable fictional client tampered'"
+          TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare
 
 
 
