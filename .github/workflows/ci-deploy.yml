@@ -202,7 +202,7 @@ jobs:
             exit 1
           fi
           cp -p "$tempdir/backup-pdfs/$(printf 'd%.0s' {1..48}).pdf" "$fixture_pdf"
-          php scripts/compare_restore.php --compare
+          TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare
 
 
 
