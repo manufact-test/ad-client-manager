@@ -76,6 +76,35 @@ try {
     require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='invoice' &&
         $row['date']==='2026-10-31'))===1,'Voided PDF reactivates preparation reminder');
 
+
+    // Future terms must not overwrite the schedule before taking effect.
+    $db->prepare('INSERT INTO engagement_terms
+        (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
+        VALUES (?,"2026-09-29","2026-09-29",31,"prepayment","BYN","900.00")')
+        ->execute([$engagementId]);
+    $db->prepare('INSERT INTO engagement_terms
+        (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
+        VALUES (?,"2026-11-20","2026-11-20",20,"postpayment","EUR","1200.00")')
+        ->execute([$engagementId]);
+    $db->prepare('UPDATE engagements SET billing_day=20,payment_mode="postpayment",
+        currency="EUR",quoted_amount="1200.00" WHERE id=?')->execute([$engagementId]);
+    $events=array_values(array_filter(adc_client_reminders($db,'2026-10-21'),
+        static fn($row)=>$row['client_id']===$clientId));
+    require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='invoice'
+        && $row['date']==='2026-10-31' && str_contains($row['label'],'предоплата')))===1,
+        'October keeps old billing day and prepayment');
+    require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='invoice'
+        && $row['date']==='2026-11-20' && str_contains($row['label'],'постоплата')))===1,
+        'November change starts new billing cycle');
+    require_reminder(count(array_filter($events,static fn($row)=>$row['kind']==='invoice'
+        && $row['date']==='2026-11-30'))===0,
+        'Superseded old anchor must not generate a later invoice');
+    $eng=$db->query('SELECT * FROM engagements WHERE id='.(int)$engagementId)->fetch();
+    require_reminder(adc_w_next_cycle_end_effective($db,$eng,'2026-10-31')==='2026-11-20',
+        'Old billing cycle ends at contract transition');
+    require_reminder(adc_w_next_cycle_end_effective($db,$eng,'2026-11-20')==='2026-12-20',
+        'New cycle uses the new billing anchor');
+
     $db->prepare('UPDATE engagements SET status="archived" WHERE id=?')->execute([$engagementId]);
     $events=array_values(array_filter(adc_client_reminders($db,'2026-10-21'),
         static fn($row)=>$row['client_id']===$clientId));

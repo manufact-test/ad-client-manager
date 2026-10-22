@@ -111,6 +111,19 @@ function adc_w_effective_terms(PDO $db,array $engagement,string $today): array {
     ];
 }
 
+
+/** Resolve a cycle boundary using the terms valid at its start; stop at a
+ * scheduled future contract change rather than silently rewriting history. */
+function adc_w_next_cycle_end_effective(PDO $db,array $engagement,string $start): string {
+    $terms=adc_w_effective_terms($db,$engagement,$start);
+    $end=adc_w_next_cycle_end($start,(int)$terms['billing_day']);
+    $q=$db->prepare('SELECT MIN(effective_on) FROM engagement_terms
+        WHERE engagement_id=? AND effective_on>? AND effective_on<?');
+    $q->execute([(int)$engagement['id'],$start,$end]);
+    $next=$q->fetchColumn();
+    return $next===false || $next===null ? $end : (string)$next;
+}
+
 function adc_w_period(PDO $db, int $clientId, int $periodId): array {
     $stmt = $db->prepare('SELECT p.*, e.currency, e.status FROM billing_periods p JOIN engagements e ON e.id = p.engagement_id
         WHERE p.id = ? AND e.client_id = ?');
@@ -518,7 +531,7 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             throw new RuntimeException('Заключительный период уже создан. Новый автоматический период невозможен.');
         }
         $start=$latest ? $latest['period_end'] : $eng['started_on'];
-        $end=adc_w_next_cycle_end($start,(int)$eng['billing_day']);
+        $end=adc_w_next_cycle_end_effective($db,$eng,$start);
         $stmt=$db->prepare('INSERT INTO billing_periods(engagement_id,period_start,period_end,creation_key) VALUES (?,?,?,?)');
         $stmt->execute([$eid,$start,$end,$key]);
         adc_audit($db,$actor,'create_next_period','billing_period',(int)$db->lastInsertId(),

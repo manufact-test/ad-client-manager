@@ -161,6 +161,32 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
             $e['amount']===null?'':adc_export_decimal(adc_fin_minor((string)$e['amount'])),
             (string)($e['currency']??''),(int)$e['id']];
     }
+
+    // Dated agreement rates appear only as reference rows: never as paid
+    // cash, an invoice, or an auto-accrued charge.
+    $terms=$db->prepare('SELECT g.id engagement_id,g.started_on,
+        g.billing_day legacy_day,g.payment_mode legacy_mode,g.currency legacy_currency,
+        g.quoted_amount legacy_quote,t.id term_id,t.effective_on,t.billing_day,
+        t.payment_mode,t.currency,t.quoted_amount
+        FROM engagements g LEFT JOIN engagement_terms t ON t.engagement_id=g.id
+        WHERE g.client_id=? ORDER BY g.started_on,g.id,t.effective_on,t.id');
+    $terms->execute([$clientId]);
+    foreach($terms as $v){
+        $hasVersion=$v['term_id']!==null;
+        $effective=(string)($hasVersion?$v['effective_on']:$v['started_on']);
+        $mode=(string)($hasVersion?$v['payment_mode']:$v['legacy_mode']);
+        $day=(int)($hasVersion?$v['billing_day']:$v['legacy_day']);
+        $currency=(string)($hasVersion?$v['currency']:$v['legacy_currency']);
+        $quote=$hasVersion?$v['quoted_amount']:$v['legacy_quote'];
+        $rate=$quote===null?'Старая сумма неизвестна':
+            adc_export_decimal(adc_fin_minor((string)$quote)).' в месяц';
+        $label=($mode==='prepayment'?'Предоплата':'Постоплата').
+            ' · расчётный день '.$day.' · ставка '.$rate;
+        $rows[]=[(int)$clientId,(string)$client['name'],(int)$client['is_demo'],
+            (int)$v['engagement_id'],'','','',$effective,
+            'Условия договора','Условия',$label,'',$currency,
+            $hasVersion?(int)$v['term_id']:''];
+    }
     return $rows;
 }
 

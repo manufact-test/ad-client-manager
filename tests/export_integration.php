@@ -77,6 +77,27 @@ try {
         && $pdfRows[0][5]==="2026-10-01"
         && $pdfRows[0][7]==="2026-12-12 09:00:00",
         'Client CSV shows historic period and upload date independently');
+
+    // Contract reference rates are not payments or automatic charges.
+    $db->prepare('INSERT INTO engagement_terms
+        (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
+        VALUES (?,"2026-10-01","2026-10-01",1,"prepayment","CHF",NULL)')
+        ->execute([$eid]);
+    $db->prepare('INSERT INTO engagement_terms
+        (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
+        VALUES (?,"2026-11-20","2026-11-20",20,"postpayment","EUR","1200.00")')
+        ->execute([$eid]);
+    $termRows=array_values(array_filter(adc_export_client_ledger($db,$real),
+        static fn($row)=>($row[8]??'')==='Условия договора'));
+    ex_check(count($termRows)===2,'Both contract versions appear in CSV');
+    ex_check($termRows[0][7]==='2026-10-01' &&
+        str_contains((string)$termRows[0][10],'Старая сумма неизвестна') &&
+        $termRows[0][11]==='','Unknown prior rate is not invented as billable charge');
+    ex_check($termRows[1][7]==='2026-11-20' &&
+        str_contains((string)$termRows[1][10],'1200.00') &&
+        str_contains((string)$termRows[1][10],'Постоплата') &&
+        $termRows[1][11]==='' && $termRows[1][12]==='EUR',
+        'New contract rate exported as reference only');
     $demoLedger=adc_export_encode(adc_export_client_ledger($db,$demo));
     ex_check(str_contains($demoLedger,'9999.00') && str_contains($demoLedger,'Демо'),
         'Explicitly scoped demo ledger allowed, clearly labeled');

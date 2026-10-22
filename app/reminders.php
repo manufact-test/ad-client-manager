@@ -14,6 +14,51 @@ function adc_reminder_month_day(DateTimeImmutable $first, int $day): string {
         min($day, (int)$first->format('t')))->format('Y-m-d');
 }
 
+
+/** Scheduled billing dates and modes must come from dated contract terms,
+ * not the future latest value mirrored in engagements. */
+function adc_reminder_billing_days(PDO $db,array $eng,DateTimeImmutable $first,
+    string $minDate,string $maxDate): array {
+    $q=$db->prepare('SELECT effective_on,billing_day,payment_mode
+        FROM engagement_terms WHERE engagement_id=? ORDER BY effective_on,id');
+    $q->execute([(int)$eng['engagement_id']]);
+    $versions=$q->fetchAll(PDO::FETCH_ASSOC);
+    $anchors=$versions ? array_unique(array_map('intval',array_column($versions,'billing_day')))
+        : [(int)$eng['billing_day']];
+    $at=static function(string $date) use ($versions,$eng): array {
+        $current=$versions[0]??$eng;
+        foreach($versions as $v){
+            if($v['effective_on']>$date) break;
+            $current=$v;
+        }
+        return $current;
+    };
+    $days=[];
+    for($i=0,$cursor=$first;$i<6;$i++,$cursor=$cursor->modify('+1 month')){
+        foreach($anchors as $anchor){
+            $date=adc_reminder_month_day($cursor,(int)$anchor);
+            if($date<$minDate || $date>$maxDate || $date<$eng['started_on']) continue;
+            $effective=$at($date);
+            if((int)$effective['billing_day']===(int)$anchor){
+                $days[$date]=(string)$effective['payment_mode'];
+            }
+        }
+    }
+    // The effective date itself starts a new billing cycle.
+    foreach($versions as $v){
+        $date=(string)$v['effective_on'];
+        if($date>=$minDate && $date<=$maxDate && $date>=$eng['started_on']){
+            $days[$date]=(string)$v['payment_mode'];
+        }
+    }
+    if($eng['started_on']>=$minDate && $eng['started_on']<=$maxDate){
+        $initial=$at($eng['started_on']);
+        $days[$eng['started_on']]=(string)$initial['payment_mode'];
+    }
+    ksort($days);
+    return $days;
+}
+
 function adc_reminder_document_found(array $documents, string $flag, string $due, string $mode): bool {
     foreach ($documents as $doc) {
         if ((int)$doc['is_void'] !== 0 || $doc['storage_key'] === null || (int)$doc[$flag] !== 1) {
@@ -88,12 +133,8 @@ function adc_client_reminders(PDO $db, string $today): array {
             $date=max($eng['started_on'],$minDate);
             $push($date,'contract','Подготовить договор');
         }
-        $billingDays=[];
+        $billingDays=adc_reminder_billing_days($db,$eng,$first,$minDate,$maxDate);
         for ($i=0,$cursor=$first;$i<6;$i++,$cursor=$cursor->modify('+1 month')) {
-            $billing=adc_reminder_month_day($cursor,(int)$eng['billing_day']);
-            if ($billing >= $minDate && $billing <= $maxDate && $billing >= $eng['started_on']) {
-                $billingDays[$billing]=true;
-            }
             $last=$cursor->format('Y-m-t');
             if ((int)$eng['requires_acts']===1 &&
                 $last >= $minDate && $last <= $maxDate && $last >= $eng['started_on'] &&
@@ -101,14 +142,10 @@ function adc_client_reminders(PDO $db, string $today): array {
                 $push($last,'act','Подготовить акт за календарный месяц');
             }
         }
-        if ($eng['started_on'] >= $minDate && $eng['started_on'] <= $maxDate) {
-            $billingDays[$eng['started_on']]=true;
-        }
-        ksort($billingDays);
-        foreach (array_keys($billingDays) as $date) {
-            if (!adc_reminder_document_found($documents,'needs_invoice',$date,(string)$eng['payment_mode'])) {
+        foreach ($billingDays as $date=>$mode) {
+            if (!adc_reminder_document_found($documents,'needs_invoice',$date,$mode)) {
                 $push($date,'invoice','Подготовить счёт ('.
-                    ($eng['payment_mode']==='prepayment'?'предоплата':'постоплата').')');
+                    ($mode==='prepayment'?'предоплата':'постоплата').')');
             }
             if ((int)$eng['requires_specs']===1 &&
                 !adc_reminder_document_found($documents,'needs_spec',$date,'prepayment')) {
