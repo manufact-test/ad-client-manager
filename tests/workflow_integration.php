@@ -510,7 +510,7 @@ try {
     run_action($db,$employee,'cancel_team_task',['task_id'=>(string)$delegated['id']]);
     throw new RuntimeException('Employee could cancel director assignment');
 } catch (RuntimeException $blocked) {
-    check(str_contains($blocked->getMessage(),'директор'),'Assignment mutations require director');
+    check(str_contains($blocked->getMessage(),'Недостаточно прав'),'Assignment mutations require director');
     if ($db->inTransaction()) $db->rollBack();
 }
 try {

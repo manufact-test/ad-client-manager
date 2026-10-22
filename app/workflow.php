@@ -1073,13 +1073,19 @@ function adc_w_team_schedule(PDO $db,array $user): string {
     $stmt=$db->prepare('SELECT t.id,t.user_id,t.title,t.due_date,t.repeat_monthly,t.anchor_day,
         EXISTS(SELECT 1 FROM audit_events a WHERE a.object_type="personal_task"
             AND a.object_id=t.id AND a.action="assign_team_task") AS is_delegated,
+        (SELECT JSON_UNQUOTE(JSON_EXTRACT(a.details_json,"$.client_id"))
+          FROM audit_events a WHERE a.object_type="personal_task"
+            AND a.object_id=t.id AND a.action="assign_team_task"
+          ORDER BY a.id DESC LIMIT 1) AS linked_client_id,
         u.display_name,u.role,u.is_active'.$sql.
         ' ORDER BY t.due_date,t.id LIMIT 301');
     $stmt->execute($params);
     $tasks=$stmt->fetchAll(PDO::FETCH_ASSOC);
     $truncated=count($tasks)>300;
     if ($truncated) $tasks=array_slice($tasks,0,300);
-    $html=adc_team_task_create_html($staff).
+    $activeStaff=array_values(array_filter($staff,
+        static fn($member)=>(int)$member['is_active']===1));
+    $html=adc_team_task_create_html($activeStaff).
         '<section class="card"><h2>Общий календарь команды</h2>'.
         '<p class="muted">Личные задачи сотрудников доступны для просмотра; '.
         'поручения директора можно изменять, переназначать и отменять, '.
@@ -1118,8 +1124,11 @@ function adc_w_team_schedule(PDO $db,array $user): string {
             ((int)$task['is_active']===1?'':' · учётная запись отключена').
             ((int)$task['repeat_monthly']===1?' · ежемесячно':'').
             ((int)$task['is_delegated']===1?' · поручено директором':'').
+            ((int)($task['linked_client_id']??0)>0?
+                ' · <a href="/?view=clients&amp;client='.(int)$task['linked_client_id'].
+                '">Открыть клиента</a>':'').
             '</div></div></div>'.
-            ((int)$task['is_delegated']===1?adc_team_task_manage_html($task,$staff):'');
+            ((int)$task['is_delegated']===1?adc_team_task_manage_html($task,$activeStaff):'');
     }
     return $html.'</div></section>';
 }
@@ -1127,7 +1136,11 @@ function adc_w_team_schedule(PDO $db,array $user): string {
 function adc_w_tasks(PDO $db, array $user): string {
     $stmt = $db->prepare('SELECT t.*,EXISTS(SELECT 1 FROM audit_events a
         WHERE a.object_type="personal_task" AND a.object_id=t.id
-          AND a.action="assign_team_task") AS is_delegated
+          AND a.action="assign_team_task") AS is_delegated,
+        (SELECT JSON_UNQUOTE(JSON_EXTRACT(a.details_json,"$.client_id"))
+          FROM audit_events a WHERE a.object_type="personal_task"
+            AND a.object_id=t.id AND a.action="assign_team_task"
+          ORDER BY a.id DESC LIMIT 1) AS linked_client_id
         FROM personal_tasks t WHERE t.user_id=? AND t.is_done=0 ORDER BY t.due_date,t.id');
     $stmt->execute([(int)$user['id']]);
     $tasks = $stmt->fetchAll();
@@ -1164,7 +1177,10 @@ function adc_w_tasks(PDO $db, array $user): string {
         $html.='<div class="task-row"><div class="task-title"><strong>'.
             adc_h((string)$task['title']).'</strong>'.
             ((int)$task['repeat_monthly']===1?' <small>↻ Каждый месяц</small>':'').
-            ((int)$task['is_delegated']===1?' <small>· Поручение директора</small>':'').'</div>'.
+            ((int)$task['is_delegated']===1?' <small>· Поручение директора</small>':'').
+            ((int)($task['linked_client_id']??0)>0?
+                ' <small>· <a href="/?view=clients&amp;client='.
+                (int)$task['linked_client_id'].'">Открыть клиента</a></small>':'').'</div>'.
             '<div class="task-actions"><button type="button" class="secondary" '.
             'aria-expanded="false" aria-controls="task-'.$id.'" data-task-toggle="task-'.$id.'">Изменить</button>'.
             adc_w_form_start('complete_task').adc_w_hidden('task_id',$id).
