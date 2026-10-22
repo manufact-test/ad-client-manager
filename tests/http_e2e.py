@@ -343,7 +343,6 @@ try:
     status,_,afterReceiptPage=request("director","/?view=payments&q=CI%20real%20ledger")
     require(status==200 and "Нет неоплаченных записей с этими условиями." in html(afterReceiptPage),
             "Confirmed item disappears from work queue")
-    require(status==303,"Card receipt recorded")
     require("Для удаления сначала отмените получение" in panel("director",real),
             "Paid card request displays reversal-before-deletion guidance")
     status,_,blocked=post("director",director,"delete_card_entry",{
