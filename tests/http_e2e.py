@@ -100,18 +100,24 @@ try:
     status,_,directorTasks=request("director","/?view=tasks")
     require(status==200 and 'name="action" value="assign_team_task"' in html(directorTasks),
             "Director task assignment form exists")
+    assignment=forms(html(directorTasks),"assign_team_task")
+    require(assignment,"Director has assignment form")
+    worker_match=re.search(r'<option value="(\d+)"[^>]*>Employee Fixture',assignment[0])
+    require(worker_match,"Web fixture worker available for assignment")
     status,headers,_=post("director",director,"assign_team_task",{
-        "assignee_user_id":str(2),"title":"HTTP delegated test task",
+        "assignee_user_id":worker_match.group(1),"title":"HTTP delegated test task",
         "due_date":"2026-11-13"})
-    # The fixture employee ID can vary, so direct tests below verify the
-    # server uses genuine active user IDs, not an untrusted HTML value.
-    if status==303:
-        status,_,emplTasks=request("employee","/?view=tasks")
-        require(status==200 and "HTTP delegated test task" in html(emplTasks),
-                "Director delegation visible to employee over real HTTP")
-    else:
-        require(status==303 or "Исполнитель не найден" in html(request("director","/?view=tasks")[2]),
-                "Unknown assignee refused by server")
+    require(status==303,"Director can delegate a task over HTTP")
+    status,_,emplTasks=request("employee","/?view=tasks")
+    require(status==200 and "HTTP delegated test task" in html(emplTasks) and
+            "Поручение директора" in html(emplTasks),
+            "Director delegation visible to employee over real HTTP")
+    status,_,controlPage=request("director","/?view=control")
+    require(status==200 and 'name="action" value="assign_control_reminder"' in html(controlPage),
+            "Director may delegate client paperwork from control view")
+    status,_,employeeControl=request("employee","/?view=control")
+    require(status==200 and 'name="action" value="assign_control_reminder"' not in html(employeeControl),
+            "Employee control has no assignment actions")
     status,_,form=request("director","/?view=clients")
     require(status==200 and re.search(
         r'name="quoted_amount" type="number"[^>]*step="0.01"',html(form)),
