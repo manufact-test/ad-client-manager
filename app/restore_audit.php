@@ -185,6 +185,36 @@ function adc_restore_snapshot(PDO $db):void{
     $db->exec('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY');
 }
 
+/**
+ * Inventory every application-managed private PDF, including historical and
+ * void/replaced files. A restore that loses an old PDF must NOT be accepted
+ * merely because no active document currently references it.
+ *
+ * Only strict 48-hex .pdf names belong to the application namespace.
+ * Non-application files are intentionally ignored, never deleted/altered.
+ */
+function adc_restore_pdf_inventory(string $directory): array {
+    if(is_link($directory) || !is_dir($directory) || !is_readable($directory)){
+        throw new RuntimeException('Private PDF directory is unavailable.');
+    }
+    $inventory=[];
+    foreach(new DirectoryIterator($directory) as $entry){
+        $key=$entry->getFilename();
+        if(!preg_match('/\A[a-f0-9]{48}\.pdf\z/D',$key))continue;
+        $path=$entry->getPathname();
+        if($entry->isLink() || !$entry->isFile() || !$entry->isReadable()){
+            throw new RuntimeException('Private PDF inventory contains an inaccessible file.');
+        }
+        $sha=@hash_file('sha256',$path);
+        if(!is_string($sha)){
+            throw new RuntimeException('Private PDF inventory could not be hashed.');
+        }
+        $inventory[$key]=$sha;
+    }
+    ksort($inventory,SORT_STRING);
+    return $inventory;
+}
+
 /** Does not write to the filesystem or database; a mismatch blocks release. */
 function adc_restore_compare(PDO $source,PDO $restored,
                              string $sourcePdfDir,string $restoredPdfDir): array {
@@ -223,11 +253,20 @@ function adc_restore_compare(PDO $source,PDO $restored,
         if($sourceStarted)try{$source->exec('ROLLBACK');}catch(Throwable $ignored){}
         if($restoredStarted)try{$restored->exec('ROLLBACK');}catch(Throwable $ignored){}
     }
-    $sourceNum=adc_restore_verify_files($sourcePdfDir,$s['files']);
-    $restoredNum=adc_restore_verify_files($restoredPdfDir,$r['files']);
-    if($sourceNum!==$restoredNum)
-        throw new RuntimeException('Private PDF counts differ.');
+    // All application PDFs are compared, not just those currently linked as
+    // active. Existing historical and replaced PDF files remain recoverable.
+    $si=adc_restore_pdf_inventory($sourcePdfDir);
+    $ri=adc_restore_pdf_inventory($restoredPdfDir);
+    if($si!==$ri){
+        throw new RuntimeException('Private PDF directory inventory differs.');
+    }
+    foreach($s['files'] as $key=>$sha){
+        if(!isset($si[$key]) || !hash_equals($sha,$si[$key])){
+            throw new RuntimeException('One or more active private PDFs are missing or corrupted.');
+        }
+    }
     return ['tables'=>count($sourceCounts),
             'rows'=>array_sum(array_map('intval',$sourceCounts)),
-            'pdfs'=>$restoredNum,'fingerprint_match'=>true,'finance_match'=>true,'full_rows_match'=>true];
+            'pdfs'=>count($s['files']),'stored_pdfs'=>count($si),
+            'fingerprint_match'=>true,'finance_match'=>true,'full_rows_match'=>true];
 }
