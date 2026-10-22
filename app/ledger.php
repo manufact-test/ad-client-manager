@@ -108,6 +108,50 @@ function adc_ledger_due_date(string $sentAt,int $billingDay): string {
     return $due->format('Y-m-d');
 }
 
+/** Show a reminder only in the seven calendar days around a billing
+ * anchor; check neighboring months for dates like November 1. */
+function adc_ledger_preparation_due(string $today,int $billingDay): ?string {
+    if (!adc_valid_date($today) || $billingDay<1 || $billingDay>31) {
+        throw new InvalidArgumentException('Некорректная дата подготовки документов.');
+    }
+    $now=new DateTimeImmutable($today);
+    $month=$now->modify('first day of this month');
+    foreach ([$month->modify('-1 month'),$month,$month->modify('+1 month')] as $anchor) {
+        $due=$anchor->setDate((int)$anchor->format('Y'),(int)$anchor->format('m'),
+            min($billingDay,(int)$anchor->format('t')));
+        if ($now >= $due->modify('-3 days') && $now <= $due->modify('+3 days')) {
+            return $due->format('Y-m-d');
+        }
+    }
+    return null;
+}
+
+/** Count a sent request against its contractual month even if it was prepared
+ * earlier than the three-day window. Preserve the terms active when sent. */
+function adc_ledger_has_request_for_due(PDO $db,int $clientId,string $due,string $today): bool {
+    $q=$db->prepare('SELECT e.sent_at,
+        COALESCE(
+          (SELECT t.billing_day FROM engagement_terms t
+            JOIN engagements g ON g.id=t.engagement_id
+            WHERE g.client_id=e.client_id AND t.effective_on<=DATE(e.sent_at)
+            ORDER BY t.effective_on DESC,t.id DESC LIMIT 1),
+          (SELECT g.billing_day FROM engagements g
+            WHERE g.client_id=e.client_id AND g.started_on<=DATE(e.sent_at)
+            ORDER BY g.started_on DESC,g.id DESC LIMIT 1)
+        ) AS billing_day
+        FROM client_entries e
+        WHERE e.client_id=? AND e.is_void=0 AND e.sent_at IS NOT NULL
+          AND DATE(e.sent_at)<=?');
+    $q->execute([$clientId,$today]);
+    foreach ($q as $entry) {
+        if ($entry['billing_day']!==null &&
+            adc_ledger_due_date((string)$entry['sent_at'],(int)$entry['billing_day'])===$due) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function adc_ledger_has_overdue(PDO $db,int $clientId,string $today): bool {
     $q=$db->prepare('SELECT e.sent_at,
         COALESCE(
@@ -147,20 +191,9 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
     $e->execute([$clientId]);$r=$e->fetch();
     $needsDocument=false;
     if($r && $r['started_on']<=$today) {
-        $now=new DateTimeImmutable($today);
-        $anchor=$now->modify('first day of this month');
-        $billingDay=min((int)$r['billing_day'],(int)$anchor->format('t'));
-        $due=$anchor->setDate((int)$anchor->format('Y'),(int)$anchor->format('m'),$billingDay);
-        if($due>$now->modify('+3 days')) {
-            $prev=$anchor->modify('-1 month');
-            $due=$prev->setDate((int)$prev->format('Y'),(int)$prev->format('m'),
-                min((int)$r['billing_day'],(int)$prev->format('t')));
-        }
-        if($now >= $due->modify('-3 days') && $due->format('Y-m-d') >= $r['started_on']) {
-            $q=$db->prepare('SELECT COUNT(*) FROM client_entries
-                WHERE client_id=? AND is_void=0 AND created_at>=?');
-            $q->execute([$clientId,$due->modify('-3 days')->format('Y-m-d')]);
-            $needsDocument=(int)$q->fetchColumn()===0;
+        $due=adc_ledger_preparation_due($today,(int)$r['billing_day']);
+        if ($due!==null && $due >= $r['started_on']) {
+            $needsDocument=!adc_ledger_has_request_for_due($db,$clientId,$due,$today);
         }
     }
     if($needsDocument) return ['Подготовить документы','warning'];
