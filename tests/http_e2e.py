@@ -116,6 +116,51 @@ try:
     require(status==200 and re.search(
         r'name="quoted_amount" type="number"[^>]*step="0.01"',html(form)),
         "Monthly contractual price input appears in Add client")
+    # Fast director-only onboarding is separate from the historical ledger import.
+    status,_,settings=request("director","/?view=team")
+    require(status==200 and "Массовое добавление клиентов" in html(settings) and
+            'name="action" value="preview_quick_clients"' in html(settings),
+            "Director can onboard multiple clients from the settings view")
+    status,_,employeeSettings=request("employee","/?view=team")
+    require(status==200 and "Массовое добавление клиентов" not in html(employeeSettings),
+            "Employees cannot see the bulk onboarding form")
+    status,headers,quickTemplate=request("director","/?export=quick_clients_template")
+    require(status==200 and "text/csv" in headers.lower() and
+            "client_name,is_demo,started_on" in html(quickTemplate),
+            "Director downloads the onboarding CSV template")
+    status,_,employeeCsv=request("employee","/?export=quick_clients_template")
+    require(status==403,"Employee cannot download director-only CSV template")
+    status,_,visitorCsv=request("visitor","/?export=quick_clients_template")
+    require(status==200 and "Вход" in html(visitorCsv),
+            "Anonymous visitor cannot retrieve CSV template")
+    # The template is synthetic and can be edited offline for an exact preview.
+    bulkCsv=WORK/"synthetic-bulk-clients.csv"
+    bulkCsv.write_bytes(quickTemplate.replace(
+        "ООО Пример рекламодателя".encode("utf-8"),
+        "CI CSV bulk active".encode("utf-8")).replace(
+        "Демо пример".encode("utf-8"),
+        "CI CSV bulk demo".encode("utf-8")))
+    status,headers,_=request("director",files={
+        "csrf":director,"action":"preview_quick_clients",
+        "quick_csv":"@"+str(bulkCsv)+";filename=clients.csv;type=text/csv"})
+    require(status==303 and "view=team" in location(headers),
+            "Preview accepts clean synthetic CSV and saves nothing")
+    status,_,settings=request("director","/?view=team")
+    require(status==200 and "Готово к импорту: 2" in html(settings) and
+            'name="action" value="commit_quick_clients"' in html(settings),
+            "Director sees approved preview with two employees/demo categories")
+    status,headers,_=request("director",files={
+        "csrf":director,"action":"commit_quick_clients",
+        "quick_csv":"@"+str(bulkCsv)+";filename=clients.csv;type=text/csv"})
+    require(status==303 and "view=clients" in location(headers),
+            "Director confirms the exact same CSV")
+    status,_,listPage=request("director","/?view=clients")
+    require(status==200 and "CI CSV bulk active" in html(listPage) and
+            "CI CSV bulk demo" in html(listPage),
+            "Imported clients appear as ordinary cards")
+    status,_,settings=request("director","/?view=team")
+    require(status==200 and "Готово к импорту: 2" not in html(settings),
+            "Successful import clears the pending confirmation")
     demo=create_client(director,"CI demo ledger",True)
     real=create_client(director,"CI real ledger",False)
     # Daily operating overview and read-only client paperwork CSV are authenticated.

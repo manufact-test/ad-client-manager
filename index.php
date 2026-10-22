@@ -448,6 +448,7 @@ require __DIR__ . '/app/team_tasks.php';
 require __DIR__ . '/app/operations.php';
 require __DIR__ . '/app/collections.php';
 require __DIR__ . '/app/import.php';
+require __DIR__ . '/app/quick_import.php';
 require __DIR__ . '/app/audit.php';
 
 $config = adc_config();
@@ -727,6 +728,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             adc_redirect();
         }
         if (adc_import_action($db, $current, $action)) {
+            adc_redirect();
+        }
+        if (adc_quick_import_action($db, $current, $action)) {
             adc_redirect();
         }
 

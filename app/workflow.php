@@ -1012,7 +1012,8 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     }
     $html=$archive
         ? '<h1>Архив</h1>'
-        : '<h1>Клиенты</h1>'.adc_w_client_form($db,null);
+        : '<h1>Клиенты</h1>'.adc_w_client_form($db,null).
+            (($user['role']??'')==='director' ? '<p><a class="btn secondary" href="/?view=team#quick-import">Массово добавить клиентов из CSV</a></p>' : '');
     $html.='<form class="card" method="get" role="search">'.
         adc_w_hidden('view',$view).
         '<div class="grid"><label class="field">Поиск клиентов и услуг'.
@@ -1267,6 +1268,7 @@ function adc_w_team(PDO $db, array $user): string {
         adc_w_field('Текущий пароль','old_password','','password','required autocomplete="current-password"').
         adc_w_field('Новый пароль','new_password','','password','minlength="12" required autocomplete="new-password"').
         '<button type="submit">Сохранить пароль</button></form></details>';
+    $html.=adc_quick_import_panel($user);
     $html.=adc_import_panel($user);
     $html.=adc_audit_panel($db,$user);
     return $html;

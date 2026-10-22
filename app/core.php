@@ -377,7 +377,7 @@ function adc_auth_session_issue(int $userId, string $passwordHash): void {
 function adc_auth_session_clear(): void {
     unset($_SESSION['user_id'],$_SESSION['auth_binding'],
         $_SESSION['auth_issued_at'],$_SESSION['auth_last_seen_at'],
-        $_SESSION['history_import_preview']);
+        $_SESSION['history_import_preview'],$_SESSION['quick_clients_preview']);
 }
 
 function adc_auth_session_timely(array $session, int $now): bool {

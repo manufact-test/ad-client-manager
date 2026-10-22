@@ -233,7 +233,11 @@ function adc_export_csv(PDO $db,array $user,string $report): never {
         http_response_code(403);
         exit('Нет доступа к выгрузке.');
     }
-    if ($report==='balances') {
+    if ($report==='quick_clients_template') {
+        adc_require_director($user);
+        $rows=adc_quick_import_template();
+        $filename='adclients-new-clients-template.csv';
+    } elseif ($report==='balances') {
         $rows=adc_export_balances($db);
         $filename='adclients-real-balances.csv';
     } elseif ($report==='payments') {
