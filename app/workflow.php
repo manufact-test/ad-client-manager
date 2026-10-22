@@ -719,6 +719,32 @@ function adc_w_engagement_fields(?array $current = null): string {
         '</div>';
 }
 
+/**
+ * Real clients may be deleted only if the only relationship is their initial,
+ * active engagement. Even voided operations or prior periods are historical
+ * data and must never be removed through this convenience action.
+ */
+function adc_w_can_delete_empty_client(PDO $db, int $clientId): bool {
+    $q=$db->prepare('SELECT id,status FROM engagements WHERE client_id=? ORDER BY id');
+    $q->execute([$clientId]);
+    $engagements=$q->fetchAll();
+    if (count($engagements)!==1 || $engagements[0]['status']!=='active') return false;
+    foreach ([
+        'SELECT 1 FROM billing_periods p JOIN engagements e ON e.id=p.engagement_id WHERE e.client_id=? LIMIT 1',
+        'SELECT 1 FROM engagement_terms t JOIN engagements e ON e.id=t.engagement_id WHERE e.client_id=? LIMIT 1',
+        'SELECT 1 FROM document_bundles WHERE client_id=? LIMIT 1',
+        'SELECT 1 FROM client_entries WHERE client_id=? LIMIT 1',
+        'SELECT 1 FROM charge_lines WHERE client_id=? LIMIT 1',
+        'SELECT 1 FROM payment_events WHERE client_id=? LIMIT 1',
+        'SELECT 1 FROM clients WHERE previous_client_id=? LIMIT 1',
+    ] as $sql) {
+        $check=$db->prepare($sql);
+        $check->execute([$clientId]);
+        if ($check->fetchColumn()!==false) return false;
+    }
+    return true;
+}
+
 function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string $returnUrl): string {
     $client = adc_w_client($db, $id);
     $qDate = static fn(?string $date): string => $date === null || $date === '' ? '' :
@@ -812,6 +838,15 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $html .= '<details class="sub-action"><summary>Возобновить сотрудничество</summary>'.
             adc_w_form_start('start_engagement').adc_w_hidden('client_id',$id).
             adc_w_engagement_fields().'<button type="submit">Возобновить</button></form></details>';
+    }
+    if ((int)$client['is_demo']===0 && $user['role']==='director' &&
+        adc_w_can_delete_empty_client($db,$id)) {
+        $html .= '<details class="sub-action"><summary>Удалить клиента</summary>'.
+            '<p class="muted">Только для случайно созданной пустой карточки. Удаление необратимо.</p>'.
+            adc_w_form_start('delete_empty_client').adc_w_hidden('client_id',$id).
+            adc_w_field('Для подтверждения введите УДАЛИТЬ','delete_confirmation','','text',
+                'required autocomplete="off" placeholder="УДАЛИТЬ"').
+            '<button type="submit" class="secondary">Удалить клиента</button></form></details>';
     }
     if ((int)$client['is_demo']===1 && $user['role']==='director') {
         $html .= '<details class="sub-action"><summary>Удалить демо-клиента</summary>'.

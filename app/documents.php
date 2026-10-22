@@ -106,10 +106,22 @@ function adc_doc_labels(): array {
 
 
 function adc_doc_action(PDO $db,array $user,string $action): bool {
-    if (!in_array($action,['upload_document','edit_document','replace_document','void_document','transfer_document','delete_demo'],true)) return false;
+    if (!in_array($action,['upload_document','edit_document','replace_document','void_document','transfer_document','delete_demo','delete_empty_client'],true)) return false;
     $actor=(int)$user['id'];$clientId=adc_w_id('client_id');
     if ($action!=='transfer_document') adc_require_director($user);
     $db->beginTransaction();$client=adc_w_client($db,$clientId,true);
+    if ($action==='delete_empty_client') {
+        if ((int)$client['is_demo']!==0 ||
+            adc_input('delete_confirmation')!=='УДАЛИТЬ' ||
+            !adc_w_can_delete_empty_client($db,$clientId)) {
+            throw new RuntimeException('Удаление запрещено. Проверьте подтверждение и отсутствие документов, оплат, периодов и истории сотрудничества.');
+        }
+        $db->prepare('DELETE FROM clients WHERE id=? AND is_demo=0')->execute([$clientId]);
+        adc_audit($db,$actor,'delete_empty_client','client',$clientId);
+        $db->commit();
+        adc_flash('Случайно созданный клиент удалён.');
+        adc_redirect('?view=clients');
+    }
     if ($action==='delete_demo') {
         if ((int)$client['is_demo']!==1) throw new RuntimeException('Удалять можно только демо-клиента.');
         $q=$db->prepare('SELECT storage_key FROM document_bundles WHERE client_id=? AND storage_key IS NOT NULL');
