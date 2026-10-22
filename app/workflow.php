@@ -706,12 +706,16 @@ function adc_w_client_form(PDO $db, ?array $client): string {
 }
 
 function adc_w_engagement_fields(?array $current = null): string {
+    // This optional monthly contract reference never creates a financial entry.
+    $quote=(string)($current['quoted_amount'] ?? '');
+    if ($quote==='0.00') $quote='';
     return '<div class="grid">' .
         adc_w_field('Дата начала','started_on',(string)($current['started_on'] ?? date('Y-m-d')),'date','required') .
         adc_w_select('Условия оплаты','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)($current['payment_mode'] ?? 'prepayment')) .
         adc_w_select('Валюта','currency',['BYN'=>'BYN — белорусский рубль','RUB'=>'RUB — российский рубль',
          'EUR'=>'EUR — евро','USD'=>'USD — доллар США','KZT'=>'KZT — тенге'],(string)($current['currency'] ?? 'BYN')) .
-        adc_w_hidden('quoted_amount',(string)($current['quoted_amount'] ?? '0.00')) .
+        adc_w_field('Сумма по договору в месяц','quoted_amount',$quote,'number',
+            'min="0.01" step="0.01" inputmode="decimal" placeholder="Не указана"') .
         '</div>';
 }
 
@@ -740,7 +744,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $activeFrom=$currentTerms['effective_on'];
         $html .= '<div><small>Дата начала текущих условий</small><strong>'.adc_h($qDate((string)$activeFrom)).'</strong></div>';
         if (adc_fin_minor((string)($current['quoted_amount'] ?? '0.00'))!==0) {
-            $html.='<div><small>Исторический ориентир стоимости за месяц</small><strong>'.
+            $html.='<div><small>Сумма по договору в месяц</small><strong>'.
                 adc_w_money($current['quoted_amount'],(string)$current['currency']).'</strong></div>';
         }
         $html.='<div><small>Условия оплаты</small><strong>'.
