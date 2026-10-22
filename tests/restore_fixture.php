@@ -24,7 +24,7 @@ $db=adc_db(['db'=>[
  'password'=>getenv('TEST_DB_PASSWORD')?:'',
 ]]);
 if ($mode==='seed') {
-    if ((getenv('TEST_DB_NAME')?:'')!=='adclients_test') {
+    if ((getenv('TEST_DB_NAME')?:'')!=='adclients_restore_source_test') {
         throw new RuntimeException('Backup seed must use isolated CI database.');
     }
     adc_schema($db);

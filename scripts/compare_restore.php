@@ -23,7 +23,7 @@ require __DIR__.'/../app/restore_audit.php';
 try{
     $test=getenv('ADC_RESTORE_COMPARE_CI')==='isolated-github-actions';
     if($test) {
-        if(getenv('TEST_DB_NAME')!=='adclients_test' ||
+        if(getenv('TEST_DB_NAME')!=='adclients_restore_source_test' ||
             getenv('TEST_DB_HOST')!=='127.0.0.1'){
             throw new RuntimeException('CI source must be a disposable test database.');
         }
