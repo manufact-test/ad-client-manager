@@ -84,18 +84,65 @@ function adc_ledger_form_money(array $entry=[]): string {
         adc_w_select('Валюта','currency',
         ['BYN'=>'BYN','RUB'=>'RUB','EUR'=>'EUR','USD'=>'USD','KZT'=>'KZT'],(string)$ccy);
 }
+/**
+ * Assign a sent request to its next contractual billing anchor.
+ * Sending up to three days after the anchor still belongs to that cycle.
+ * The anchor is a deadline, never an automatic money charge.
+ */
+function adc_ledger_due_date(string $sentAt,int $billingDay): string {
+    if ($billingDay<1 || $billingDay>31 ||
+        !preg_match('/^\d{4}-\d{2}-\d{2}/D',$sentAt)) {
+        throw new InvalidArgumentException('Неверная договорная дата оплаты.');
+    }
+    $day=substr($sentAt,0,10);
+    if (!adc_valid_date($day)) throw new InvalidArgumentException('Неверная дата отправки.');
+    $sent=new DateTimeImmutable($day);
+    $first=$sent->modify('first day of this month');
+    $due=$first->setDate((int)$first->format('Y'),(int)$first->format('m'),
+        min($billingDay,(int)$first->format('t')));
+    if ($sent>$due->modify('+3 days')) {
+        $next=$first->modify('first day of next month');
+        $due=$next->setDate((int)$next->format('Y'),(int)$next->format('m'),
+            min($billingDay,(int)$next->format('t')));
+    }
+    return $due->format('Y-m-d');
+}
+
+function adc_ledger_has_overdue(PDO $db,int $clientId,string $today): bool {
+    $q=$db->prepare('SELECT e.sent_at,
+        COALESCE(
+          (SELECT t.billing_day FROM engagement_terms t
+            JOIN engagements g ON g.id=t.engagement_id
+            WHERE g.client_id=e.client_id AND t.effective_on<=DATE(e.sent_at)
+            ORDER BY t.effective_on DESC,t.id DESC LIMIT 1),
+          (SELECT g.billing_day FROM engagements g
+            WHERE g.client_id=e.client_id AND g.started_on<=DATE(e.sent_at)
+            ORDER BY g.started_on DESC,g.id DESC LIMIT 1)
+        ) AS billing_day
+        FROM client_entries e
+        WHERE e.client_id=? AND e.is_void=0 AND e.amount IS NOT NULL
+            AND e.sent_at IS NOT NULL AND e.received_at IS NULL');
+    $q->execute([$clientId]);
+    foreach ($q as $entry) {
+        if ($entry['billing_day']===null) continue;
+        $due=adc_ledger_due_date((string)$entry['sent_at'],(int)$entry['billing_day']);
+        $grace=(new DateTimeImmutable($due))->modify('+3 days')->format('Y-m-d');
+        if ($today>$grace) return true;
+    }
+    return false;
+}
+
 function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
+    if (!adc_valid_date($today)) throw new InvalidArgumentException('Неверная дата.');
     $q=$db->prepare('SELECT
         SUM(CASE WHEN sent_at IS NULL THEN 1 ELSE 0 END) unsent,
         SUM(CASE WHEN amount IS NOT NULL AND sent_at IS NOT NULL AND received_at IS NULL THEN 1 ELSE 0 END) unpaid,
-        SUM(CASE WHEN amount IS NOT NULL AND received_at IS NULL AND sent_at IS NOT NULL
-                 AND sent_at < DATE_SUB(?,INTERVAL 3 DAY) THEN 1 ELSE 0 END) late,
         SUM(CASE WHEN received_at IS NOT NULL THEN 1 ELSE 0 END) paid
         FROM client_entries WHERE client_id=? AND is_void=0');
-    $q->execute([$today,$clientId]);$s=$q->fetch();
+    $q->execute([$clientId]);$s=$q->fetch();
     if ((int)$s['unsent']>0) return ['Отправить документы · '.$s['unsent'],'warning'];
-    // The monthly contract is only a reminder to prepare documents, not a charge.
-    // Three days on either side of the anchor are treated as the same cycle.
+    // The monthly contract only reminds staff to prepare documentation; it
+    // never creates a charge or a personal task for each employee.
     $e=$db->prepare('SELECT started_on,billing_day FROM engagements WHERE client_id=? AND status="active" ORDER BY id DESC LIMIT 1');
     $e->execute([$clientId]);$r=$e->fetch();
     $needsDocument=false;
@@ -117,10 +164,15 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
         }
     }
     if($needsDocument) return ['Подготовить документы','warning'];
-    if ((int)$s['unpaid']>0) return [(int)$s['late']>0?'Ждём оплату · '.$s['unpaid'].' (просрочка)':'Ждём оплату · '.$s['unpaid'],(int)$s['late']>0?'danger':'warning'];
+    if ((int)$s['unpaid']>0) {
+        $late=adc_ledger_has_overdue($db,$clientId,$today);
+        return [$late?'Ждём оплату · '.$s['unpaid'].' (просрочка)':'Ждём оплату · '.$s['unpaid'],
+            $late?'danger':'warning'];
+    }
     if ((int)$s['paid']>0) return ['Оплачено','good'];
     return ['В работе',''];
 }
+
 function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
     $q=$db->prepare('SELECT e.*,d.original_filename,d.needs_invoice,d.needs_spec,d.needs_act,d.needs_contract
         FROM client_entries e LEFT JOIN document_bundles d ON d.id=e.document_id
