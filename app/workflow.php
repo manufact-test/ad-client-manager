@@ -97,7 +97,7 @@ function adc_w_engagement(PDO $db, int $clientId, int $engagementId): array {
  * even though engagements stores the latest settings for compatibility.
  */
 function adc_w_effective_terms(PDO $db,array $engagement,string $today): array {
-    $q=$db->prepare('SELECT effective_on,billing_day,payment_mode,currency
+    $q=$db->prepare('SELECT effective_on,billing_day,payment_mode,currency,quoted_amount
         FROM engagement_terms WHERE engagement_id=? AND effective_on<=?
         ORDER BY effective_on DESC,id DESC LIMIT 1');
     $q->execute([(int)$engagement['id'],$today]);
@@ -107,7 +107,37 @@ function adc_w_effective_terms(PDO $db,array $engagement,string $today): array {
         'billing_day'=>$engagement['billing_day'],
         'payment_mode'=>$engagement['payment_mode'],
         'currency'=>$engagement['currency'],
+        'quoted_amount'=>$engagement['quoted_amount'] ?? null,
     ];
+}
+
+
+/** Resolve a cycle boundary using the terms valid at its start; stop at a
+ * scheduled future contract change rather than silently rewriting history. */
+function adc_w_next_cycle_end_effective(PDO $db,array $engagement,string $start): string {
+    $terms=adc_w_effective_terms($db,$engagement,$start);
+    $end=adc_w_next_cycle_end($start,(int)$terms['billing_day']);
+    $q=$db->prepare('SELECT MIN(effective_on) FROM engagement_terms
+        WHERE engagement_id=? AND effective_on>? AND effective_on<?');
+    $q->execute([(int)$engagement['id'],$start,$end]);
+    $next=$q->fetchColumn();
+    return $next===false || $next===null ? $end : (string)$next;
+}
+
+/**
+ * Optimistic concurrency token for the full contract timeline. A client
+ * lock serializes writes; this token rejects a stale second browser tab.
+ * Contract snapshots never contain secret material.
+ */
+function adc_w_terms_revision(PDO $db,array $engagement): string {
+    $q=$db->prepare('SELECT id,effective_on,started_on,billing_day,
+        payment_mode,currency,quoted_amount FROM engagement_terms
+        WHERE engagement_id=? ORDER BY id DESC LIMIT 1');
+    $q->execute([(int)$engagement['id']]);
+    $latest=$q->fetch(PDO::FETCH_ASSOC) ?: null;
+    return hash('sha256',json_encode([
+        adc_w_engagement_revision($engagement),$latest
+    ],JSON_THROW_ON_ERROR));
 }
 
 function adc_w_period(PDO $db, int $clientId, int $periodId): array {
@@ -361,25 +391,42 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $eid=adc_w_id('engagement_id');
         $old=adc_w_engagement($db,$clientId,$eid);
         if ($old['status']!=='active') throw new RuntimeException('Нельзя менять закрытое сотрудничество.');
+        $expectedTermsRevision=adc_input('expected_terms_revision');
+        if (!preg_match('/^[a-f0-9]{64}$/D',$expectedTermsRevision) ||
+            !hash_equals(adc_w_terms_revision($db,$old),$expectedTermsRevision)) {
+            throw new RuntimeException('История условий изменена в другой вкладке. Обновите карточку перед сохранением.');
+        }
         $effective=adc_w_date(adc_input('effective_on'));
         if ($effective<=$old['started_on']) throw new RuntimeException('Новые условия должны вступать в силу позже первоначальной даты начала сотрудничества.');
         $day=(int)substr($effective,8,2);
         $mode=adc_w_pick('payment_mode',['prepayment','postpayment']);
         $ccy=adc_w_currency(adc_input('currency'));
+        $rawQuote=adc_input('quoted_amount');
+        // An omitted price is unknown, NOT a zero-priced contract.
+        // engagements has a legacy NOT NULL field, but the dated version
+        // records this distinction with the nullable quoted_amount column.
+        $quote=$rawQuote==='' ? null :
+            (in_array($rawQuote,['0','0.0','0.00'],true)?'0.00':adc_w_amount($rawQuote));
         $q=$db->prepare('SELECT MAX(effective_on) FROM engagement_terms WHERE engagement_id=?');
         $q->execute([$eid]);$last=$q->fetchColumn();
         if ($last!==false && $effective<=$last) throw new RuntimeException('Новая дата должна быть позже предыдущих условий.');
         $q=$db->prepare('SELECT COUNT(*) FROM engagement_terms WHERE engagement_id=?');
         $q->execute([$eid]);
         if ((int)$q->fetchColumn()===0) {
-            $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
-              VALUES (?,?,?,?,?,?)')->execute([$eid,$old['started_on'],$old['started_on'],$old['billing_day'],$old['payment_mode'],$old['currency']]);
+            $db->prepare('INSERT INTO engagement_terms
+                (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
+                VALUES (?,?,?,?,?,?,?)')->execute([
+                    $eid,$old['started_on'],$old['started_on'],$old['billing_day'],
+                    $old['payment_mode'],$old['currency'],$old['quoted_amount']
+                ]);
         }
-        $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
-          VALUES (?,?,?,?,?,?)')->execute([$eid,$effective,$effective,$day,$mode,$ccy]);
-        $db->prepare('UPDATE engagements SET billing_day=?,payment_mode=?,currency=? WHERE id=?')
-          ->execute([$day,$mode,$ccy,$eid]);
-        adc_audit($db,$actor,'add_engagement_terms','engagement',$eid,['effective_on'=>$effective]);
+        $db->prepare('INSERT INTO engagement_terms
+            (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
+            VALUES (?,?,?,?,?,?,?)')->execute([$eid,$effective,$effective,$day,$mode,$ccy,$quote]);
+        $db->prepare('UPDATE engagements SET billing_day=?,payment_mode=?,currency=?,quoted_amount=? WHERE id=?')
+          ->execute([$day,$mode,$ccy,$quote??'0.00',$eid]);
+        adc_audit($db,$actor,'add_engagement_terms','engagement',$eid,
+            ['effective_on'=>$effective,'quoted_amount'=>$quote,'currency'=>$ccy]);
     } elseif ($action === 'save_engagement') {
         $eid=adc_w_id('engagement_id');
         $old=adc_w_engagement($db,$clientId,$eid);
@@ -404,6 +451,14 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $first=$stmt->fetchColumn();
         if ($first !== null && $started > $first) {
             throw new RuntimeException('Начало сотрудничества не может быть позже существующего периода.');
+        }
+        $versionCount=$db->prepare('SELECT COUNT(*) FROM engagement_terms WHERE engagement_id=?');
+        $versionCount->execute([$eid]);
+        if ((int)$versionCount->fetchColumn()>0 &&
+            ($old['started_on']!==$started || (int)$old['billing_day']!==$day ||
+             $old['payment_mode']!==$mode || $old['currency']!==$currency ||
+             adc_fin_minor((string)$old['quoted_amount'])!==adc_fin_minor($quote))) {
+            throw new RuntimeException('Используйте «Добавить новые условия», чтобы сохранить историю изменения суммы и дат.');
         }
         if ($old['currency'] !== $currency) {
             $stmt=$db->prepare('SELECT
@@ -488,7 +543,7 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             throw new RuntimeException('Заключительный период уже создан. Новый автоматический период невозможен.');
         }
         $start=$latest ? $latest['period_end'] : $eng['started_on'];
-        $end=adc_w_next_cycle_end($start,(int)$eng['billing_day']);
+        $end=adc_w_next_cycle_end_effective($db,$eng,$start);
         $stmt=$db->prepare('INSERT INTO billing_periods(engagement_id,period_start,period_end,creation_key) VALUES (?,?,?,?)');
         $stmt->execute([$eid,$start,$end,$key]);
         adc_audit($db,$actor,'create_next_period','billing_period',(int)$db->lastInsertId(),
@@ -769,10 +824,13 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $currentTerms=adc_w_effective_terms($db,$current,date('Y-m-d'));
         $activeFrom=$currentTerms['effective_on'];
         $html .= '<div><small>Дата начала текущих условий</small><strong>'.adc_h($qDate((string)$activeFrom)).'</strong></div>';
-        if (adc_fin_minor((string)($current['quoted_amount'] ?? '0.00'))!==0) {
-            $html.='<div><small>Сумма по договору в месяц</small><strong>'.
-                adc_w_money($current['quoted_amount'],(string)$current['currency']).'</strong></div>';
-        }
+        $currentPrice=$currentTerms['quoted_amount']===null
+            ? 'Не указана'
+            : (adc_fin_minor((string)$currentTerms['quoted_amount'])===0
+                ? 'Без суммы'
+                : adc_w_money($currentTerms['quoted_amount'],(string)$currentTerms['currency']));
+        $html.='<div><small>Сумма по договору в месяц</small><strong>'.
+            adc_h($currentPrice).'</strong></div>';
         $html.='<div><small>Условия оплаты</small><strong>'.
             ($currentTerms['payment_mode']==='prepayment'?'Предоплата':'Постоплата').'</strong></div>';
     }
@@ -806,26 +864,59 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $eid=(int)$eng['id'];
         $history=$db->prepare('SELECT * FROM engagement_terms WHERE engagement_id=? ORDER BY effective_on DESC,id DESC');
         $history->execute([$eid]);$terms=$history->fetchAll();
-        $activeTerms=adc_w_effective_terms($db,$eng,date('Y-m-d'));
+        $today=date('Y-m-d');
+        $activeTerms=adc_w_effective_terms($db,$eng,$today);
+        $latestTerms=$terms[0]??$activeTerms;
+        $lastEffective=$terms ? (string)$terms[0]['effective_on'] : (string)$eng['started_on'];
+        $newTermsDefaultDate=max($today,(new DateTimeImmutable($lastEffective))
+            ->modify('+1 day')->format('Y-m-d'));
+        $nextScheduled=null;
+        foreach (array_reverse($terms) as $futureTerm) {
+            if ((string)$futureTerm['effective_on']>$today) {
+                $nextScheduled=$futureTerm;
+                break;
+            }
+        }
         $html.='<div class="terms-list"><h4>Текущие условия</h4>'.
             '<p>'.adc_h($qDate((string)$activeTerms['effective_on'])).' · '.
             ((string)$activeTerms['payment_mode']==='prepayment'?'Предоплата':'Постоплата').
             ' · '.adc_h((string)$activeTerms['currency']).' · расчётный день '.(int)$activeTerms['billing_day'].'</p>';
+        if ($nextScheduled!==null) {
+            $upcomingRate=$nextScheduled['quoted_amount']===null ? 'сумма не указана' :
+                (adc_fin_minor((string)$nextScheduled['quoted_amount'])===0 ? 'без суммы'
+                : adc_w_money($nextScheduled['quoted_amount'],(string)$nextScheduled['currency']).' в месяц');
+            $html.='<p class="muted"><strong>Запланированы новые условия с '.
+                adc_h($qDate((string)$nextScheduled['effective_on'])).':</strong> '.
+                ((string)$nextScheduled['payment_mode']==='prepayment'?'предоплата':'постоплата').
+                ', '.adc_h((string)$nextScheduled['currency']).', день '.
+                (int)$nextScheduled['billing_day'].', '.adc_h($upcomingRate).
+                '. До этой даты действуют текущие условия.</p>';
+        }
         if ($terms) {
             $html.='<details><summary>История условий · '.count($terms).'</summary>';
             foreach($terms as $term) {
+                $price=$term['quoted_amount']===null ? 'Старая сумма неизвестна'
+                    : (adc_fin_minor((string)$term['quoted_amount'])===0 ? 'Без суммы'
+                    : adc_w_money($term['quoted_amount'],(string)$term['currency']).' в месяц');
                 $html.='<p>'.adc_h($qDate((string)$term['effective_on'])).' · '.
                     ((string)$term['payment_mode']==='prepayment'?'Предоплата':'Постоплата').
-                    ' · '.adc_h((string)$term['currency']).' · день '.(int)$term['billing_day'].'</p>';
+                    ' · '.adc_h((string)$term['currency']).' · день '.(int)$term['billing_day'].
+                    ' · '.adc_h($price).'</p>';
             }
             $html.='</details>';
         }
         $html.='</div><details class="sub-action"><summary>Добавить новые условия</summary>'.
             adc_w_form_start('add_engagement_terms').adc_w_hidden('client_id',$id).
             adc_w_hidden('engagement_id',$eid).
-            adc_w_field('Действуют с','effective_on',date('Y-m-d'),'date','required').
-            adc_w_select('Условия оплаты','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)$eng['payment_mode']).
-            adc_w_select('Валюта','currency',['BYN'=>'BYN','RUB'=>'RUB','EUR'=>'EUR','USD'=>'USD','KZT'=>'KZT'],(string)$eng['currency']).
+            adc_w_hidden('expected_terms_revision',adc_w_terms_revision($db,$eng)).
+            adc_w_field('Действуют с','effective_on',$newTermsDefaultDate,'date','required').
+            adc_w_select('Условия оплаты','payment_mode',['prepayment'=>'Предоплата','postpayment'=>'Постоплата'],(string)$latestTerms['payment_mode']).
+            adc_w_select('Валюта','currency',['BYN'=>'BYN','RUB'=>'RUB','EUR'=>'EUR','USD'=>'USD','KZT'=>'KZT'],(string)$latestTerms['currency']).
+            adc_w_field('Сумма по договору в месяц','quoted_amount',
+                $latestTerms['quoted_amount']===null?'':(
+                    adc_fin_minor((string)$latestTerms['quoted_amount'])===0?'':(string)$latestTerms['quoted_amount']),
+                'number','min="0.01" step="0.01" inputmode="decimal" placeholder="Не указана"').
+            '<p class="muted">Пустая сумма означает, что ставка неизвестна. Это не начисление и не поступление.</p>'.
             '<button type="submit">Сохранить новые условия</button></form></details>'.
             '<details class="sub-action"><summary>Завершить сотрудничество</summary>'.
             adc_w_form_start('archive_engagement').adc_w_hidden('client_id',$id).
@@ -878,33 +969,51 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     $query=is_string($_GET['q'] ?? null) ? trim($_GET['q']) : '';
     if (mb_strlen($query)>80) $query=mb_substr($query,0,80);
     $demo=in_array($_GET['demo'] ?? '', ['0','1'], true) ? (string)$_GET['demo'] : '';
-    $returnUrl='/?'.http_build_query(['view'=>$view,'q'=>$query,'demo'=>$demo],'','&',PHP_QUERY_RFC3986);
-    $sql='SELECT c.* FROM clients c WHERE '.
-        ($archive
-          ? 'NOT EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")'
-          : 'EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")');
+    $where=$archive
+        ? 'NOT EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")'
+        : 'EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")';
     $args=[];
     if ($demo!=='') {
-        $sql.=' AND c.is_demo=?';
+        $where.=' AND c.is_demo=?';
         $args[]=(int)$demo;
     }
     if ($query!=='') {
-        // Literal substring search, unlike LIKE this does not treat "%" / "_"
-        // in user text as wildcards.
-        $sql.=' AND (LOCATE(LOWER(?),LOWER(c.name))>0 OR
+        // Literal substring search; LIKE wildcard characters cannot broaden results.
+        $where.=' AND (LOCATE(LOWER(?),LOWER(c.name))>0 OR
             LOCATE(LOWER(?),LOWER(COALESCE(c.platform_text,"")))>0)';
-        $args[]=$query;
-        $args[]=$query;
+        $args[]=$query; $args[]=$query;
     }
-    $sql.=' ORDER BY c.id DESC LIMIT 300';
-    $stmt=$db->prepare($sql);
-    $stmt->execute($args);
-    $clients=$stmt->fetchAll();
+    $totalQuery=$db->prepare('SELECT COUNT(*) FROM clients c WHERE '.$where);
+    $totalQuery->execute($args);
+    $total=(int)$totalQuery->fetchColumn();
+    $perPage=60;
+    $pages=max(1,(int)ceil($total/$perPage));
+    $requested=filter_var($_GET['page']??null,FILTER_VALIDATE_INT);
+    $page=($requested!==false && $requested!==null)
+        ?min(max(1,(int)$requested),$pages):1;
+    $offset=($page-1)*$perPage;
+    $list=$db->prepare('SELECT c.* FROM clients c WHERE '.$where.
+        ' ORDER BY c.id DESC LIMIT '.$perPage.' OFFSET '.$offset);
+    $list->execute($args);
+    $clients=$list->fetchAll(PDO::FETCH_ASSOC);
+    $context=['view'=>$view,'q'=>$query,'demo'=>$demo,'page'=>$page];
+    $url=static fn(array $fields):string => '/?'.http_build_query(
+        array_merge($context,$fields),'','&',PHP_QUERY_RFC3986);
+    $returnUrl=$url([]);
+    $navigation='';
+    if ($pages>1) {
+        $navigation='<nav class="task-pagination" aria-label="Страницы клиентов">';
+        if ($page>1) $navigation.='<a class="btn secondary" href="'.
+            adc_h($url(['page'=>$page-1])).'">← Ранее</a> ';
+        $navigation.='<span class="muted">Страница '.$page.' из '.$pages.'</span>';
+        if ($page<$pages) $navigation.=' <a class="btn secondary" href="'.
+            adc_h($url(['page'=>$page+1])).'">Далее →</a>';
+        $navigation.='</nav>';
+    }
     $html=$archive
         ? '<h1>Архив</h1>'
-        : '<h1>Клиенты</h1>'.
-          adc_w_client_form($db,null);
-    // Automatically computed events are shown only within a relevant client, not as tasks in the directory.
+        : '<h1>Клиенты</h1>'.adc_w_client_form($db,null).
+            (($user['role']??'')==='director' ? '<p><a class="btn secondary" href="/?view=team#quick-import">Массово добавить клиентов из CSV</a></p>' : '');
     $html.='<form class="card" method="get" role="search">'.
         adc_w_hidden('view',$view).
         '<div class="grid"><label class="field">Поиск клиентов и услуг'.
@@ -915,24 +1024,28 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '<option value="1"'.($demo==='1'?' selected':'').'>Демонстрационные</option>'.
         '</select></label></div><button type="submit">Найти</button> '.
         '<a class="btn secondary" href="/?view='.adc_h($view).'">Сбросить</a>'.
-        '</form><section class="card"><p class="muted">Найдено в списке: '.count($clients).
-        (count($clients)===300?' (показаны последние 300, уточните поиск)':'').'</p>'.
-        '<div class="table-scroll client-table-scroll" tabindex="0" role="region" aria-label="Список клиентов: таблицу можно прокручивать по горизонтали"><table class="client-list-table"><thead><tr>'.
+        '</form><section class="card"><p class="muted">Найдено в списке: '.$total.
+        ($total>0?' · показаны '.($offset+1).'–'.($offset+count($clients)):'').'</p>'.
+        $navigation.
+        '<div class="table-scroll client-table-scroll" tabindex="0" role="region" '.
+        'aria-label="Список клиентов: таблицу можно прокручивать по горизонтали">'.
+        '<table class="client-list-table"><thead><tr>'.
         '<th>Клиент</th><th>Услуги</th><th aria-label="Открыть"></th><th>Статус</th>'.
         '</tr></thead><tbody>';
+    $today=date('Y-m-d');
     foreach ($clients as $client) {
-        $html.='<tr><td><strong>'.adc_h($client['name']).'</strong>'.
+        $status=adc_ledger_client_status($db,(int)$client['id'],$today);
+        $html.='<tr><td><strong>'.adc_h((string)$client['name']).'</strong>'.
             ((int)$client['is_demo']===1?' <span class="badge demo">Демо</span>':'').
-            '</td><td>'.adc_h((string)$client['platform_text']).'</td><td><a class="btn secondary" href="'.
-            adc_h($returnUrl.'&client='.(int)$client['id']).'">Открыть</a></td><td class="status-cell">'.
-            '<span class="badge '.adc_ledger_client_status($db,(int)$client['id'],date('Y-m-d'))[1].'">'.
-            adc_h(adc_ledger_client_status($db,(int)$client['id'],date('Y-m-d'))[0]).'</span></td></tr>';
+            '</td><td>'.adc_h((string)$client['platform_text']).'</td>'.
+            '<td><a class="btn secondary" href="'.
+            adc_h($url(['client'=>(int)$client['id']])).'">Открыть</a></td>'.
+            '<td class="status-cell"><span class="badge '.adc_h($status[1]).'">'.
+            adc_h((string)$status[0]).'</span></td></tr>';
     }
-    if (!$clients) {
-        $html.='<tr><td colspan="4" class="muted">Совпадений нет.</td></tr>';
-    }
-    $html.='</tbody></table></div></section>';
-    $selected=filter_var($_GET['client'] ?? null,FILTER_VALIDATE_INT);
+    if (!$clients)$html.='<tr><td colspan="4" class="muted">Совпадений нет.</td></tr>';
+    $html.='</tbody></table></div>'.$navigation.'</section>';
+    $selected=filter_var($_GET['client']??null,FILTER_VALIDATE_INT);
     if ($selected && $selected>0) {
         $exists=$db->prepare('SELECT id FROM clients WHERE id=?');
         $exists->execute([(int)$selected]);
@@ -945,10 +1058,111 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     return $html;
 }
 
+/**
+ * Director-only shared task calendar. Ordinary employees keep private tasks;
+ * the director can see all open tasks but cannot complete or edit someone
+ * else's tasks from this read-only overview.
+ */
+function adc_w_team_schedule(PDO $db,array $user): string {
+    if (($user['role']??'')!=='director') return '';
+    $staff=$db->query('SELECT id,display_name,role,is_active FROM users ORDER BY display_name,id')
+        ->fetchAll(PDO::FETCH_ASSOC);
+    $staffIds=array_map(static fn($row)=>(int)$row['id'],$staff);
+    $requested=filter_var($_GET['team_member']??null,FILTER_VALIDATE_INT);
+    $selected=$requested!==false && in_array((int)$requested,$staffIds,true)?(int)$requested:0;
+    $allowed=['current'=>'Актуальные','overdue'=>'Просрочено','today'=>'Сегодня',
+        'upcoming'=>'Следующие 30 дней','all'=>'Все открытые'];
+    $scope=(string)($_GET['team_scope']??'current');
+    if (!isset($allowed[$scope])) $scope='current';
+    $today=date('Y-m-d');
+    $max=(new DateTimeImmutable($today))->modify('+30 days')->format('Y-m-d');
+    $conditions=['t.is_done=0'];$params=[];
+    if ($selected>0) {
+        $conditions[]='t.user_id=?';$params[]=$selected;
+    }
+    if ($scope==='current') {
+        $conditions[]='t.due_date<=?';$params[]=$max;
+    } elseif ($scope==='overdue') {
+        $conditions[]='t.due_date<?';$params[]=$today;
+    } elseif ($scope==='today') {
+        $conditions[]='t.due_date=?';$params[]=$today;
+    } elseif ($scope==='upcoming') {
+        $conditions[]='t.due_date>=? AND t.due_date<=?';$params[]=$today;$params[]=$max;
+    }
+    $sql=' FROM personal_tasks t JOIN users u ON u.id=t.user_id WHERE '.
+        implode(' AND ',$conditions);
+    $stmt=$db->prepare('SELECT t.id,t.user_id,t.title,t.due_date,t.repeat_monthly,t.anchor_day,
+        u.display_name,u.role,u.is_active'.$sql.
+        ' ORDER BY t.due_date,t.id LIMIT 301');
+    $stmt->execute($params);
+    $tasks=$stmt->fetchAll(PDO::FETCH_ASSOC);
+    $metadata=adc_team_task_metadata($db,$tasks);
+    foreach ($tasks as &$task) {
+        $task+=($metadata[(int)$task['id']]??['is_delegated'=>0,'linked_client_id'=>0]);
+    }
+    unset($task);
+    $truncated=count($tasks)>300;
+    if ($truncated) $tasks=array_slice($tasks,0,300);
+    $activeStaff=array_values(array_filter($staff,
+        static fn($member)=>(int)$member['is_active']===1));
+    $html=adc_team_task_create_html($activeStaff).
+        '<section class="card"><h2>Общий календарь команды</h2>'.
+        '<p class="muted">Личные задачи сотрудников доступны для просмотра; '.
+        'поручения директора можно изменять, переназначать и отменять, '.
+        'а завершать задачи может только их исполнитель.</p>'.
+        '<form method="get"><input type="hidden" name="view" value="tasks"><div class="grid">'.
+        '<label class="field">Сотрудник<select name="team_member">'.
+        '<option value="0">Вся команда</option>';
+    foreach ($staff as $member) {
+        $uid=(int)$member['id'];
+        $html.='<option value="'.$uid.'"'.($uid===$selected?' selected':'').'>'.
+            adc_h((string)$member['display_name']).' ('.($member['role']==='director'?'директор':'сотрудник').
+            ((int)$member['is_active']===1?'':', отключён').')</option>';
+    }
+    $html.='</select></label><label class="field">Срок<select name="team_scope">';
+    foreach ($allowed as $key=>$label) {
+        $html.='<option value="'.$key.'"'.($key===$scope?' selected':'').'>'.adc_h($label).'</option>';
+    }
+    $html.='</select></label></div><button type="submit">Показать</button></form>'.
+        '<p class="muted">Задач в выборке: '.count($tasks).
+        ($truncated?' (первые 300; уточните сотрудника или срок)':'').'</p>';
+    if (!$tasks) return $html.'<p class="muted">Задач с такими условиями нет.</p></section>';
+    $day='';
+    foreach ($tasks as $task) {
+        $date=(string)$task['due_date'];
+        if ($date!==$day) {
+            if ($day!=='') $html.='</div>';
+            $day=$date;
+            $html.='<div class="task-day"><h3>'.adc_h(date('d.m.Y',strtotime($date))).
+                ($date<$today?' <span class="badge">Просрочено</span>':
+                ($date===$today?' <span class="badge good">Сегодня</span>':'')).'</h3>';
+        }
+        $html.='<div class="task-row"><div class="task-title"><strong>'.
+            adc_h((string)$task['title']).'</strong><div class="muted">'.
+            adc_h((string)$task['display_name']).
+            ($task['role']==='director'?' · директор':' · сотрудник').
+            ((int)$task['is_active']===1?'':' · учётная запись отключена').
+            ((int)$task['repeat_monthly']===1?' · ежемесячно':'').
+            ((int)$task['is_delegated']===1?' · поручено директором':'').
+            ((int)($task['linked_client_id']??0)>0?
+                ' · <a href="/?view=clients&amp;client='.(int)$task['linked_client_id'].
+                '">Открыть клиента</a>':'').
+            '</div></div></div>'.
+            ((int)$task['is_delegated']===1?adc_team_task_manage_html($task,$activeStaff):'');
+    }
+    return $html.'</div></section>';
+}
+
 function adc_w_tasks(PDO $db, array $user): string {
-    $stmt = $db->prepare('SELECT * FROM personal_tasks WHERE user_id=? AND is_done=0 ORDER BY due_date,id');
+    $stmt = $db->prepare('SELECT * FROM personal_tasks
+        WHERE user_id=? AND is_done=0 ORDER BY due_date,id');
     $stmt->execute([(int)$user['id']]);
     $tasks = $stmt->fetchAll();
+    $metadata=adc_team_task_metadata($db,$tasks);
+    foreach ($tasks as &$task) {
+        $task+=($metadata[(int)$task['id']]??['is_delegated'=>0,'linked_client_id'=>0]);
+    }
+    unset($task);
     $monthNames = [1=>'Январь',2=>'Февраль',3=>'Март',4=>'Апрель',5=>'Май',
         6=>'Июнь',7=>'Июль',8=>'Август',9=>'Сентябрь',10=>'Октябрь',
         11=>'Ноябрь',12=>'Декабрь'];
@@ -981,7 +1195,11 @@ function adc_w_tasks(PDO $db, array $user): string {
         $id=(int)$task['id'];
         $html.='<div class="task-row"><div class="task-title"><strong>'.
             adc_h((string)$task['title']).'</strong>'.
-            ((int)$task['repeat_monthly']===1?' <small>↻ Каждый месяц</small>':'').'</div>'.
+            ((int)$task['repeat_monthly']===1?' <small>↻ Каждый месяц</small>':'').
+            ((int)$task['is_delegated']===1?' <small>· Поручение директора</small>':'').
+            ((int)($task['linked_client_id']??0)>0?
+                ' <small>· <a href="/?view=clients&amp;client='.
+                (int)$task['linked_client_id'].'">Открыть клиента</a></small>':'').'</div>'.
             '<div class="task-actions"><button type="button" class="secondary" '.
             'aria-expanded="false" aria-controls="task-'.$id.'" data-task-toggle="task-'.$id.'">Изменить</button>'.
             adc_w_form_start('complete_task').adc_w_hidden('task_id',$id).
@@ -1002,6 +1220,8 @@ function adc_w_tasks(PDO $db, array $user): string {
     }
     if ($month!=='') $html.='</div></div></section>';
     if (!$tasks) $html.='<section class="card"><p class="muted">Пока нет задач.</p></section>';
+    $html.=adc_w_team_schedule($db,$user);
+    if (($user['role']??'')==='director') $html.=adc_team_task_completions($db);
     return $html;
 }
 
@@ -1048,6 +1268,7 @@ function adc_w_team(PDO $db, array $user): string {
         adc_w_field('Текущий пароль','old_password','','password','required autocomplete="current-password"').
         adc_w_field('Новый пароль','new_password','','password','minlength="12" required autocomplete="new-password"').
         '<button type="submit">Сохранить пароль</button></form></details>';
+    $html.=adc_quick_import_panel($user);
     $html.=adc_import_panel($user);
     $html.=adc_audit_panel($db,$user);
     return $html;
@@ -1055,13 +1276,16 @@ function adc_w_team(PDO $db, array $user): string {
 
 function adc_w_page(PDO $db, array $user, string $alert): never {
     $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
-    if (!in_array($view,['clients','tasks','archive','analytics','team'],true)) {
+    if (!in_array($view,['overview','clients','payments','control','tasks','archive','analytics','team'],true)) {
         $view='clients';
     }
     $body = $alert;
     $body .= match ($view) {
+        'overview' => adc_operations_html($db,$user),
+        'payments' => adc_collections_html($db,$user),
         'clients','archive' => adc_w_clients($db, $user, $view),
         'tasks' => adc_w_tasks($db, $user),
+        'control' => adc_reminders_dashboard($db,$user),
         'analytics' => adc_w_analytics($db),
         default => adc_w_team($db, $user),
     };

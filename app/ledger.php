@@ -38,6 +38,11 @@ function adc_ledger_action(PDO $db,array $user,string $action): bool {
         $id=adc_w_id('entry_id');$r=adc_ledger_entry($db,$clientId,$id,true);
         if ($r['entry_kind']!=='card') throw new RuntimeException('Изменять документ нужно в его карточке.');
         if ($action==='delete_card_entry') {
+            // A confirmed receipt must be explicitly reversed before it can
+            // disappear from the financial totals or client history.
+            if ($r['received_at']!==null) {
+                throw new RuntimeException('Сначала отмените получение оплаты, затем удалите запись.');
+            }
             $db->prepare('UPDATE client_entries SET is_void=1 WHERE id=?')->execute([$id]);
         } else {
             $amount=adc_w_amount(adc_input('amount'));
@@ -45,12 +50,12 @@ function adc_ledger_action(PDO $db,array $user,string $action): bool {
             $note=adc_input('note');
             $category=adc_w_pick('category',['advertising','development','other']);
             if (mb_strlen($note)>500) throw new RuntimeException('Комментарий слишком длинный.');
-            // Never rewrite a confirmed receipt simply by editing its billed
-            // amount/currency: the receipt must be explicitly undone first.
+            // Amount, currency and reporting category belong to the receipt.
+            // Editing any of these must require a visible reversal first.
             if ($r['received_at']!==null &&
                 (adc_fin_minor((string)$amount)!==adc_fin_minor((string)$r['amount']) ||
-                 $ccy!==$r['currency'])) {
-                throw new RuntimeException('Сначала отмените получение оплаты, затем измените сумму или валюту.');
+                 $ccy!==$r['currency'] || $category!==$r['category'])) {
+                throw new RuntimeException('Сначала отмените получение оплаты, затем измените сумму, валюту или категорию.');
             }
             $db->prepare('UPDATE client_entries SET amount=?,currency=?,category=?,note=? WHERE id=?')
                 ->execute([$amount,$ccy,$category,$note,$id]);
@@ -77,6 +82,21 @@ function adc_ledger_action(PDO $db,array $user,string $action): bool {
     }
     $db->commit();
     adc_flash('Данные сохранены, статусы и аналитика обновлены.');
+    // Opt-in navigation for the new payments desk; the same locked
+    // ledger mutation and audit rules apply as in the client drawer.
+    if ($action==='receive_entry' && adc_input('return_view')==='payments') {
+        $filters=adc_collections_filters([
+            'scope'=>adc_input('return_scope'),
+            'currency'=>adc_input('return_currency'),
+            'q'=>adc_input('return_query'),
+            'page'=>adc_input('return_page')
+        ]);
+        adc_redirect('?'.http_build_query([
+            'view'=>'payments','scope'=>$filters['scope'],
+            'currency'=>$filters['currency'],
+            'q'=>$filters['q'],'page'=>$filters['page']
+        ],'','&',PHP_QUERY_RFC3986));
+    }
     adc_redirect(adc_w_client_location($db,$clientId));
 }
 function adc_ledger_category(string $cat): string {
@@ -256,18 +276,26 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
                 $h.='<details class="ledger-edit"><summary>Изменить</summary>'.
                     adc_doc_upload_form($db,$clientId,(int)$r['document_id']).
                     '</details>';
-                $h.=adc_w_form_start('void_document').adc_w_hidden('client_id',$clientId).
-                    adc_w_hidden('document_id',(int)$r['document_id']).
-                    '<button class="secondary" type="submit" data-confirm="Удалить документ и всю связанную оплату?">Удалить</button></form>';
+                if ($r['received_at']===null) {
+                    $h.=adc_w_form_start('void_document').adc_w_hidden('client_id',$clientId).
+                        adc_w_hidden('document_id',(int)$r['document_id']).
+                        '<button class="secondary" type="submit" data-confirm="Удалить документ и связанную неоплаченную сумму?">Удалить</button></form>';
+                } else {
+                    $h.='<small class="muted">Для удаления сначала отмените получение.</small>';
+                }
             } else {
                 $h.='<details class="ledger-edit"><summary>Изменить</summary>'.
                     adc_w_form_start('edit_card_entry').adc_w_hidden('client_id',$clientId).
                     adc_w_hidden('entry_id',$id).adc_ledger_form_money($r).
                     adc_w_field('Комментарий','note',(string)($r['note']??''),'text','maxlength="500"').
                     '<button type="submit">Сохранить</button></form></details>';
-                $h.=adc_w_form_start('delete_card_entry').adc_w_hidden('client_id',$clientId).
-                    adc_w_hidden('entry_id',$id).
-                    '<button class="secondary" type="submit" data-confirm="Удалить оплату на карту полностью?">Удалить</button></form>';
+                if ($r['received_at']===null) {
+                    $h.=adc_w_form_start('delete_card_entry').adc_w_hidden('client_id',$clientId).
+                        adc_w_hidden('entry_id',$id).
+                        '<button class="secondary" type="submit" data-confirm="Удалить неоплаченную запись на карту?">Удалить</button></form>';
+                } else {
+                    $h.='<small class="muted">Для удаления сначала отмените получение.</small>';
+                }
             }
         }
         return $h.'</div></div>';

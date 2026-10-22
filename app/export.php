@@ -29,14 +29,14 @@ function adc_export_decimal(int $minor): string {
         str_pad((string)($absolute % 100),2,'0',STR_PAD_LEFT);
 }
 
-function adc_export_encode(array $rows): string {
+function adc_export_encode(array $rows,string $delimiter=';'): string {
     $stream=fopen('php://temp','w+');
     if (!$stream) throw new RuntimeException('Не удалось сформировать CSV.');
     try {
         fwrite($stream,"\xEF\xBB\xBF");
         foreach ($rows as $row) {
             $cells=array_map(static fn($cell)=>adc_export_safe_cell((string)$cell),$row);
-            if (fputcsv($stream,$cells,';','"','')===false) {
+            if (fputcsv($stream,$cells,$delimiter,'"','')===false) {
                 throw new RuntimeException('Не удалось записать строку CSV.');
             }
         }
@@ -161,6 +161,70 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
             $e['amount']===null?'':adc_export_decimal(adc_fin_minor((string)$e['amount'])),
             (string)($e['currency']??''),(int)$e['id']];
     }
+
+    // Dated agreement rates appear only as reference rows: never as paid
+    // cash, an invoice, or an auto-accrued charge.
+    $terms=$db->prepare('SELECT g.id engagement_id,g.started_on,
+        g.billing_day legacy_day,g.payment_mode legacy_mode,g.currency legacy_currency,
+        g.quoted_amount legacy_quote,t.id term_id,t.effective_on,t.billing_day,
+        t.payment_mode,t.currency,t.quoted_amount
+        FROM engagements g LEFT JOIN engagement_terms t ON t.engagement_id=g.id
+        WHERE g.client_id=? ORDER BY g.started_on,g.id,t.effective_on,t.id');
+    $terms->execute([$clientId]);
+    foreach($terms as $v){
+        $hasVersion=$v['term_id']!==null;
+        $effective=(string)($hasVersion?$v['effective_on']:$v['started_on']);
+        $mode=(string)($hasVersion?$v['payment_mode']:$v['legacy_mode']);
+        $day=(int)($hasVersion?$v['billing_day']:$v['legacy_day']);
+        $currency=(string)($hasVersion?$v['currency']:$v['legacy_currency']);
+        $quote=$hasVersion?$v['quoted_amount']:$v['legacy_quote'];
+        $rate=$quote===null?'Старая сумма неизвестна':
+            adc_export_decimal(adc_fin_minor((string)$quote)).' в месяц';
+        $label=($mode==='prepayment'?'Предоплата':'Постоплата').
+            ' · расчётный день '.$day.' · ставка '.$rate;
+        $rows[]=[(int)$clientId,(string)$client['name'],(int)$client['is_demo'],
+            (int)$v['engagement_id'],'','','',$effective,
+            'Условия договора','Условия',$label,'',$currency,
+            $hasVersion?(int)$v['term_id']:''];
+    }
+    return $rows;
+}
+
+/** CSV of the computed real-client document work plan, not invoices or payments. */
+function adc_export_control(PDO $db,string $today): array {
+    $rows=[['Клиент ID','Клиент','Дата действия','Тип','Что сделать',
+        'Статус поручения','Исполнитель']];
+    $assigned=adc_team_control_assignments($db);
+    foreach (adc_client_reminders($db,$today) as $event) {
+        if ((int)$event['is_demo']!==0) continue;
+        $key=adc_team_control_key((int)$event['client_id'],
+            (string)$event['kind'],(string)$event['date']);
+        $owner=$assigned[$key]??null;
+        $rows[]=[(int)$event['client_id'],(string)$event['client_name'],
+            (string)$event['date'],(string)$event['kind'],(string)$event['label'],
+            $owner?'Поручено':'Без исполнителя',
+            $owner?(string)$owner['display_name']:''];
+    }
+    return $rows;
+}
+
+/** Read-only reconciliation list for real unpaid entries only. */
+function adc_export_payments(PDO $db,string $today):array {
+    $rows=[['Запись ID','Клиент ID','Клиент','Тип','Категория',
+        'Сумма','Валюта','Отправлено','Расчётный срок','Статус срока','Комментарий']];
+    foreach(adc_collections_open($db,$today) as $r) {
+        $status=match($r['payment_state']){
+            'overdue'=>'Просрочено','grace'=>'Три льготных дня',
+            'upcoming'=>'Ожидаем','unknown'=>'Срок неизвестен'
+        };
+        $rows[]=[(int)$r['id'],(int)$r['client_id'],
+            (string)$r['client_name'],
+            $r['entry_kind']==='document'?'Документ':'Оплата на карту',
+            adc_ledger_category((string)$r['category']),
+            (string)$r['amount'],(string)$r['currency'],
+            substr((string)$r['sent_at'],0,10),$r['due_date']??'',
+            $status,(string)($r['note']??'')];
+    }
     return $rows;
 }
 
@@ -169,9 +233,19 @@ function adc_export_csv(PDO $db,array $user,string $report): never {
         http_response_code(403);
         exit('Нет доступа к выгрузке.');
     }
-    if ($report==='balances') {
+    if ($report==='quick_clients_template') {
+        adc_require_director($user);
+        $rows=adc_quick_import_template();
+        $filename='adclients-new-clients-template.csv';
+    } elseif ($report==='balances') {
         $rows=adc_export_balances($db);
         $filename='adclients-real-balances.csv';
+    } elseif ($report==='payments') {
+        $rows=adc_export_payments($db,date('Y-m-d'));
+        $filename='adclients-real-open-payments.csv';
+    } elseif ($report==='control') {
+        $rows=adc_export_control($db,date('Y-m-d'));
+        $filename='adclients-real-control-plan.csv';
     } elseif ($report==='client') {
         $clientId=filter_var($_GET['client_id']??null,FILTER_VALIDATE_INT);
         if (!$clientId || $clientId<1) {
@@ -184,7 +258,7 @@ function adc_export_csv(PDO $db,array $user,string $report): never {
         http_response_code(404);
         exit('Отчёт не найден.');
     }
-    $data=adc_export_encode($rows);
+    $data=adc_export_encode($rows,$report==='quick_clients_template'?',':';');
     header('Content-Type: text/csv; charset=UTF-8');
     header('Content-Disposition: attachment; filename="'.$filename.'"');
     header('Content-Length: '.strlen($data));
