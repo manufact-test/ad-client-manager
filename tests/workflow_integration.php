@@ -7,6 +7,7 @@ require __DIR__ . '/../app/documents.php';
 require __DIR__ . '/../app/ledger.php';
 require __DIR__ . '/../app/reminders.php';
 require __DIR__ . '/../app/team_tasks.php';
+require __DIR__ . '/../app/operations.php';
 
 class Redirected extends RuntimeException {}
 function adc_input(string $key): string { return is_string($_POST[$key] ?? null) ? trim($_POST[$key]) : ''; }
@@ -878,4 +879,65 @@ try {
         'Edited form cannot silently overwrite dated contract history');
     if ($db->inTransaction())$db->rollBack();
 }
+// Director daily overview, demo-excluding cash queue and paged large directory.
+// All fictional bulk rows are rolled back, not uploaded to any real instance.
+$db->beginTransaction();
+try {
+    $priorSnapshot=adc_operations_snapshot($db,$director,date('Y-m-d'));
+    $marker='PAGE-FIXTURE-'.bin2hex(random_bytes(5)).'-';
+    $add=$db->prepare('INSERT INTO clients(name,is_demo) VALUES (?,1)');
+    $engInsert=$db->prepare('INSERT INTO engagements
+        (client_id,started_on,billing_day,payment_mode,currency)
+        VALUES (?,"2026-10-01",22,"prepayment","BYN")');
+    for ($i=0;$i<65;$i++) {
+        $add->execute([$marker.$i]);
+        $engInsert->execute([(int)$db->lastInsertId()]);
+    }
+    $_GET=['q'=>$marker,'demo'=>'1','page'=>'1'];
+    $list=adc_w_clients($db,$director,'clients');
+    check(str_contains($list,'Найдено в списке: 65') &&
+        str_contains($list,'Страница 1 из 2') &&
+        str_contains($list,'Далее →') &&
+        !str_contains($list,$marker.'0</strong>'),
+        'Client directory no longer truncates at 300; first page and totals visible');
+    $_GET['page']='2';
+    $list=adc_w_clients($db,$director,'clients');
+    check(str_contains($list,'Страница 2 из 2') && str_contains($list,'← Ранее') &&
+        str_contains($list,$marker.'0</strong>') &&
+        !str_contains($list,$marker.'64</strong>'),
+        'Second page reaches oldest clients and preserves search');
+    $db->prepare('UPDATE engagements SET status="archived"
+        WHERE client_id IN (SELECT id FROM clients WHERE name LIKE ?)')->execute([$marker.'%']);
+    $_GET=['q'=>$marker,'demo'=>'1','page'=>'2'];
+    $archived=adc_w_clients($db,$director,'archive');
+    check(str_contains($archived,'Страница 2 из 2') &&
+        str_contains($archived,$marker.'0</strong>'),'Archived clients are paginated as well');
+    $_GET=[];
+    $today=date('Y-m-d');
+    $db->prepare('INSERT INTO clients(name,is_demo) VALUES (?,0)')
+        ->execute(['Real operations '.$marker]);
+    $operational=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO engagements
+        (client_id,started_on,billing_day,payment_mode,currency)
+        VALUES (?,?,22,"prepayment","CHF")')->execute([$operational,$today]);
+    $db->prepare('INSERT INTO client_entries
+        (client_id,entry_kind,amount,currency,category,sent_at)
+        VALUES (?,"card","19.50","CHF","advertising",NOW())')->execute([$operational]);
+    $db->prepare('INSERT INTO client_entries
+        (client_id,entry_kind,amount,currency,category,sent_at)
+        VALUES (?,"card","9999.00","CHF","advertising",NOW())')->execute([(int)$db->query(
+            'SELECT id FROM clients WHERE name LIKE '.$db->quote($marker.'%').' LIMIT 1')->fetchColumn()]);
+    $snapshot=adc_operations_snapshot($db,$director,$today);
+    check($snapshot['active_clients']>=1 &&
+        ($snapshot['unpaid_totals']['CHF']??0)===
+            adc_fin_add($priorSnapshot['unpaid_totals']['CHF']??0,1950),
+        'Daily financial queue uses exact cents and excludes demo');
+    check(str_contains(adc_operations_html($db,$director),'Команда · открытые задачи') &&
+        !str_contains(adc_operations_html($db,$employee),'Команда · открытые задачи'),
+        'Team load available to director but not employee');
+} finally {
+    $_GET=[];
+    if ($db->inTransaction()) $db->rollBack();
+}
+
 echo "Integrated client workflow passed: clients, finance, demo, archive, permissions, tasks, monthly rate history\n";

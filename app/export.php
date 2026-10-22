@@ -190,6 +190,24 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
     return $rows;
 }
 
+/** CSV of the computed real-client document work plan, not invoices or payments. */
+function adc_export_control(PDO $db,string $today): array {
+    $rows=[['Клиент ID','Клиент','Дата действия','Тип','Что сделать',
+        'Статус поручения','Исполнитель']];
+    $assigned=adc_team_control_assignments($db);
+    foreach (adc_client_reminders($db,$today) as $event) {
+        if ((int)$event['is_demo']!==0) continue;
+        $key=adc_team_control_key((int)$event['client_id'],
+            (string)$event['kind'],(string)$event['date']);
+        $owner=$assigned[$key]??null;
+        $rows[]=[(int)$event['client_id'],(string)$event['client_name'],
+            (string)$event['date'],(string)$event['kind'],(string)$event['label'],
+            $owner?'Поручено':'Без исполнителя',
+            $owner?(string)$owner['display_name']:''];
+    }
+    return $rows;
+}
+
 function adc_export_csv(PDO $db,array $user,string $report): never {
     if (!in_array($user['role']??'', ['director','employee'],true)) {
         http_response_code(403);
@@ -198,6 +216,9 @@ function adc_export_csv(PDO $db,array $user,string $report): never {
     if ($report==='balances') {
         $rows=adc_export_balances($db);
         $filename='adclients-real-balances.csv';
+    } elseif ($report==='control') {
+        $rows=adc_export_control($db,date('Y-m-d'));
+        $filename='adclients-real-control-plan.csv';
     } elseif ($report==='client') {
         $clientId=filter_var($_GET['client_id']??null,FILTER_VALIDATE_INT);
         if (!$clientId || $clientId<1) {

@@ -118,6 +118,26 @@ try:
         "Monthly contractual price input appears in Add client")
     demo=create_client(director,"CI demo ledger",True)
     real=create_client(director,"CI real ledger",False)
+    # Daily operating overview and read-only client paperwork CSV are authenticated.
+    status,_,overview=request("director","/?view=overview")
+    require(status==200 and "Обзор работы" in html(overview) and
+            "Ожидают оплаты" in html(overview) and
+            "Команда · открытые задачи" in html(overview),
+            "Director sees operating overview with team load")
+    status,_,overview=request("employee","/?view=overview")
+    require(status==200 and "Обзор работы" in html(overview) and
+            "Команда · открытые задачи" not in html(overview),
+            "Employee sees own operating overview without director team data")
+    status,headers,plan=request("director","/?export=control")
+    require(status==200 and plan.startswith(b"\xEF\xBB\xBF") and
+            "CI real ledger" in html(plan) and
+            "CI demo ledger" not in html(plan) and
+            "text/csv" in headers.lower(),
+            "Authenticated real-client control plan excludes demo")
+    status,_,unauthed=request("visitor","/?export=control")
+    require(status==200 and "Вход" in html(unauthed),
+            "Anonymous visitor cannot download the control CSV")
+
     status,_,controlPage=request("director","/?view=control")
     require(status==200 and 'name="action" value="assign_control_reminder"' in html(controlPage),
             "Director may delegate client paperwork from control view")

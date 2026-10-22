@@ -969,33 +969,50 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     $query=is_string($_GET['q'] ?? null) ? trim($_GET['q']) : '';
     if (mb_strlen($query)>80) $query=mb_substr($query,0,80);
     $demo=in_array($_GET['demo'] ?? '', ['0','1'], true) ? (string)$_GET['demo'] : '';
-    $returnUrl='/?'.http_build_query(['view'=>$view,'q'=>$query,'demo'=>$demo],'','&',PHP_QUERY_RFC3986);
-    $sql='SELECT c.* FROM clients c WHERE '.
-        ($archive
-          ? 'NOT EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")'
-          : 'EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")');
+    $where=$archive
+        ? 'NOT EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")'
+        : 'EXISTS (SELECT 1 FROM engagements e WHERE e.client_id=c.id AND e.status="active")';
     $args=[];
     if ($demo!=='') {
-        $sql.=' AND c.is_demo=?';
+        $where.=' AND c.is_demo=?';
         $args[]=(int)$demo;
     }
     if ($query!=='') {
-        // Literal substring search, unlike LIKE this does not treat "%" / "_"
-        // in user text as wildcards.
-        $sql.=' AND (LOCATE(LOWER(?),LOWER(c.name))>0 OR
+        // Literal substring search; LIKE wildcard characters cannot broaden results.
+        $where.=' AND (LOCATE(LOWER(?),LOWER(c.name))>0 OR
             LOCATE(LOWER(?),LOWER(COALESCE(c.platform_text,"")))>0)';
-        $args[]=$query;
-        $args[]=$query;
+        $args[]=$query; $args[]=$query;
     }
-    $sql.=' ORDER BY c.id DESC LIMIT 300';
-    $stmt=$db->prepare($sql);
-    $stmt->execute($args);
-    $clients=$stmt->fetchAll();
+    $totalQuery=$db->prepare('SELECT COUNT(*) FROM clients c WHERE '.$where);
+    $totalQuery->execute($args);
+    $total=(int)$totalQuery->fetchColumn();
+    $perPage=60;
+    $pages=max(1,(int)ceil($total/$perPage));
+    $requested=filter_var($_GET['page']??null,FILTER_VALIDATE_INT);
+    $page=($requested!==false && $requested!==null)
+        ?min(max(1,(int)$requested),$pages):1;
+    $offset=($page-1)*$perPage;
+    $list=$db->prepare('SELECT c.* FROM clients c WHERE '.$where.
+        ' ORDER BY c.id DESC LIMIT '.$perPage.' OFFSET '.$offset);
+    $list->execute($args);
+    $clients=$list->fetchAll(PDO::FETCH_ASSOC);
+    $context=['view'=>$view,'q'=>$query,'demo'=>$demo,'page'=>$page];
+    $url=static fn(array $fields):string => '/?'.http_build_query(
+        array_merge($context,$fields),'','&',PHP_QUERY_RFC3986);
+    $returnUrl=$url([]);
+    $navigation='';
+    if ($pages>1) {
+        $navigation='<nav class="task-pagination" aria-label="Страницы клиентов">';
+        if ($page>1) $navigation.='<a class="btn secondary" href="'.
+            adc_h($url(['page'=>$page-1])).'">← Ранее</a> ';
+        $navigation.='<span class="muted">Страница '.$page.' из '.$pages.'</span>';
+        if ($page<$pages) $navigation.=' <a class="btn secondary" href="'.
+            adc_h($url(['page'=>$page+1])).'">Далее →</a>';
+        $navigation.='</nav>';
+    }
     $html=$archive
         ? '<h1>Архив</h1>'
-        : '<h1>Клиенты</h1>'.
-          adc_w_client_form($db,null);
-    // Automatically computed events are shown only within a relevant client, not as tasks in the directory.
+        : '<h1>Клиенты</h1>'.adc_w_client_form($db,null);
     $html.='<form class="card" method="get" role="search">'.
         adc_w_hidden('view',$view).
         '<div class="grid"><label class="field">Поиск клиентов и услуг'.
@@ -1006,24 +1023,28 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '<option value="1"'.($demo==='1'?' selected':'').'>Демонстрационные</option>'.
         '</select></label></div><button type="submit">Найти</button> '.
         '<a class="btn secondary" href="/?view='.adc_h($view).'">Сбросить</a>'.
-        '</form><section class="card"><p class="muted">Найдено в списке: '.count($clients).
-        (count($clients)===300?' (показаны последние 300, уточните поиск)':'').'</p>'.
-        '<div class="table-scroll client-table-scroll" tabindex="0" role="region" aria-label="Список клиентов: таблицу можно прокручивать по горизонтали"><table class="client-list-table"><thead><tr>'.
+        '</form><section class="card"><p class="muted">Найдено в списке: '.$total.
+        ($total>0?' · показаны '.($offset+1).'–'.($offset+count($clients)):'').'</p>'.
+        $navigation.
+        '<div class="table-scroll client-table-scroll" tabindex="0" role="region" '.
+        'aria-label="Список клиентов: таблицу можно прокручивать по горизонтали">'.
+        '<table class="client-list-table"><thead><tr>'.
         '<th>Клиент</th><th>Услуги</th><th aria-label="Открыть"></th><th>Статус</th>'.
         '</tr></thead><tbody>';
+    $today=date('Y-m-d');
     foreach ($clients as $client) {
-        $html.='<tr><td><strong>'.adc_h($client['name']).'</strong>'.
+        $status=adc_ledger_client_status($db,(int)$client['id'],$today);
+        $html.='<tr><td><strong>'.adc_h((string)$client['name']).'</strong>'.
             ((int)$client['is_demo']===1?' <span class="badge demo">Демо</span>':'').
-            '</td><td>'.adc_h((string)$client['platform_text']).'</td><td><a class="btn secondary" href="'.
-            adc_h($returnUrl.'&client='.(int)$client['id']).'">Открыть</a></td><td class="status-cell">'.
-            '<span class="badge '.adc_ledger_client_status($db,(int)$client['id'],date('Y-m-d'))[1].'">'.
-            adc_h(adc_ledger_client_status($db,(int)$client['id'],date('Y-m-d'))[0]).'</span></td></tr>';
+            '</td><td>'.adc_h((string)$client['platform_text']).'</td>'.
+            '<td><a class="btn secondary" href="'.
+            adc_h($url(['client'=>(int)$client['id']])).'">Открыть</a></td>'.
+            '<td class="status-cell"><span class="badge '.adc_h($status[1]).'">'.
+            adc_h((string)$status[0]).'</span></td></tr>';
     }
-    if (!$clients) {
-        $html.='<tr><td colspan="4" class="muted">Совпадений нет.</td></tr>';
-    }
-    $html.='</tbody></table></div></section>';
-    $selected=filter_var($_GET['client'] ?? null,FILTER_VALIDATE_INT);
+    if (!$clients)$html.='<tr><td colspan="4" class="muted">Совпадений нет.</td></tr>';
+    $html.='</tbody></table></div>'.$navigation.'</section>';
+    $selected=filter_var($_GET['client']??null,FILTER_VALIDATE_INT);
     if ($selected && $selected>0) {
         $exists=$db->prepare('SELECT id FROM clients WHERE id=?');
         $exists->execute([(int)$selected]);
@@ -1035,7 +1056,6 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     }
     return $html;
 }
-
 
 /**
  * Director-only shared task calendar. Ordinary employees keep private tasks;
@@ -1254,11 +1274,12 @@ function adc_w_team(PDO $db, array $user): string {
 
 function adc_w_page(PDO $db, array $user, string $alert): never {
     $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
-    if (!in_array($view,['clients','control','tasks','archive','analytics','team'],true)) {
+    if (!in_array($view,['overview','clients','control','tasks','archive','analytics','team'],true)) {
         $view='clients';
     }
     $body = $alert;
     $body .= match ($view) {
+        'overview' => adc_operations_html($db,$user),
         'clients','archive' => adc_w_clients($db, $user, $view),
         'tasks' => adc_w_tasks($db, $user),
         'control' => adc_reminders_dashboard($db,$user),

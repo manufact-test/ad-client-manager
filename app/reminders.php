@@ -243,6 +243,7 @@ function adc_reminders_dashboard(PDO $db,?array $user=null): string {
         $navigation.='</nav>';
     }
     $html='<h1>Контроль клиентов</h1><section class="card">'.
+        '<p><a class="btn secondary" href="/?export=control">Скачать рабочий план CSV</a></p>'.
         '<p class="muted">Общий план документов и передачи PDF для сотрудников. '.
         'Расчётные события: последние 183 дня и следующие 45 дней; '.
         'непереданные PDF и договоры с более ранними сроками также показаны. '.

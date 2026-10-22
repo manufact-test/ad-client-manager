@@ -4,6 +4,8 @@ require __DIR__.'/../app/core.php';
 require __DIR__.'/../app/finance.php';
 require __DIR__.'/../app/workflow.php';
 require __DIR__.'/../app/export.php';
+require __DIR__.'/../app/reminders.php';
+require __DIR__.'/../app/team_tasks.php';
 
 function ex_check(bool $ok,string $message):void {
     if (!$ok) throw new RuntimeException('Export: '.$message);
@@ -101,7 +103,21 @@ try {
     $demoLedger=adc_export_encode(adc_export_client_ledger($db,$demo));
     ex_check(str_contains($demoLedger,'9999.00') && str_contains($demoLedger,'Демо'),
         'Explicitly scoped demo ledger allowed, clearly labeled');
-    try {adc_export_client_ledger($db,99999999); throw new RuntimeException('Unknown client allowed');}
+    // Read-only plan CSV must use current computed obligations, exclude demo,
+    // carry the assigned employee, and neutralize dangerous spreadsheet cells.
+    $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency)
+        VALUES (?,CURRENT_DATE(),DAY(CURRENT_DATE()),"prepayment","CHF")')->execute([$demo]);
+    $live=adc_export_control($db,date('Y-m-d'));
+    $liveRows=array_values(array_filter($live,static fn($row)=>
+        isset($row[0]) && (int)$row[0]===$real));
+    ex_check(count($liveRows)>=1,'Plan CSV includes real contract work');
+    ex_check(count(array_filter($live,static fn($row)=>
+        isset($row[0]) && (int)$row[0]===$demo))===0,
+        'Plan CSV excludes all demo obligations');
+    $encodedPlan=adc_export_encode($live);
+    ex_check(str_contains($encodedPlan,"'=HYPERLINK"),
+        'Plan CSV escapes formula-looking real client names');
+        try {adc_export_client_ledger($db,99999999); throw new RuntimeException('Unknown client allowed');}
     catch(RuntimeException $e){ex_check(str_contains($e->getMessage(),'Клиент не найден'),'Unknown client is rejected');}
 } finally {
     $db->rollBack();
