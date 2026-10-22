@@ -194,14 +194,16 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
     if ((int)$s['unsent']>0) return ['Отправить документы · '.$s['unsent'],'warning'];
     // The monthly contract only reminds staff to prepare documentation; it
     // never creates a charge or a personal task for each employee.
-    $e=$db->prepare('SELECT started_on,billing_day FROM engagements WHERE client_id=? AND status="active" ORDER BY id DESC LIMIT 1');
+    $e=$db->prepare('SELECT id,started_on,billing_day,payment_mode,currency FROM engagements WHERE client_id=? AND status="active" ORDER BY id DESC LIMIT 1');
     $e->execute([$clientId]);$r=$e->fetch();
     $needsDocument=false;
     if($r && $r['started_on']<=$today) {
-        $due=adc_ledger_preparation_due($today,(int)$r['billing_day']);
-        // The start of a collaboration is its first billing cycle, not an
-        // immediate request to prepare another month's documents.
-        $initialDue=adc_ledger_due_date((string)$r['started_on'],(int)$r['billing_day']);
+        $terms=adc_w_effective_terms($db,$r,$today);
+        $due=adc_ledger_preparation_due($today,(int)$terms['billing_day']);
+        // The first cycle is based on the terms effective at collaboration
+        // start, not a future scheduled billing-day change.
+        $initialTerms=adc_w_effective_terms($db,$r,(string)$r['started_on']);
+        $initialDue=adc_ledger_due_date((string)$r['started_on'],(int)$initialTerms['billing_day']);
         if ($due!==null && $due > $initialDue) {
             $needsDocument=!adc_ledger_has_request_for_due($db,$clientId,$due,$today);
         }
