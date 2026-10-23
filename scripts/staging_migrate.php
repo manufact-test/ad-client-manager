@@ -79,7 +79,7 @@ try {
         return $ready;
     };
     $newTables=['client_entries','engagement_terms','team_chat_messages','team_chat_reads','team_chat_mentions','team_chat_thread_reads',
-        'team_chat_attachments'];
+        'team_chat_attachments','team_chat_pins'];
     $inspectTables=static function () use ($db,$newTables): bool {
         $ready=true;
         $present=$db->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
@@ -89,6 +89,10 @@ try {
             if (!$ok) $ready=false;
         }
         if (in_array('team_chat_messages',$present,true)) {
+            $reply=$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'reply_to_id'")->fetch();
+            $okReply=$reply && strtolower((string)$reply['Type'])==='bigint unsigned';
+            echo ($okReply?'[PASS] ':'[PENDING] ')."team_chat_messages: replies\n";
+            if(!$okReply)$ready=false;
             $col=$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch();
             $ok=$col && strtolower((string)$col['Type'])==='bigint unsigned';
             echo ($ok?'[PASS] ':'[PENDING] ')."team_chat_messages: client threads\n";

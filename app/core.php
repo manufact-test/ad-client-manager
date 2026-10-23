@@ -39,7 +39,7 @@ function adc_db(array $config): PDO {
     ]);
 }
 
-function adc_schema(PDO $db): void {
+function adc_schema(PDO $db, bool $chatOnly=false): void {
     $options = ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
     $statements = [
         'CREATE TABLE IF NOT EXISTS users (
@@ -217,9 +217,11 @@ function adc_schema(PDO $db): void {
             mentioned_user_id BIGINT UNSIGNED NULL,
             client_id BIGINT UNSIGNED NULL,
             thread_client_id BIGINT UNSIGNED NULL,
+            reply_to_id BIGINT UNSIGNED NULL,
             created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
             INDEX idx_chat_author(author_user_id,id),
             INDEX idx_chat_thread(thread_client_id,id),
+            INDEX idx_chat_reply(reply_to_id),
             INDEX idx_chat_mention(mentioned_user_id,id),
             CONSTRAINT fk_chat_author FOREIGN KEY(author_user_id) REFERENCES users(id),
             CONSTRAINT fk_chat_mention FOREIGN KEY(mentioned_user_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -239,6 +241,16 @@ function adc_schema(PDO $db): void {
             INDEX idx_chat_tag_user(user_id,message_id),
             CONSTRAINT fk_chat_tag_message FOREIGN KEY(message_id) REFERENCES team_chat_messages(id) ON DELETE CASCADE,
             CONSTRAINT fk_chat_tag_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_pins (
+            thread_key BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+            message_id BIGINT UNSIGNED NOT NULL,
+            pinned_by BIGINT UNSIGNED NOT NULL,
+            created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+            CONSTRAINT fk_chat_pin_message FOREIGN KEY(message_id)
+                REFERENCES team_chat_messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_chat_pin_user FOREIGN KEY(pinned_by)
+                REFERENCES users(id) ON DELETE CASCADE
         )'
         ,'CREATE TABLE IF NOT EXISTS team_chat_attachments (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -275,7 +287,29 @@ function adc_schema(PDO $db): void {
         )'
     ];
     foreach ($statements as $sql) {
+        // On an existing Hostinger installation a missing chat table must
+        // never cause a migration of financial or user records.
+        if($chatOnly && !str_starts_with($sql,'CREATE TABLE IF NOT EXISTS team_chat_'))continue;
         $db->exec($sql . $options);
+    }
+    if($chatOnly){
+        // Extend existing chat messages without replacing their records.
+        if(!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch()){
+            $db->exec('ALTER TABLE team_chat_messages
+                ADD COLUMN thread_client_id BIGINT UNSIGNED NULL,
+                ADD INDEX idx_chat_thread(thread_client_id,id)');
+        }
+        if(!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'reply_to_id'")->fetch()){
+            $db->exec('ALTER TABLE team_chat_messages
+                ADD COLUMN reply_to_id BIGINT UNSIGNED NULL,
+                ADD INDEX idx_chat_reply(reply_to_id)');
+        }
+        return;
+    }
+    if (!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'reply_to_id'")->fetch()){
+        $db->exec('ALTER TABLE team_chat_messages
+            ADD COLUMN reply_to_id BIGINT UNSIGNED NULL,
+            ADD INDEX idx_chat_reply(reply_to_id)');
     }
     // Earlier chat installations contain messages but no client discussion field.
     // Keep historical messages, append only a nullable thread reference.

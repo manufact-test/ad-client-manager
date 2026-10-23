@@ -11,7 +11,7 @@ function adc_restore_tables(): array {
         'personal_task_completions','clients','engagements','billing_periods',
         'document_bundles','charge_lines','payment_events',
         'client_entries','engagement_terms','team_chat_messages','team_chat_reads','team_chat_mentions','team_chat_thread_reads',
-        'team_chat_attachments'
+        'team_chat_attachments','team_chat_pins'
     ];
 }
 

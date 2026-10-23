@@ -155,10 +155,12 @@ function adc_chat_thread_unread(PDO $db,int $uid,int $thread):int {
     $s->execute([$uid,$thread,$thread,$uid]);
     return (int)$s->fetchColumn();
 }
-function adc_chat_rows(PDO $db,int $after=0,int $thread=0,int $uid=0):array {
+/** The focus view lets a pinned or replied-to message be revisited after pagination. */
+function adc_chat_rows(PDO $db,int $after=0,int $thread=0,int $uid=0,int $focus=0):array {
     $sql='SELECT m.*,u.display_name author,mu.display_name mention_name,c.name client_name,
         att.id attachment_id,att.original_filename attachment_name,
         att.mime_type attachment_mime,att.byte_size attachment_size,
+        reply.body reply_body,ru.display_name reply_author,
         CASE WHEN tags.user_id IS NULL THEN 0 ELSE 1 END is_mentioned
         FROM team_chat_messages m
         JOIN users u ON u.id=m.author_user_id
@@ -166,13 +168,19 @@ function adc_chat_rows(PDO $db,int $after=0,int $thread=0,int $uid=0):array {
         LEFT JOIN clients c ON c.id=m.client_id
         LEFT JOIN team_chat_mentions tags ON tags.message_id=m.id AND tags.user_id=?
         LEFT JOIN team_chat_attachments att ON att.message_id=m.id
+        LEFT JOIN team_chat_messages reply ON reply.id=m.reply_to_id
+          AND COALESCE(reply.thread_client_id,0)=COALESCE(m.thread_client_id,0)
+        LEFT JOIN users ru ON ru.id=reply.author_user_id
         WHERE COALESCE(m.thread_client_id,0)=?';
     if($after>0){
         $s=$db->prepare($sql.' AND m.id>? ORDER BY m.id ASC LIMIT 60');
         $s->execute([$uid,$thread,$after]);return $s->fetchAll();
     }
-    $s=$db->prepare($sql.' ORDER BY m.id DESC LIMIT 60');
-    $s->execute([$uid,$thread]);
+    $s=$db->prepare($sql.($focus>0?' AND m.id<=?':'').
+        ' ORDER BY m.id DESC LIMIT 60');
+    $params=[$uid,$thread];
+    if($focus>0)$params[]=$focus;
+    $s->execute($params);
     return array_reverse($s->fetchAll());
 }
 function adc_chat_token_parts(string $body):array {
@@ -202,10 +210,21 @@ function adc_chat_item(array $m,int $uid):string {
     // The database stores UTC; show team timestamps in Minsk local time.
     $created=new DateTimeImmutable((string)$m['created_at'],new DateTimeZone('UTC'));
     $time=$created->setTimezone(new DateTimeZone('Europe/Minsk'))->format('d.m.Y H:i');
-    $out='<article class="chat-msg'.$class.'" data-mid="'.(int)$m['id'].'">'.
+    $out='<article id="chat-msg-'.(int)$m['id'].'" class="chat-msg'.$class.
+        '" data-mid="'.(int)$m['id'].'">'.
         '<div class="chat-meta"><strong>'.adc_h((string)$m['author']).'</strong>'.
-        '<time>'.adc_h($time).'</time></div>'.
-        '<div>'.adc_chat_safe_text((string)$m['body'],$m['client_id']===null?null:(int)$m['client_id']).'</div>';
+        '<time>'.adc_h($time).'</time></div>';
+    $thread=(int)($m['thread_client_id']??0);
+    if(($m['reply_to_id']??null)!==null){
+        $replyId=(int)$m['reply_to_id'];
+        $preview=mb_substr(trim((string)($m['reply_body']??'Сообщение недоступно')),0,130);
+        if($preview==='')$preview='Вложение';
+        $out.='<a class="chat-replied" href="/?view=chat&amp;thread='.$thread.
+            '&amp;focus='.$replyId.'#chat-msg-'.$replyId.'">↪ '.
+            adc_h((string)($m['reply_author']??'Сотрудник')).': '.adc_h($preview).'</a>';
+    }
+    $out.='<div>'.adc_chat_safe_text((string)$m['body'],
+        $m['client_id']===null?null:(int)$m['client_id']).'</div>';
     if($m['client_id']!==null)
         $out.='<a class="chat-link" href="/?view=clients&amp;client='.(int)$m['client_id'].'">↗ Карточка: '.
             adc_h((string)($m['client_name']??'Клиент')).'</a>';
@@ -221,6 +240,17 @@ function adc_chat_item(array $m,int $uid):string {
             $out.='<a class="chat-file" href="'.$url.'">📄 '.$name.' · Скачать PDF</a>';
         }
     }
+    $preview=mb_substr(trim((string)$m['body']),0,120);
+    if($preview==='')$preview='Вложение';
+    $out.='<div class="chat-msg-tools"><button type="button" class="chat-reply-btn secondary"'.
+        ' data-chat-reply="'.(int)$m['id'].'" data-reply-preview="'.
+        adc_h((string)$m['author'].': '.$preview).'">↩ Ответить</button>'.
+        '<form method="post"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
+        '<input type="hidden" name="action" value="chat_toggle_pin">'.
+        '<input type="hidden" name="thread" value="'.$thread.'">'.
+        '<input type="hidden" name="message_id" value="'.(int)$m['id'].'">'.
+        '<button class="secondary chat-pin-btn" type="submit">📌 Закрепить / снять</button>'.
+        '</form></div>';
     return $out.'</article>';
 }
 function adc_chat_html(PDO $db,array $user):string {
@@ -228,8 +258,17 @@ function adc_chat_html(PDO $db,array $user):string {
     $GLOBALS['adc_chat_read_stage']='thread';
     $thread=adc_chat_thread($db,$_GET['thread']??null);
     $GLOBALS['adc_chat_read_stage']='messages';
-    $rows=adc_chat_rows($db,0,$thread,$uid);
+    $focus=filter_var($_GET['focus']??null,FILTER_VALIDATE_INT);
+    $focus=($focus!==false && $focus!==null && $focus>0)?(int)$focus:0;
+    if($focus){
+        $probe=$db->prepare('SELECT id FROM team_chat_messages
+            WHERE id=? AND COALESCE(thread_client_id,0)=?');
+        $probe->execute([$focus,$thread]);
+        if(!$probe->fetchColumn())$focus=0;
+    }
+    $rows=adc_chat_rows($db,0,$thread,$uid,$focus);
     $last=$rows?(int)$rows[count($rows)-1]['id']:0;
+    $pin=adc_chat_pinned($db,$thread);
     $q=is_string($_GET['chat_q']??null)?trim((string)$_GET['chat_q']):'';
     $q=mb_substr($q,0,65);
     $GLOBALS['adc_chat_read_stage']='clientlist';
@@ -284,14 +323,34 @@ function adc_chat_html(PDO $db,array $user):string {
     $out.='</div></aside><div class="chat-content"><div class="chat-heading"><h2>'.
         adc_h($selectedName).'</h2>'.
         ($thread?'<a href="/?view=clients&amp;client='.$thread.'">Карточка клиента ↗</a>':'').
-        '</div><div id="chat-feed" class="chat-feed" data-thread="'.$thread.'" data-last="'.$last.'" '.
-        'role="log" aria-live="polite">';
+        '</div>';
+    if($pin){
+        $summary=mb_substr(trim((string)$pin['body']),0,100);
+        if($summary==='')$summary='Вложение';
+        $out.='<div class="chat-pinned"><a href="/?view=chat&amp;thread='.$thread.
+            '&amp;focus='.(int)$pin['id'].'#chat-msg-'.(int)$pin['id'].'">'.
+            '📌 Закреплено · '.adc_h((string)$pin['author']).': '.adc_h($summary).
+            '</a><form method="post"><input type="hidden" name="csrf" value="'.
+            adc_csrf().'"><input type="hidden" name="action" value="chat_toggle_pin">'.
+            '<input type="hidden" name="thread" value="'.$thread.'">'.
+            '<input type="hidden" name="message_id" value="'.(int)$pin['id'].'">'.
+            '<button type="submit" class="secondary">Открепить</button></form></div>';
+    }
+    if($focus)$out.='<p><a href="/?view=chat&amp;thread='.$thread.
+        '">← Вернуться к последним сообщениям</a></p>';
+    $out.='<div id="chat-feed" class="chat-feed" data-thread="'.$thread.
+        '" data-last="'.$last.'" data-focused="'.($focus?'1':'0').
+        '" role="log" aria-live="polite">';
     foreach($rows as $m)$out.=adc_chat_item($m,$uid);
     if(!$rows)$out.='<p data-empty class="muted">Пока нет сообщений. Начните обсуждение.</p>';
     $out.='</div><form method="post" enctype="multipart/form-data" class="chat-compose" data-chat-compose>'.
         '<input type="hidden" name="csrf" value="'.adc_csrf().'">'.
         '<input type="hidden" name="action" value="chat_send">'.
         '<input type="hidden" name="thread" value="'.$thread.'">'.
+        '<input type="hidden" name="reply_to_id" value="0" data-reply-id>'.
+        '<div class="chat-reply-preview" data-reply-preview hidden>'.
+        '<span data-reply-label></span>'.
+        '<button type="button" class="secondary" data-reply-cancel>✕</button></div>'.
         '<label class="field" for="chat-text">Сообщение</label>'.
         '<div class="chat-input-box"><textarea name="message" id="chat-text" rows="3" maxlength="2000" '.
         'placeholder="Вопрос команде… @сотрудник #клиент" autocomplete="off"></textarea>'.
@@ -328,6 +387,43 @@ function adc_chat_references(PDO $db,string $body,int $self):array {
     if(count($users)>10)throw new RuntimeException('До 10 сотрудников в одном сообщении.');
     return [array_keys($users),$client];
 }
+function adc_chat_pinned(PDO $db,int $thread):?array {
+    $s=$db->prepare('SELECT m.id,m.body,u.display_name author
+        FROM team_chat_pins p JOIN team_chat_messages m ON m.id=p.message_id
+        JOIN users u ON u.id=m.author_user_id WHERE p.thread_key=?
+          AND COALESCE(m.thread_client_id,0)=?');
+    $s->execute([$thread,$thread]);
+    return $s->fetch()?:null;
+}
+function adc_chat_toggle_pin(PDO $db,array $user):void {
+    $threadRaw=adc_chat_post('thread');
+    $thread=adc_chat_thread($db,$threadRaw);
+    if($threadRaw!=='' && $threadRaw!=='0' && !$thread)
+        throw new RuntimeException('Переписка клиента не найдена.');
+    $raw=adc_chat_post('message_id');
+    if(!ctype_digit($raw)||(int)$raw<1)throw new RuntimeException('Неверное сообщение.');
+    $id=(int)$raw;
+    $s=$db->prepare('SELECT id FROM team_chat_messages WHERE id=?
+      AND COALESCE(thread_client_id,0)=?');
+    $s->execute([$id,$thread]);
+    if(!$s->fetchColumn())throw new RuntimeException('Сообщение не принадлежит переписке.');
+    $db->beginTransaction();
+    try {
+        $s=$db->prepare('SELECT message_id FROM team_chat_pins WHERE thread_key=? FOR UPDATE');
+        $s->execute([$thread]);$existing=$s->fetchColumn();
+        if($existing!==false && (int)$existing===$id){
+            $s=$db->prepare('DELETE FROM team_chat_pins WHERE thread_key=? AND message_id=?');
+            $s->execute([$thread,$id]);
+        }else{
+            $s=$db->prepare('INSERT INTO team_chat_pins(thread_key,message_id,pinned_by,created_at)
+                VALUES (?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE
+                message_id=VALUES(message_id),pinned_by=VALUES(pinned_by),
+                created_at=UTC_TIMESTAMP(6)');
+            $s->execute([$thread,$id,(int)$user['id']]);
+        }
+        $db->commit();
+    }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
+}
 function adc_chat_send(PDO $db,array $user):void {
     $body=adc_chat_post('message');
     $hasFile=is_array($_FILES['chat_attachment']??null) &&
@@ -339,15 +435,27 @@ function adc_chat_send(PDO $db,array $user):void {
     if(adc_chat_post('thread')!=='' && adc_chat_post('thread')!=='0' && !$thread)
         throw new RuntimeException('Переписка клиента не найдена.');
     [$mentioned,$client]=adc_chat_references($db,$body,(int)$user['id']);
+    $replyRaw=adc_chat_post('reply_to_id');
+    $replyId=null;
+    if($replyRaw!=='' && $replyRaw!=='0'){
+        if(!ctype_digit($replyRaw)||(int)$replyRaw<1)
+            throw new RuntimeException('Неверный ответ на сообщение.');
+        $s=$db->prepare('SELECT id FROM team_chat_messages WHERE id=?
+            AND COALESCE(thread_client_id,0)=?');
+        $s->execute([(int)$replyRaw,$thread]);
+        if(!$s->fetchColumn())
+            throw new RuntimeException('Ответ возможен только в текущей переписке.');
+        $replyId=(int)$replyRaw;
+    }
     // Save private bytes first, then commit message and attachment metadata atomically.
     $saved=null;
     try{
         $saved=adc_chat_receive_file();
         $db->beginTransaction();
         $s=$db->prepare('INSERT INTO team_chat_messages
-          (author_user_id,body,mentioned_user_id,client_id,thread_client_id,created_at)
-          VALUES (?,?,?,?,?,UTC_TIMESTAMP(6))');
-        $s->execute([(int)$user['id'],$body,$mentioned[0]??null,$client,$thread?:null]);
+          (author_user_id,body,mentioned_user_id,client_id,thread_client_id,reply_to_id,created_at)
+          VALUES (?,?,?,?,?,?,UTC_TIMESTAMP(6))');
+        $s->execute([(int)$user['id'],$body,$mentioned[0]??null,$client,$thread?:null,$replyId]);
         $messageId=(int)$db->lastInsertId();
         if($saved){
             $db->prepare('INSERT INTO team_chat_attachments
