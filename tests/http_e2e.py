@@ -214,6 +214,47 @@ try:
         require(status==200 and "chat-feed" in html(roomPage) and
                 "CI real ledger" in html(roomPage),
                 "Client-specific chat HTTP page loads for "+role)
+    # Reply to a specific chat message, pin it and follow the pinned link.
+    status,_,initial=request("director","/?view=chat&thread="+str(real))
+    require(status==200 and "chat-reply-btn" in html(initial),
+            "Reply action visible next to messages")
+    match=re.search(r'data-chat-reply="(\d+)"',html(initial))
+    # Before posting the first message in this room there may be no replies.
+    if match:
+        messageid=match.group(1)
+    else:
+        status,headers,_=post("director",director,"chat_send",{
+            "thread":str(real),"message":"CI pinned request"})
+        require(status==303,"Chat pin fixture message created")
+        status,_,initial=request("director","/?view=chat&thread="+str(real))
+        match=re.search(r'data-chat-reply="(\d+)"',html(initial))
+        require(match,"Chat messages have reply controls")
+        messageid=match.group(1)
+    status,headers,_=post("employee",employee,"chat_send",{
+        "thread":str(real),"message":"This is an answer",
+        "reply_to_id":messageid})
+    require(status==303,"Reply to an earlier chat message succeeds")
+    status,_,replyPage=request("employee","/?view=chat&thread="+str(real))
+    require("chat-replied" in html(replyPage) and
+            "focus="+messageid in html(replyPage),
+            "Reply has a link to its original context")
+    status,headers,_=post("director",director,"chat_toggle_pin",{
+        "thread":str(real),"message_id":messageid})
+    require(status==303,"Pinning a client message succeeds")
+    status,_,pinPage=request("employee","/?view=chat&thread="+str(real))
+    require("chat-pinned" in html(pinPage) and
+            "focus="+messageid in html(pinPage),
+            "Pinned bar visible to colleague in the same client room")
+    status,_,focusPage=request("employee","/?view=chat&thread="+str(real)+
+                              "&focus="+messageid)
+    require(status==200 and 'data-focused="1"' in html(focusPage) and
+            'id="chat-msg-'+messageid+'"' in html(focusPage),
+            "Pinned message can be revisited even when it is not the newest")
+    status,headers,_=post("director",director,"chat_toggle_pin",{
+        "thread":str(real),"message_id":messageid})
+    require(status==303,"Unpinning the same message succeeds")
+    status,_,unpinned=request("director","/?view=chat&thread="+str(real))
+    require("chat-pinned" not in html(unpinned),"Unpinned bar disappears")
     # Protected chat attachment exchange: PDF and a screenshot in a client room.
     chatpdf=WORK/"chat-document.pdf"
     chatpdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")

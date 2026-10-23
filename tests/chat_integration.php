@@ -79,6 +79,43 @@ $_POST=['message'=>'Unknown thread','thread'=>'999999999'];
 $blocked=false;
 try{adc_chat_send($db,['id'=>$a['id'],'role'=>'director']);}catch(RuntimeException $e){$blocked=true;}
 $ok($blocked,'Unknown client conversation rejected');
+// Pin and reply must stay inside their own conversation.
+$_POST=['thread'=>'0','message_id'=>(string)$m['id']];
+adc_chat_toggle_pin($db,['id'=>$b['id']]);
+$generalPin=adc_chat_pinned($db,0);
+$ok($generalPin&&(int)$generalPin['id']===(int)$m['id'],'General chat pinned');
+$ok(adc_chat_pinned($db,$client)===null,'Pin does not leak into client chat');
+$_POST=['message'=>'Reply to your request','thread'=>'0',
+    'reply_to_id'=>(string)$m['id']];
+adc_chat_send($db,['id'=>$b['id']]);
+$messages=adc_chat_rows($db,0,0,$a['id']);$answer=end($messages);
+$ok((int)$answer['reply_to_id']===(int)$m['id'],'Reply reference persisted');
+$replyHtml=adc_chat_item($answer,$a['id']);
+$ok(str_contains($replyHtml,'chat-replied')&&
+    str_contains($replyHtml,'focus='.(int)$m['id']),
+    'Reply context links back to exact message');
+$ok(str_contains($replyHtml,'Ответить')&&
+    str_contains($replyHtml,'chat_toggle_pin'),'Context actions rendered');
+$_POST=['thread'=>(string)$client,'message_id'=>(string)$reply['id']];
+adc_chat_toggle_pin($db,['id'=>$a['id']]);
+$clientPin=adc_chat_pinned($db,$client);
+$ok($clientPin&&(int)$clientPin['id']===(int)$reply['id'],
+    'Client chat has its own pin');
+$_POST=['thread'=>(string)$client,'message_id'=>(string)$m['id']];
+$rejected=false;
+try{adc_chat_toggle_pin($db,['id'=>$a['id']]);}
+catch(RuntimeException $e){$rejected=true;}
+$ok($rejected,'Cannot pin another thread message');
+$_POST=['thread'=>(string)$client,'message'=>'Bad cross-thread reply',
+    'reply_to_id'=>(string)$m['id']];
+$rejected=false;
+try{adc_chat_send($db,['id'=>$a['id']]);}
+catch(RuntimeException $e){$rejected=true;}
+$ok($rejected,'Cannot reply to another conversation');
+$_POST=['thread'=>'0','message_id'=>(string)$m['id']];
+adc_chat_toggle_pin($db,['id'=>$b['id']]);
+$ok(adc_chat_pinned($db,0)===null,'Pin can be removed');
+$ok(adc_chat_pinned($db,$client)!==null,'Removing pin leaves other rooms pinned');
 // Exercise the full chat page rendering, not only message helpers.
 $_GET=['view'=>'chat'];
 $page=adc_chat_html($db,['id'=>$a['id'],'role'=>'director']);
@@ -88,5 +125,8 @@ $_GET=['view'=>'chat','thread'=>(string)$client];
 $page=adc_chat_html($db,['id'=>$b['id'],'role'=>'employee']);
 $ok(str_contains($page,'chat-feed') && str_contains($page,$clientName),
     'Employee can render a client conversation without HTTP 500');
+$ok(str_contains($page,'chat-pinned')&&str_contains($page,'Закреплено') &&
+    str_contains($page,'data-reply-id'),
+    'Pinned client banner and reply composer rendered');
 unset($_GET['thread']);
 echo "Chat integration PASS: multi mentions, inline staff/client tags, safe links, separate rooms, isolated unread, persistence\n";
