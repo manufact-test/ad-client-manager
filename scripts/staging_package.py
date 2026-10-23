@@ -13,13 +13,14 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 OUT = Path(sys.argv[1] if len(sys.argv) == 2 else "/tmp/ad-client-manager-staging.zip")
 required = {
-    ".htaccess", "index.php", "app/.htaccess", "app/core.php",
+    ".htaccess", "index.php", "favicon.ico", "app/.htaccess", "app/core.php",
     "scripts/.htaccess", "scripts/staging_migrate.php",
     "scripts/release_preflight.php", "scripts/compare_restore.php",
 }
 files = {
     Path(".htaccess"),
     Path("index.php"),
+    Path("favicon.ico"),
     *Path("app").glob("*.php"),
     Path("app/.htaccess"),
     Path("scripts/.htaccess"),

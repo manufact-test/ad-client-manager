@@ -25,9 +25,12 @@ assert "needs: verify" in deploy, "Successful verification must gate release"
 assert "contents: read" in verify, "Workflow-wide permissions must be read-only"
 assert "contents: write" in deploy, "Write permission only for release job"
 assert "git push origin HEAD:deploy" in deploy, "Manual action must target deploy only"
-assert "git restore --source=origin/main --staged --worktree -- index.php .htaccess app" in deploy, (
+assert "git restore --source=origin/main --staged --worktree -- index.php .htaccess app favicon.ico" in deploy, (
     "Release may copy only reviewed application files"
 )
+# Browser favicon is the only extra public binary deployment asset.
+favicon = (root / "favicon.ico").read_bytes()
+assert favicon[:4] == b"\x00\x00\x01\x00" and 0 < len(favicon) <= 50000
 assert (root / "scripts/release_preflight.php").is_file()
 assert (root / "scripts/.htaccess").is_file()
 # Hostinger keeps a .git directory inside public_html. The Apache rule must

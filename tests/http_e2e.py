@@ -228,6 +228,11 @@ try:
     require(status==200 and "<title>Реклама MANUFACT</title>" in html(home)
             and 'class="logout-btn"' in html(home),
             "Brand title and properly sized logout button across app")
+    require('rel="icon" type="image/x-icon" href="/favicon.ico?v=97b21d17"' in html(home),
+            "MANUFACT favicon declared in all application pages")
+    status,_,faviconData=request("director","/favicon.ico")
+    require(status==200 and faviconData.startswith(b"\x00\x00\x01\x00"),
+            "Valid ICO served as a public static asset")
     match=re.search(r'data-chat-reply="(\d+)"',html(initial))
     # Before posting the first message in this room there may be no replies.
     if match:
