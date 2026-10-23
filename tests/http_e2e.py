@@ -85,10 +85,9 @@ try:
     require(status==200 and "Вход" in html(body),"Private document unauthenticated access")
     director=login("director");employee=login("employee")
     status,_,ctrl=request("employee","/?view=control")
-    require(status==200 and "Контроль клиентов" in html(ctrl) and
-            "План вычисляется по условиям договоров" in html(ctrl) and
-            "последние 183 дня" in html(ctrl),
-            "Shared client paperwork overview uses longer overdue lookback")
+    require(status==200 and "<h1>Обзор</h1>" in html(ctrl) and
+            "Контроль клиентов" not in html(ctrl),
+            "Former control tab resolves to the single concise overview")
     status,_,tasks=request("director","/?view=tasks")
     require(status==200 and "Мои задачи" in html(tasks) and
             "Общий календарь команды" in html(tasks),
@@ -167,14 +166,17 @@ try:
     real=create_client(director,"CI real ledger",False)
     # Daily operating overview and read-only client paperwork CSV are authenticated.
     status,_,overview=request("director","/?view=overview")
-    require(status==200 and "Обзор работы" in html(overview) and
-            "Ожидают оплаты" in html(overview) and
-            "Команда · открытые задачи" in html(overview),
-            "Director sees operating overview with team load")
+    require(status==200 and "<h1>Обзор</h1>" in html(overview) and
+            "Оплачено" in html(overview) and
+            "Не оплачено" in html(overview) and
+            "Команда · открытые задачи" in html(overview) and
+            'href="/?view=payments"' not in html(overview) and
+            'href="/?view=control"' not in html(overview),
+            "Director overview contains only essential totals, tasks and team")
     status,_,overview=request("employee","/?view=overview")
-    require(status==200 and "Обзор работы" in html(overview) and
+    require(status==200 and "<h1>Обзор</h1>" in html(overview) and
             "Команда · открытые задачи" not in html(overview),
-            "Employee sees own operating overview without director team data")
+            "Employee sees own overview without director team data")
     status,headers,plan=request("director","/?export=control")
     require(status==200 and plan.startswith(b"\xEF\xBB\xBF") and
             "CI real ledger" in html(plan) and
@@ -186,15 +188,25 @@ try:
             "Anonymous visitor cannot download the control CSV")
 
     status,_,controlPage=request("director","/?view=control")
-    require(status==200 and 'name="action" value="assign_control_reminder"' in html(controlPage),
-            "Director may delegate client paperwork from control view")
+    require(status==200 and "<h1>Обзор</h1>" in html(controlPage) and
+            'name="action" value="assign_control_reminder"' not in html(controlPage),
+            "Director sees one overview instead of duplicate control desk")
     status,_,employeeControl=request("employee","/?view=control")
-    require(status==200 and 'name="action" value="assign_control_reminder"' not in html(employeeControl),
-            "Employee control has no assignment actions")
+    require(status==200 and "Команда · открытые задачи" not in html(employeeControl),
+            "Employee does not see team data")
     require("Сумма по договору в месяц" in panel("director",real) and
             "1 250,00 BYN" in panel("director",real),
             "Contract reference price remains visible in client profile")
     page=panel("director",demo)
+    for role in ("director","employee"):
+        status,_,chatPage=request(role,"/?view=chat")
+        require(status==200 and "Чат команды" in html(chatPage) and
+                "Общий чат" in html(chatPage),
+                "Authenticated chat page loads for "+role)
+        status,_,roomPage=request(role,"/?view=chat&thread="+str(real))
+        require(status==200 and "chat-feed" in html(roomPage) and
+                "CI real ledger" in html(roomPage),
+                "Client-specific chat HTTP page loads for "+role)
     # UI behaviors require an authorized nonce: no unsafe-inline script policy.
     status,headers,rendered=request("director","/?view=clients&client="+str(demo))
     page=html(rendered)
@@ -211,10 +223,18 @@ try:
     require(js_check.returncode==0,"Inline calendar and task JavaScript has valid syntax")
     require("var opened=toggle?target.hidden:false;" in inline_script.group(1),
             "Task edit button opens previously hidden form")
-    require("Документы и оплаты" in page and "Загрузить документ" in page,"New document-centered drawer exists")
-    require("Выгрузить историю в CSV" in page,"Client CSV is in overview")
-    require("Добавить новые условия" in page and "Добавить расчётный период вручную" not in page,
-            "Conditions versioned; manual period button removed")
+    require("Обзор" not in page or "Финансы" in page,"Approved client card section is restored")
+    require('class="card client-overview"' in page and
+            'id="client-finance"' in page and
+            'id="client-periods"' in page and
+            'id="client-documents"' in page and
+            "Чат клиента" in page,
+            "Original approved client card layout, finance, periods and chat shortcut")
+    require("Документы и оплаты" in page and "Загрузить документ" in page,
+            "New ledger actions remain within original document section")
+    require("Выгрузить операции" in page,"Existing client CSV shortcut retained")
+    require("Изменить условия сотрудничества" in page and "Добавить период вручную" in page,
+            "Original client period editing restored")
     require("Загрузить документ" not in panel("employee",demo),"Employees cannot upload PDFs")
     status,_,_=post("employee",employee,"create_card_entry",{
         "client_id":demo,"amount":"100.00","currency":"BYN","category":"advertising"})
@@ -369,11 +389,13 @@ try:
     # Card entries need the same accounting protection as received PDF entries.
     entry=form_entry_id(panel("director",real),"receive_entry")
     status,_,paymentPage=request("director","/?view=payments")
-    require(status==200 and "Контроль оплат" in html(paymentPage) and
-            "CI real ledger" in html(paymentPage) and
-            "CI demo ledger" not in html(paymentPage) and
-            'name="action" value="receive_entry"' in html(paymentPage),
-            "Real unpaid item appears in collection desk, demo excluded")
+    require(status==200 and "<h1>Обзор</h1>" in html(paymentPage) and
+            "Контроль оплат" not in html(paymentPage) and
+            'name="action" value="receive_entry"' not in html(paymentPage),
+            "No duplicate payment desk; receipts remain client-card actions")
+    require("Не оплачено · BYN" in html(paymentPage) and
+            "77,00 BYN" in html(paymentPage),
+            "Actual outstanding amount visible in overview, excluding demo")
     status,_,paymentExport=request("employee","/?export=payments")
     require(status==200 and "CI real ledger" in html(paymentExport) and
             "CI demo ledger" not in html(paymentExport),
@@ -382,14 +404,13 @@ try:
     require(status==200 and "Вход" in html(visitorPage),
             "Unauthenticated visitor is not given payments CSV")
     status,headers,_=post("director",director,"receive_entry",{
-        "client_id":real,"entry_id":entry,"return_view":"payments",
-        "return_scope":"all","return_currency":"BYN",
-        "return_query":"CI real ledger","return_page":"1"})
-    require(status==303 and location(headers).startswith("/?view=payments"),
-            "Receipt confirmed from collection desk and returned to same filtered view")
-    status,_,afterReceiptPage=request("director","/?view=payments&q=CI%20real%20ledger")
-    require(status==200 and "Нет неоплаченных записей с этими условиями." in html(afterReceiptPage),
-            "Confirmed item disappears from work queue")
+        "client_id":real,"entry_id":entry})
+    require(status==303 and "view=clients" in location(headers),
+            "Receipt confirmed directly inside the client card")
+    status,_,afterReceiptPage=request("director","/?view=overview")
+    require(status==200 and "Оплачено · BYN" in html(afterReceiptPage) and
+            "77,00 BYN" in html(afterReceiptPage),
+            "Confirmed receipt is reflected in the only overview")
     require("Для удаления сначала отмените получение" in panel("director",real),
             "Paid card request displays reversal-before-deletion guidance")
     status,_,blocked=post("director",director,"delete_card_entry",{
@@ -430,8 +451,8 @@ try:
 
     # Accidental new non-demo clients have an explicit, director-only delete.
     accidental=create_client(director,"CI empty accidental client",False)
-    require(forms(panel("director",accidental),"delete_empty_client"),
-            "Director can delete brand-new, empty, real client")
+    require(not forms(panel("director",accidental),"delete_empty_client"),
+            "Approved older card does not expose an unrequested delete action")
     require(not forms(panel("employee",accidental),"delete_empty_client"),
             "Employees never see ordinary client deletion")
     status,_,denied=post("employee",employee,"delete_empty_client",{
