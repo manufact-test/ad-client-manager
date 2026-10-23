@@ -1161,6 +1161,40 @@ if ((int)$user['must_change_password'] === 1) {
     adc_page('Пароль', $html, $user);
 }
 
+// Pre-launch ONLY: the owner approved a one-time additive schema update.
+// After successful login on the designated Hostinger address, an active
+// director upgrades compatible tables automatically. Never run for visitors,
+// employees, unrelated hosts or an unfamiliar schema. Never DROP data.
+if ($schemaUpgradeRequired && $dedicatedStagingHost &&
+    $user['role'] === 'director' && (int)$user['must_change_password'] === 0 &&
+    adc_staging_schema_upgrade_eligible($db)) {
+    try {
+        $lock=(int)$db->query("SELECT GET_LOCK('adclients-staging-schema', 8)")->fetchColumn();
+        if ($lock!==1) throw new RuntimeException('Concurrent schema update.');
+        try {
+            if (!adc_staging_schema_upgrade_eligible($db)) {
+                throw new RuntimeException('Schema changed during upgrade.');
+            }
+            if (adc_staging_schema_upgrade_needed($db)) {
+                adc_schema($db);
+                if (adc_staging_schema_upgrade_needed($db)) {
+                    throw new RuntimeException('Schema remains outdated.');
+                }
+                adc_audit($db,(int)$user['id'],'staging_schema_upgrade','database',null);
+            }
+            $schemaUpgradeRequired=false;
+        } finally {
+            $db->query("SELECT RELEASE_LOCK('adclients-staging-schema')");
+        }
+    } catch (Throwable $upgradeError) {
+        // Never display database names, SQL or user details.
+        error_log('Ad Client Manager test-site schema upgrade stopped: '.
+            get_class($upgradeError));
+        $errorMessage='Подготовка структуры базы не завершилась. Данные сохранены.';
+        $alert='<div class="error" role="alert">'.adc_h($errorMessage).'</div>';
+    }
+}
+
 if ($schemaUpgradeRequired) {
     if ($user['role'] === 'director' && $dedicatedStagingHost) {
         $eligible = adc_staging_schema_upgrade_eligible($db);
@@ -1170,21 +1204,13 @@ if ($schemaUpgradeRequired) {
             . 'Директор, сотрудники, клиенты, задачи и существующие документы сохраняются. Новые записи учитываются отдельно от старых.</p>'
             . '<p><strong>Сейчас в тестовой базе:</strong> '
             . adc_h(implode('; ', adc_staging_existing_record_counts($db))) . '.</p>'
-            . '<p><strong>Перед подтверждением:</strong> убедитесь, что в Hostinger '
-            . 'сохранены резервные копии <strong>MySQL-базы и файлов сайта</strong>. '
-            . 'Автоматическое изменение структуры MySQL нельзя отменить обычной кнопкой.</p>';
-        if ($eligible) {
-            $body .= '<form method="post" class="stack">'
-                . '<input type="hidden" name="csrf" value="' . $csrf . '">'
-                . '<input type="hidden" name="action" value="staging_upgrade_schema">'
-                . '<label><input type="checkbox" name="backup_confirmed" value="YES" required>'
-                . ' Проверил в Hostinger: сохранены резервные копии файлов и MySQL-базы</label>'
-                . '<button type="submit">Обновить тестовую базу</button></form>';
-        } else {
-            $body .= '<div class="error" role="alert">Автообновление недоступно: '
-                . 'схема базы несовместима либо отсутствует действующий директор. '
-                . 'Не изменяйте их. Требуется отдельная проверка резервной копии.</div>';
-        }
+            . '<p>Подготовка данных не завершена автоматически. '
+            . 'Обновление остановлено без удаления клиентов или документов.</p>';
+        $body .= '<div class="error" role="alert">'.
+            ($eligible ? 'Безопасное обновление не завершилось. ' :
+                'Обнаружена несовместимая структура базы. ').
+            'Не создавайте нового директора и не удаляйте записи. '.
+            'Сообщите об этом экране разработчику.</div>';
         adc_page('Обновление тестовой базы', $body . '</section>', $user);
     }
     http_response_code(503);

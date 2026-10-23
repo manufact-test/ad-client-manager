@@ -45,17 +45,13 @@ status,body,_=request({"csrf":csrf(body),"action":"login",
                        "password":"ci-fixture-upgrade-123456"})
 check(status==303, "Director could not log in on old schema")
 status,body,_=request()
-check(status==200 and "Обновление тестовой базы" in body,
-      "Director upgrade gate not visible")
-check('name="action" value="staging_upgrade_schema"' in body,
-      "Upgrade form missing")
-status,body,_=request({"csrf":csrf(body),"action":"staging_upgrade_schema"})
-check(status==200 and "резервную копию" in body.lower(),
-      "Missing backup consent unexpectedly allowed schema changes")
-status,body,_=request({"csrf":csrf(body),"action":"staging_upgrade_schema",
-                       "backup_confirmed":"YES"})
-check(status==303, "Approved test-only migration failed")
+check(status==200 and "Обновление тестовой базы" not in body,
+      "Safe pre-launch migration did not complete after director login")
+check('href="/?view=chat"' in body,
+      "Post-upgrade application menu is missing the team chat")
+check("Первичная настройка" not in body,
+      "Existing director was replaced or application reset")
 status,body,_=request()
 check(status==200 and "Обновление тестовой базы" not in body,
-      "Upgrade screen remains after successful migration")
-print("Staging upgrade HTTP PASS: director login, backup confirmation, migration, normal page")
+      "Repeat director visit was not idempotent")
+print("Staging upgrade HTTP PASS: director login, one-time guarded migration, normal pages")
