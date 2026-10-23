@@ -791,6 +791,8 @@ function adc_w_can_delete_empty_client(PDO $db, int $clientId): bool {
         'SELECT 1 FROM client_entries WHERE client_id=? LIMIT 1',
         'SELECT 1 FROM charge_lines WHERE client_id=? LIMIT 1',
         'SELECT 1 FROM payment_events WHERE client_id=? LIMIT 1',
+        'SELECT 1 FROM team_chat_messages WHERE thread_client_id=? LIMIT 1',
+        'SELECT 1 FROM team_chat_messages WHERE client_id=? LIMIT 1',
         'SELECT 1 FROM clients WHERE previous_client_id=? LIMIT 1',
     ] as $sql) {
         $check=$db->prepare($sql);
@@ -816,7 +818,10 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         '<div class="drawer-head"><h2 id="client-heading">'.adc_h((string)$client['name']).
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '').
         '</h2><a class="btn secondary" href="'.adc_h($returnUrl).'">Закрыть ✕</a></div>'.
-        '<section class="card customer-identity"><div class="client-summary-header"><h3>О клиенте</h3><a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Выгрузить историю в CSV</a></div><div class="profile-facts">'.
+        '<section class="card customer-identity"><div class="client-summary-header"><h3>О клиенте</h3>'.
+        '<div class="actions"><a class="btn secondary" href="/?view=chat&amp;thread='.$id.'">Чат клиента</a>'.
+        '<a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Выгрузить историю в CSV</a></div>'.
+        '</div><div class="profile-facts>'.
         '<div><small>Услуги</small><strong>'.adc_h((string)$client['platform_text'] ?: 'Не указаны').'</strong></div>'.
         '<div><small>Тип</small><strong>'.((string)$client['legal_type']==='legal'?'Юридическое лицо':'Физическое лицо').'</strong></div>'.
         '<div><small>Откуда пришёл</small><strong>'.adc_h($source).'</strong></div>';
@@ -1276,7 +1281,7 @@ function adc_w_team(PDO $db, array $user): string {
 
 function adc_w_page(PDO $db, array $user, string $alert): never {
     $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
-    if (!in_array($view,['overview','clients','payments','control','tasks','archive','analytics','team'],true)) {
+    if (!in_array($view,['overview','clients','payments','control','tasks','archive','analytics','chat','team'],true)) {
         $view='clients';
     }
     $body = $alert;
@@ -1287,6 +1292,7 @@ function adc_w_page(PDO $db, array $user, string $alert): never {
         'tasks' => adc_w_tasks($db, $user),
         'control' => adc_reminders_dashboard($db,$user),
         'analytics' => adc_w_analytics($db),
+        'chat' => adc_chat_html($db,$user),
         default => adc_w_team($db, $user),
     };
     adc_page('Ad Client Manager', $body, $user);

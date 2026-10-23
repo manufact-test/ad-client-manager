@@ -10,7 +10,7 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('Referrer-Policy: no-referrer');
 $adcJsNonce=base64_encode(random_bytes(24));
-header("Content-Security-Policy: default-src 'none'; script-src 'nonce-" . $adcJsNonce . "'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+header("Content-Security-Policy: default-src 'none'; script-src 'nonce-" . $adcJsNonce . "'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
 adc_session();
 
 function adc_page(string $title, string $body, ?array $user = null): never {
@@ -21,9 +21,9 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
         $menu = '<div class="header-inner"><nav class="top-nav" aria-label="Основные разделы">';
         foreach (['overview'=>'Обзор','clients'=>'Клиенты','payments'=>'Оплаты','control'=>'Контроль','tasks'=>'Мои задачи','archive'=>'Архив',
-                  'analytics'=>'Аналитика','team'=>'Настройки'] as $id=>$label) {
+                  'analytics'=>'Аналитика','chat'=>'Чат','team'=>'Настройки'] as $id=>$label) {
             $menu .= '<a href="/?view='.$id.'"'.($view===$id?' class="active" aria-current="page"':'').
-                '>'.adc_h($label).'</a>';
+                '>'.adc_h($label).($id==='chat'?' <span data-chat-badge class="chat-badge" hidden></span>':'').'</a>';
         }
         $menu .= '</nav><div class="account"><span>'.$name.' · '.
             ($user['role']==='director'?'Директор':'Сотрудник').'</span>'.
@@ -252,6 +252,53 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .ac-days button.is-selected{border-radius:9px}
         .task-actions [data-task-toggle][aria-expanded=true]{background:#eeebff;color:#3326a4;border-color:#9d93e7}
         @media(max-width:700px){.client-list-table tbody td{padding:12px 14px}.client-list-table .status-cell{padding:12px 16px}}
+
+        .chat-badge{display:inline-flex;min-width:18px;height:18px;justify-content:center;align-items:center;
+          background:#cf3959;color:#fff;border-radius:20px;font-size:11px;padding:0 5px}
+        .chat-badge[hidden]{display:none}
+        .chat-feed{min-height:230px;max-height:480px;overflow-y:auto;margin:16px 0;border:1px solid #e4e6ed;
+          background:#f8f9fc;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:11px}
+        .chat-msg{align-self:flex-start;max-width:88%;overflow-wrap:anywhere;background:#fff;
+          border:1px solid #e0e3ed;padding:10px 13px;border-radius:12px}
+        .chat-msg.mine{align-self:flex-end;background:#eeeaff;border-color:#d8d2fa}
+        .chat-msg.ping{background:#faf1ff;border-color:#bea8df}
+        .chat-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:#59647b;margin-bottom:5px}
+        .chat-meta time{font-size:11px;color:#737d91}
+        .chat-ping{font-size:13px;font-weight:700;color:#4a35b2}
+        .chat-link{display:block;margin-top:7px;font-size:13px;color:#4535b6}
+        .chat-compose textarea{width:100%;min-height:88px;border:1px solid #cfd5df;border-radius:8px;
+          padding:11px;font:inherit;color:inherit;resize:vertical}
+        .chat-picks{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+        @media(max-width:600px){.chat-msg{max-width:98%}.chat-picks{grid-template-columns:1fr}}
+
+        .chat-layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;margin-top:15px}
+        .chat-sidebar{border:1px solid #e4e6ed;background:#fcfcfe;border-radius:12px;padding:9px;min-width:0}
+        .chat-room-list{max-height:495px;overflow-y:auto}
+        .chat-room{display:flex;align-items:center;gap:7px;padding:9px 10px;border-radius:9px;
+          color:#28345a;text-decoration:none;font-size:13px;min-width:0}
+        .chat-room:hover,.chat-room.selected{background:#ebe8ff;color:#3829a1}
+        .chat-room-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+        .chat-room-count{margin-left:auto;padding:1px 6px;border-radius:15px;background:#5547ba;
+          color:white;font-weight:700;font-size:11px;flex-shrink:0}
+        .chat-search{margin:12px 0 5px}.chat-search label{display:block;margin-bottom:5px}
+        .chat-search input{font-size:13px}
+        .chat-heading{display:flex;align-items:baseline;gap:10px;justify-content:space-between;flex-wrap:wrap}
+        .chat-heading h2{margin:0}.chat-heading a{font-size:13px}
+        .chat-feed{min-height:260px}
+        .chat-input-box{position:relative}
+        .chat-suggest{position:absolute;bottom:100%;left:0;right:0;max-height:230px;overflow-y:auto;
+          border:1px solid #c6c3e4;background:#fff;z-index:50;box-shadow:0 12px 30px #28205030;
+          border-radius:9px;padding:5px}
+        .chat-suggest[hidden]{display:none}
+        .chat-suggestion{display:flex;width:100%;padding:7px 10px;justify-content:space-between;gap:8px;
+          background:white;color:#282546;border:0;text-align:left;border-radius:6px}
+        .chat-suggestion.highlight,.chat-suggestion:hover{background:#eeeaff}
+        .chat-suggestion small{font-size:11px;overflow-wrap:anywhere}
+        .chat-tag-person{color:#4133b5}.chat-tag-client{color:#007d79;font-weight:650}
+        .chat-hint{font-size:12px;margin:5px 0 13px}
+        @media(max-width:700px){.chat-layout{grid-template-columns:minmax(0,1fr)}
+          .chat-room-list{max-height:170px;overflow-y:auto}
+          .chat-sidebar{max-height:310px}.chat-feed{max-height:420px}}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script nonce="' . adc_h($adcJsNonce) . '">
 (function(){
   "use strict";
@@ -411,6 +458,175 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     });
     document.addEventListener("keydown",function(e){if(e.key==="Escape")closeMenus();});
   });
+
+  (function(){
+    var badge=document.querySelector("[data-chat-badge]");
+    if(!badge)return;
+    var feed=document.querySelector("[data-last]");
+    var thread=feed?Number(feed.getAttribute("data-thread")||0):0;
+    var soundButton=document.querySelector("[data-chat-sound]");
+    var audible=false,activated=false,lastOther=null,busy=false;
+    try{audible=localStorage.getItem("adc-chat-sound")==="on";}catch(e){}
+    function beep(){
+      if(!audible||!activated)return;
+      try{
+        var ctx=new (window.AudioContext||window.webkitAudioContext)();
+        var osc=ctx.createOscillator(),gain=ctx.createGain();
+        osc.type="sine";osc.frequency.value=810;
+        gain.gain.setValueAtTime(0.065,ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.16);
+        osc.connect(gain);gain.connect(ctx.destination);
+        osc.start();osc.stop(ctx.currentTime+0.17);
+        osc.onended=function(){ctx.close();};
+      }catch(e){}
+    }
+    function soundLabel(){
+      if(!soundButton)return;
+      soundButton.textContent=audible?"Выключить звук":"Включить звук";
+      soundButton.setAttribute("aria-pressed",String(audible));
+    }
+    document.addEventListener("pointerdown",function(){activated=true;},{once:true});
+    document.addEventListener("keydown",function(){activated=true;},{once:true});
+    if(soundButton)soundButton.addEventListener("click",function(){
+      audible=!audible;activated=true;
+      try{localStorage.setItem("adc-chat-sound",audible?"on":"off");}catch(e){}
+      soundLabel();if(audible)beep();
+    });
+    soundLabel();
+    function markRead(id){
+      if(!feed||!id||document.hidden||!document.hasFocus())return;
+      var form=new FormData();
+      form.set("action","chat_read");
+      form.set("csrf",document.querySelector("[data-chat-compose] [name=csrf]").value);
+      form.set("last_id",String(id));form.set("thread",String(thread));
+      fetch("/",{method:"POST",credentials:"same-origin",body:form})
+        .then(function(r){return r.ok?r.json():null;})
+        .then(function(r){if(r&&r.ok)poll();}).catch(function(){});
+    }
+    function showRooms(unread){
+      if(!feed||!unread)return;
+      document.querySelectorAll("[data-room]").forEach(function(link){
+        var id=link.getAttribute("data-room");
+        var count=Number(unread[id]||0);
+        var span=link.querySelector(".chat-room-count");
+        if(count){
+          if(!span){span=document.createElement("span");span.className="chat-room-count";link.appendChild(span);}
+          span.textContent=String(Math.min(99,count))+(count>99?"+":"");
+        }else if(span)span.remove();
+      });
+    }
+    function poll(){
+      if(busy)return;busy=true;
+      var after=feed?Number(feed.getAttribute("data-last")||0):0;
+      fetch("/?chat_poll=1&status="+(feed?"0":"1")+"&thread="+thread+"&after="+after,
+        {credentials:"same-origin",cache:"no-store"})
+      .then(function(r){if(!r.ok)throw Error("poll failed");return r.json();})
+      .then(function(r){
+        if(!r.ok)return;
+        var count=Number(r.unread)||0,mentions=Number(r.mentions)||0;
+        badge.hidden=!count;
+        badge.textContent=count?(mentions?"@"+Math.min(99,mentions):
+          String(Math.min(99,count))+(count>99?"+":"")):"";
+        badge.title=mentions?mentions+" упоминаний":count+" непрочитанных";
+        showRooms(r.room_unread);
+        var newest=Number(r.newest_other_id)||0;
+        if(lastOther!==null&&newest>lastOther)beep();
+        lastOther=newest;
+        if(!feed||!Array.isArray(r.messages)||!r.messages.length)return;
+        var wasNearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<110;
+        var empty=feed.querySelector("[data-empty]");if(empty)empty.remove();
+        var maxId=after;
+        r.messages.forEach(function(m){
+          var id=Number(m.id)||0;if(id<=maxId)return;
+          var template=document.createElement("template");template.innerHTML=m.html;
+          if(template.content.firstElementChild)feed.appendChild(template.content.firstElementChild);
+          maxId=id;
+        });
+        feed.setAttribute("data-last",String(maxId));
+        while(feed.querySelectorAll(".chat-msg").length>120)
+          feed.querySelector(".chat-msg").remove();
+        if(wasNearBottom)feed.scrollTop=feed.scrollHeight;
+        markRead(maxId);
+      }).catch(function(){}).finally(function(){busy=false;});
+    }
+    if(feed){feed.scrollTop=feed.scrollHeight;markRead(Number(feed.getAttribute("data-last")||0));}
+    poll();window.setInterval(poll,12000);
+    document.addEventListener("visibilitychange",function(){if(!document.hidden)poll();});
+
+    // Telegram-like composer: type @ or #, choose a match, insert a stable tag.
+    // Suggestions are loaded only for authenticated staff and do not write data.
+    var textarea=document.getElementById("chat-text");
+    var popup=document.querySelector("[data-chat-suggestions]");
+    if(!textarea||!popup)return;
+    var suggestions=[],position=-1,range=null,seq=0,debounce=null;
+    function hide(){
+      popup.hidden=true;popup.textContent="";suggestions=[];position=-1;range=null;
+      textarea.setAttribute("aria-expanded","false");
+    }
+    function findToken(){
+      var caret=textarea.selectionStart;
+      if(caret!==textarea.selectionEnd)return null;
+      var before=textarea.value.slice(0,caret);
+      var m=before.match(/(^|[\s([{])([@#])([\p{L}\p{N}_]{0,50})$/u);
+      return m?{start:caret-m[2].length-m[3].length,end:caret,type:m[2],query:m[3]}:null;
+    }
+    function highlight(){
+      popup.querySelectorAll("button").forEach(function(btn,i){
+        btn.classList.toggle("highlight",i===position);
+        btn.setAttribute("aria-selected",String(i===position));
+      });
+    }
+    function choose(index){
+      if(!range||!suggestions[index])return;
+      var token=suggestions[index].token;
+      var s=textarea.value.slice(0,range.start);
+      var suffix=textarea.value.slice(range.end);
+      textarea.value=(s+token+" "+suffix).slice(0,2000);
+      var caret=Math.min(2000,s.length+token.length+1);
+      textarea.focus();textarea.setSelectionRange(caret,caret);hide();
+    }
+    function render(items,activeRange){
+      suggestions=items;range=activeRange;position=-1;popup.textContent="";
+      if(!items.length){hide();return;}
+      items.forEach(function(row,i){
+        var btn=document.createElement("button");
+        btn.type="button";btn.className="chat-suggestion";btn.setAttribute("role","option");
+        var label=document.createElement("strong");label.textContent=row.name;
+        var token=document.createElement("small");token.textContent=row.token;
+        btn.appendChild(label);btn.appendChild(token);
+        btn.addEventListener("mousedown",function(e){e.preventDefault();});
+        btn.addEventListener("click",function(){choose(i);});
+        popup.appendChild(btn);
+      });
+      popup.hidden=false;textarea.setAttribute("aria-expanded","true");
+    }
+    function update(){
+      var current=findToken();seq++;
+      if(!current){hide();return;}
+      var at=seq;
+      fetch("/?chat_suggest=1&type="+encodeURIComponent(current.type)+
+         "&q="+encodeURIComponent(current.query),{credentials:"same-origin",cache:"no-store"})
+       .then(function(r){if(!r.ok)throw Error("suggest failed");return r.json();})
+       .then(function(json){if(at===seq)render(json.results||[],current);})
+       .catch(function(){if(at===seq)hide();});
+    }
+    textarea.setAttribute("aria-autocomplete","list");
+    textarea.setAttribute("aria-expanded","false");
+    textarea.addEventListener("input",function(){
+      window.clearTimeout(debounce);debounce=window.setTimeout(update,160);
+    });
+    textarea.addEventListener("click",function(){window.clearTimeout(debounce);debounce=window.setTimeout(update,160);});
+    textarea.addEventListener("keydown",function(e){
+      if(popup.hidden||!suggestions.length)return;
+      if(e.key==="ArrowDown"){e.preventDefault();position=(position+1)%suggestions.length;highlight();}
+      else if(e.key==="ArrowUp"){e.preventDefault();position=(position+suggestions.length-1)%suggestions.length;highlight();}
+      else if(e.key==="Enter"&&position>=0){e.preventDefault();choose(position);}
+      else if(e.key==="Escape"){e.preventDefault();hide();}
+    });
+    document.addEventListener("click",function(e){
+      if(!e.target.closest(".chat-input-box"))hide();
+    });
+  })();
 })();
 </script></body></html>';
     exit;
@@ -450,6 +666,7 @@ require __DIR__ . '/app/collections.php';
 require __DIR__ . '/app/import.php';
 require __DIR__ . '/app/quick_import.php';
 require __DIR__ . '/app/audit.php';
+require __DIR__ . '/app/chat.php';
 
 $config = adc_config();
 if ($config === null) {
@@ -491,9 +708,11 @@ try {
  * MySQL schema. Never attempt implicit DDL on login or ordinary page requests.
  */
 function adc_staging_schema_upgrade_needed(PDO $db): bool {
-    foreach (['client_entries','engagement_terms'] as $table) {
+    foreach (['client_entries','engagement_terms','team_chat_messages','team_chat_reads',
+             'team_chat_mentions','team_chat_thread_reads'] as $table) {
         if (!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()) return true;
     }
+    if (!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch()) return true;
     $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
     if (!$price || strtolower((string)$price['Type'])!=='decimal(16,2)' ||
         $price['Null']!=='YES') return true;
@@ -531,6 +750,11 @@ function adc_staging_schema_upgrade_eligible(PDO $db): bool {
     )->fetchColumn();
     if ($directorCount < 1) {
         return false;
+    }
+    if (in_array('team_chat_messages',$tables,true)) {
+        $col=$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch();
+        if ($col && (strtolower((string)$col['Type'])!=='bigint unsigned' ||
+                     $col['Null']!=='YES')) return false;
     }
     if (in_array('engagement_terms',$tables,true)) {
         $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
@@ -715,6 +939,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Connected workflow actions share the established authentication and CSRF gates.
+        if ($action==='chat_send') {
+            adc_chat_send($db,$current);
+            adc_flash('Сообщение отправлено.');
+            $chatThread=adc_chat_thread($db,adc_chat_post('thread'));
+            adc_redirect('?view=chat'.($chatThread?'&thread='.$chatThread:''));
+        }
+        if ($action==='chat_read') {
+            $id=adc_input('last_id');
+            if(!ctype_digit($id))throw new RuntimeException('Некорректная отметка прочтения.');
+            adc_chat_read($db,(int)$current['id'],(int)$id,
+                adc_chat_thread($db,adc_input('thread')));
+            header('Content-Type: application/json; charset=UTF-8');
+            echo '{"ok":true}';
+            exit;
+        }
         if (adc_team_task_action($db, $current, $action)) {
             adc_redirect();
         }
@@ -901,7 +1140,7 @@ if (!$initialized) {
     adc_page('Первичная настройка', $html);
 }
 
-$user = adc_current_user($db);
+$user = adc_current_user($db,!isset($_GET['chat_poll'])&&!isset($_GET['chat_suggest']));
 if (!$user) {
     $html = '<section class="card narrow"><h1>Вход</h1><p class="muted">Доступ только для сотрудников компании.</p>' . $alert
         . '<form method="post" class="stack"><input type="hidden" name="csrf" value="' . $csrf . '">'
@@ -922,30 +1161,56 @@ if ((int)$user['must_change_password'] === 1) {
     adc_page('Пароль', $html, $user);
 }
 
+// Pre-launch ONLY: the owner approved a one-time additive schema update.
+// After successful login on the designated Hostinger address, an active
+// director upgrades compatible tables automatically. Never run for visitors,
+// employees, unrelated hosts or an unfamiliar schema. Never DROP data.
+if ($schemaUpgradeRequired && $dedicatedStagingHost &&
+    $user['role'] === 'director' && (int)$user['must_change_password'] === 0 &&
+    adc_staging_schema_upgrade_eligible($db)) {
+    try {
+        $lock=(int)$db->query("SELECT GET_LOCK('adclients-staging-schema', 8)")->fetchColumn();
+        if ($lock!==1) throw new RuntimeException('Concurrent schema update.');
+        try {
+            if (!adc_staging_schema_upgrade_eligible($db)) {
+                throw new RuntimeException('Schema changed during upgrade.');
+            }
+            if (adc_staging_schema_upgrade_needed($db)) {
+                adc_schema($db);
+                if (adc_staging_schema_upgrade_needed($db)) {
+                    throw new RuntimeException('Schema remains outdated.');
+                }
+                adc_audit($db,(int)$user['id'],'staging_schema_upgrade','database',null);
+            }
+            $schemaUpgradeRequired=false;
+        } finally {
+            $db->query("SELECT RELEASE_LOCK('adclients-staging-schema')");
+        }
+    } catch (Throwable $upgradeError) {
+        // Never display database names, SQL or user details.
+        error_log('Ad Client Manager test-site schema upgrade stopped: '.
+            get_class($upgradeError));
+        $errorMessage='Подготовка структуры базы не завершилась. Данные сохранены.';
+        $alert='<div class="error" role="alert">'.adc_h($errorMessage).'</div>';
+    }
+}
+
 if ($schemaUpgradeRequired) {
     if ($user['role'] === 'director' && $dedicatedStagingHost) {
         $eligible = adc_staging_schema_upgrade_eligible($db);
         $body = '<section class="card narrow"><h1>Обновление тестовой базы</h1>'
             . $alert
-            . '<p>Новая версия добавляет историю месячных договорных сумм без пересчёта прежних оплат. '
+            . '<p>Новая версия добавляет историю договорных сумм и таблицы командного чата без пересчёта прежних оплат. '
             . 'Директор, сотрудники, клиенты, задачи и существующие документы сохраняются. Новые записи учитываются отдельно от старых.</p>'
             . '<p><strong>Сейчас в тестовой базе:</strong> '
             . adc_h(implode('; ', adc_staging_existing_record_counts($db))) . '.</p>'
-            . '<p><strong>Перед подтверждением:</strong> убедитесь, что в Hostinger '
-            . 'сохранены резервные копии <strong>MySQL-базы и файлов сайта</strong>. '
-            . 'Автоматическое изменение структуры MySQL нельзя отменить обычной кнопкой.</p>';
-        if ($eligible) {
-            $body .= '<form method="post" class="stack">'
-                . '<input type="hidden" name="csrf" value="' . $csrf . '">'
-                . '<input type="hidden" name="action" value="staging_upgrade_schema">'
-                . '<label><input type="checkbox" name="backup_confirmed" value="YES" required>'
-                . ' Проверил в Hostinger: сохранены резервные копии файлов и MySQL-базы</label>'
-                . '<button type="submit">Обновить тестовую базу</button></form>';
-        } else {
-            $body .= '<div class="error" role="alert">Автообновление недоступно: '
-                . 'схема базы несовместима либо отсутствует действующий директор. '
-                . 'Не изменяйте их. Требуется отдельная проверка резервной копии.</div>';
-        }
+            . '<p>Подготовка данных не завершена автоматически. '
+            . 'Обновление остановлено без удаления клиентов или документов.</p>';
+        $body .= '<div class="error" role="alert">'.
+            ($eligible ? 'Безопасное обновление не завершилось. ' :
+                'Обнаружена несовместимая структура базы. ').
+            'Не создавайте нового директора и не удаляйте записи. '.
+            'Сообщите об этом экране разработчику.</div>';
         adc_page('Обновление тестовой базы', $body . '</section>', $user);
     }
     http_response_code(503);
@@ -954,6 +1219,10 @@ if ($schemaUpgradeRequired) {
         . '<p>Операции временно закрыты. Обратитесь к директору.</p></section>',
         $user);
 }
+
+// Chat polls do not extend idle sessions.
+if(isset($_GET['chat_poll']))adc_chat_poll($db,$user);
+if(isset($_GET['chat_suggest']))adc_chat_suggest($db,$user);
 
 // Financial downloads follow the same session and temporary-password gates.
 if (isset($_GET['export']) && is_string($_GET['export'])) {
