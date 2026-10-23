@@ -756,11 +756,11 @@ try {
  * MySQL schema. Never attempt implicit DDL on login or ordinary page requests.
  */
 function adc_staging_schema_upgrade_needed(PDO $db): bool {
-    foreach (['client_entries','engagement_terms','team_chat_messages','team_chat_reads',
-             'team_chat_mentions','team_chat_thread_reads','team_chat_attachments'] as $table) {
+    // Chat extensions are independently additive and are never a reason to
+    // lock the director out of otherwise working clients/tasks/analytics.
+    foreach (['client_entries','engagement_terms'] as $table) {
         if (!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()) return true;
     }
-    if (!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch()) return true;
     $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
     if (!$price || strtolower((string)$price['Type'])!=='decimal(16,2)' ||
         $price['Null']!=='YES') return true;
@@ -798,11 +798,6 @@ function adc_staging_schema_upgrade_eligible(PDO $db): bool {
     )->fetchColumn();
     if ($directorCount < 1) {
         return false;
-    }
-    if (in_array('team_chat_messages',$tables,true)) {
-        $col=$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch();
-        if ($col && (strtolower((string)$col['Type'])!=='bigint unsigned' ||
-                     $col['Null']!=='YES')) return false;
     }
     if (in_array('engagement_terms',$tables,true)) {
         $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
@@ -1207,6 +1202,33 @@ if ((int)$user['must_change_password'] === 1) {
         . '<div class="field"><label>Новый пароль (от 12 символов)</label><input name="new_password" type="password" minlength="12" autocomplete="new-password" required></div>'
         . '<button type="submit">Сохранить новый пароль</button></form></section>';
     adc_page('Пароль', $html, $user);
+}
+
+// Bring optional chat tables up to date without gating the whole app.
+if ($dedicatedStagingHost && $user['role']==='director' &&
+    (int)$user['must_change_password']===0) {
+    try {
+        $chatNeeds=false;
+        foreach(['team_chat_messages','team_chat_reads','team_chat_mentions',
+                 'team_chat_thread_reads','team_chat_attachments','team_chat_pins'] as $table){
+            if(!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()){
+                $chatNeeds=true;break;
+            }
+        }
+        if(!$chatNeeds){
+            $chatNeeds=!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'reply_to_id'")->fetch();
+        }
+        if($chatNeeds){
+            $lock=(int)$db->query("SELECT GET_LOCK('adclients-chat-schema',8)")->fetchColumn();
+            if($lock!==1)throw new RuntimeException('Chat schema is busy.');
+            try{adc_schema($db,true);}
+            finally{$db->query("SELECT RELEASE_LOCK('adclients-chat-schema')");}
+        }
+    }catch(Throwable $chatSchemaError){
+        error_log('ADC chat-only schema upgrade failed: '.get_class($chatSchemaError).
+            ' '.$chatSchemaError->getMessage());
+        // Never replace all customer pages with a chat migration error.
+    }
 }
 
 // Pre-launch ONLY: the owner approved a one-time additive schema update.
