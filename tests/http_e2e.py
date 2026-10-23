@@ -410,7 +410,8 @@ try:
     status,_,afterReceiptPage=request("director","/?view=overview")
     require(status==200 and "Оплачено · BYN" in html(afterReceiptPage) and
             "77,00 BYN" in html(afterReceiptPage),
-            "Confirmed receipt is reflected in the only overview")
+            "Confirmed receipt in overview: "+repr(
+                re.findall(r"(?s).{0,60}(?:Оплачено|Не оплачено).{0,140}",html(afterReceiptPage))[:5]))
     require("Для удаления сначала отмените получение" in panel("director",real),
             "Paid card request displays reversal-before-deletion guidance")
     status,_,blocked=post("director",director,"delete_card_entry",{
