@@ -962,6 +962,8 @@ try {
         'Paused client stays active with visible pause status');
     check(str_contains(adc_w_clients($db,$director,'clients'),'Пауза'),
         'Paused customer remains in normal client list');
+    // Earlier fixture page filters may point at an unrelated PDF.
+    $_GET=[];
     $pausedPanel=adc_w_client_panel($db,$director,$pauseId,'clients','/?view=clients');
     check(str_contains($pausedPanel,'Снять паузу') &&
         str_contains($pausedPanel,'name="resume_mode" value="new_date"'),
