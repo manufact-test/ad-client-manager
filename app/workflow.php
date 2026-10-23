@@ -791,6 +791,8 @@ function adc_w_can_delete_empty_client(PDO $db, int $clientId): bool {
         'SELECT 1 FROM client_entries WHERE client_id=? LIMIT 1',
         'SELECT 1 FROM charge_lines WHERE client_id=? LIMIT 1',
         'SELECT 1 FROM payment_events WHERE client_id=? LIMIT 1',
+        'SELECT 1 FROM team_chat_messages WHERE thread_client_id=? LIMIT 1',
+        'SELECT 1 FROM team_chat_messages WHERE client_id=? LIMIT 1',
         'SELECT 1 FROM clients WHERE previous_client_id=? LIMIT 1',
     ] as $sql) {
         $check=$db->prepare($sql);
