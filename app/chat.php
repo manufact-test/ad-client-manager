@@ -74,8 +74,12 @@ function adc_chat_html(PDO $db,array $user):string {
            ($selected && (int)$selected===(int)$p['id']?' selected':'').'>'.adc_h((string)$p['name']).'</option>';
     return $out.'</select></label></div><button type="submit">Отправить</button></form></section>';
 }
+function adc_chat_post(string $name):string {
+    $value=$_POST[$name]??null;
+    return is_string($value)?trim($value):'';
+}
 function adc_chat_send(PDO $db,array $user):void {
-    $body=adc_input('message');$mentionRaw=adc_input('mention');$clientRaw=adc_input('client');
+    $body=adc_chat_post('message');$mentionRaw=adc_chat_post('mention');$clientRaw=adc_chat_post('client');
     if($body===''||!preg_match('/\S/u',$body)||mb_strlen($body)>2000||
        strlen($body)>8000||str_contains($body,"\0"))
         throw new RuntimeException('Сообщение должно содержать от 1 до 2000 символов.');
