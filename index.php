@@ -20,7 +20,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     if ($user) {
         $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
         $menu = '<div class="header-inner"><nav class="top-nav" aria-label="Основные разделы">';
-        foreach (['overview'=>'Обзор','clients'=>'Клиенты','payments'=>'Оплаты','control'=>'Контроль','tasks'=>'Мои задачи','archive'=>'Архив',
+        foreach (['overview'=>'Обзор','clients'=>'Клиенты','tasks'=>'Мои задачи','archive'=>'Архив',
                   'analytics'=>'Аналитика','chat'=>'Чат','team'=>'Настройки'] as $id=>$label) {
             $menu .= '<a href="/?view='.$id.'"'.($view===$id?' class="active" aria-current="page"':'').
                 '>'.adc_h($label).($id==='chat'?' <span data-chat-badge class="chat-badge" hidden></span>':'').'</a>';
@@ -299,6 +299,18 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         @media(max-width:700px){.chat-layout{grid-template-columns:minmax(0,1fr)}
           .chat-room-list{max-height:170px;overflow-y:auto}
           .chat-sidebar{max-height:310px}.chat-feed{max-height:420px}}
+
+        .badge.danger{background:#ffe6e6;color:#a31220}
+        .overdue-text{color:#be202a;font-weight:700}
+        .overview-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:12px 0 16px}
+        .overview-stat{display:flex;flex-direction:column;gap:3px;padding:12px;border:1px solid var(--line);border-radius:10px}
+        .overview-stat strong{font-size:25px}
+        .overview-stat span{color:#57627c;font-size:13px}
+        .overview-money{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+        .overview-money-item{display:flex;flex-direction:column;gap:5px;padding:14px;border-radius:10px;background:#f8f8fc;border:1px solid var(--line)}
+        .overview-money-item span{font-size:13px;color:#59647b}
+        .overview-money-item strong{font-size:18px;overflow-wrap:anywhere}
+        @media(max-width:600px){.overview-stats{grid-template-columns:1fr 1fr}.overview-money{grid-template-columns:1fr}}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script nonce="' . adc_h($adcJsNonce) . '">
 (function(){
   "use strict";
