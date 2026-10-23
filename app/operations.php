@@ -10,7 +10,9 @@ function adc_operations_snapshot(PDO $db,array $user,string $today): array {
     $future=(new DateTimeImmutable($today))->modify('+7 days')->format('Y-m-d');
     $active=(int)$db->query('SELECT COUNT(*) FROM clients c WHERE c.is_demo=0
         AND EXISTS (SELECT 1 FROM engagements e
-            WHERE e.client_id=c.id AND e.status="active")')->fetchColumn();
+            WHERE e.client_id=c.id AND e.status="active")
+        AND NOT EXISTS (SELECT 1 FROM client_pauses p WHERE p.client_id=c.id
+          AND p.resumed_on IS NULL)')->fetchColumn();
     $tasks=$db->prepare('SELECT id,title,due_date,repeat_monthly FROM personal_tasks
         WHERE user_id=? AND is_done=0 ORDER BY due_date,id LIMIT 16');
     $tasks->execute([(int)$user['id']]);

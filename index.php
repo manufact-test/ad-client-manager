@@ -1086,6 +1086,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException('Сначала директор должен обновить тестовую базу.');
         }
 
+        // Additive pause history; create before any client transaction (DDL auto-commits).
+        if(!$db->query("SHOW TABLES LIKE 'client_pauses'")->fetchColumn())
+            adc_pause_schema($db);
         // Connected workflow actions share the established authentication and CSRF gates.
         if ($action==='chat_send') {
             adc_chat_send($db,$current);
@@ -1398,6 +1401,17 @@ if ($schemaUpgradeRequired) {
         '<section class="card narrow"><h1>База ожидает обновления</h1>'
         . '<p>Операции временно закрыты. Обратитесь к директору.</p></section>',
         $user);
+}
+
+// A new pause-status table must never rewrite any existing customer records.
+try {
+    if(!$db->query("SHOW TABLES LIKE 'client_pauses'")->fetchColumn())
+        adc_pause_schema($db);
+}catch(Throwable $pauseError){
+    error_log('Pause schema: '.get_class($pauseError).' '.$pauseError->getMessage());
+    http_response_code(503);
+    adc_page('Клиенты', '<section class="card narrow"><h1>Не удалось подготовить статусы клиентов</h1>'.
+        '<p>Данные сохранены. Сообщите разработчику.</p></section>',$user);
 }
 
 // Chat polls do not extend idle sessions.
