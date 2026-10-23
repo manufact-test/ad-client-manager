@@ -95,6 +95,7 @@ jobs:
           php tests/export_integration.php
           php tests/import_integration.php
           php tests/quick_import_integration.php
+           php tests/chat_integration.php
           php tests/audit_integration.php
 
       - name: Check bootstrap form behavior (when available)
