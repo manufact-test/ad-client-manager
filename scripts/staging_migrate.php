@@ -79,7 +79,7 @@ try {
         return $ready;
     };
     $newTables=['client_entries','engagement_terms','team_chat_messages','team_chat_reads','team_chat_mentions','team_chat_thread_reads',
-        'team_chat_attachments','team_chat_pins'];
+        'team_chat_attachments','team_chat_pins','client_pauses'];
     $inspectTables=static function () use ($db,$newTables): bool {
         $ready=true;
         $present=$db->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);

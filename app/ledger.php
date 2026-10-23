@@ -205,6 +205,7 @@ function adc_ledger_has_overdue(PDO $db,int $clientId,string $today): bool {
 
 function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
     if (!adc_valid_date($today)) throw new InvalidArgumentException('Неверная дата.');
+    if(adc_w_active_pause($db,$clientId))return ['Пауза','warning'];
     $q=$db->prepare('SELECT
         SUM(CASE WHEN sent_at IS NULL THEN 1 ELSE 0 END) unsent,
         SUM(CASE WHEN amount IS NOT NULL AND sent_at IS NOT NULL AND received_at IS NULL THEN 1 ELSE 0 END) unpaid,

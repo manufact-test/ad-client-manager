@@ -102,6 +102,21 @@ function adc_schema(PDO $db, bool $chatOnly=false): void {
             INDEX idx_client_previous(previous_client_id),
             INDEX idx_demo_client(is_demo)
         )',
+        'CREATE TABLE IF NOT EXISTS client_pauses (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        client_id BIGINT UNSIGNED NOT NULL,
+        paused_on DATE NOT NULL,
+        resumed_on DATE NULL,
+        resume_mode ENUM("keep","new_date") NULL,
+        resume_effective_on DATE NULL,
+        paused_by BIGINT UNSIGNED NOT NULL,
+        resumed_by BIGINT UNSIGNED NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        closed_at DATETIME(6) NULL,
+        INDEX idx_pause_current(client_id,resumed_on),
+        CONSTRAINT fk_pause_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
+        CONSTRAINT fk_pause_by FOREIGN KEY(paused_by) REFERENCES users(id)
+    )',
         'CREATE TABLE IF NOT EXISTS engagements (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             client_id BIGINT UNSIGNED NOT NULL,

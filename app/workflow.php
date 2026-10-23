@@ -82,6 +82,43 @@ function adc_w_client(PDO $db, int $id, bool $lock = false): array {
     return $row;
 }
 
+
+function adc_pause_schema(PDO $db):void {
+    // Additive: independent of billing/document tables, no existing rows changed.
+    $db->exec('CREATE TABLE IF NOT EXISTS client_pauses (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        client_id BIGINT UNSIGNED NOT NULL,
+        paused_on DATE NOT NULL,
+        resumed_on DATE NULL,
+        resume_mode ENUM("keep","new_date") NULL,
+        resume_effective_on DATE NULL,
+        paused_by BIGINT UNSIGNED NOT NULL,
+        resumed_by BIGINT UNSIGNED NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        closed_at DATETIME(6) NULL,
+        INDEX idx_pause_current(client_id,resumed_on),
+        CONSTRAINT fk_pause_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
+        CONSTRAINT fk_pause_by FOREIGN KEY(paused_by) REFERENCES users(id)
+    )');
+}
+function adc_w_active_pause(PDO $db,int $clientId):?array {
+    $s=$db->prepare('SELECT * FROM client_pauses WHERE client_id=? AND resumed_on IS NULL ORDER BY id DESC LIMIT 1');
+    $s->execute([$clientId]);
+    return $s->fetch(PDO::FETCH_ASSOC)?:null;
+}
+function adc_w_pause_intervals(PDO $db,int $clientId):array {
+    $s=$db->prepare('SELECT paused_on,resumed_on,resume_effective_on FROM client_pauses
+        WHERE client_id=? ORDER BY id');
+    $s->execute([$clientId]);return $s->fetchAll(PDO::FETCH_ASSOC);
+}
+function adc_w_pause_covers(array $periods,string $date):bool {
+    foreach($periods as $p){
+        $end=$p['resume_effective_on']??$p['resumed_on'];
+        if($date >= (string)$p['paused_on'] && ($end===null || $date < (string)$end))return true;
+    }
+    return false;
+}
+
 function adc_w_engagement(PDO $db, int $clientId, int $engagementId): array {
     $stmt = $db->prepare('SELECT * FROM engagements WHERE id = ? AND client_id = ?');
     $stmt->execute([$engagementId, $clientId]);
@@ -253,7 +290,7 @@ function adc_w_engagement_revision(array $row): string {
 
 function adc_w_action(PDO $db, array $user, string $action): bool {
     $supported = [
-        'add_engagement_terms', 'save_client', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
+        'pause_client','resume_paused_client','add_engagement_terms', 'save_client', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
         'save_charge', 'void_charge', 'add_payment', 'edit_task',
     ];
     if (!in_array($action, $supported, true)) {
@@ -370,7 +407,54 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
     $db->beginTransaction();
     $client = adc_w_client($db, $clientId, true);
 
-    if ($action === 'start_engagement') {
+    if($action==='pause_client'){
+        if(adc_w_active_pause($db,$clientId))throw new RuntimeException('Клиент уже на паузе.');
+        $q=$db->prepare('SELECT id FROM engagements WHERE client_id=? AND status="active" LIMIT 1');
+        $q->execute([$clientId]);
+        if(!$q->fetchColumn())throw new RuntimeException('Сотрудничество завершено.');
+        $db->prepare('INSERT INTO client_pauses(client_id,paused_on,paused_by) VALUES (?,?,?)')
+            ->execute([$clientId,date('Y-m-d'),$actor]);
+        adc_audit($db,$actor,'pause_client','client',$clientId);
+    } elseif($action==='resume_paused_client'){
+        $pause=adc_w_active_pause($db,$clientId);
+        if(!$pause || (string)$pause['id']!==adc_input('pause_id'))
+            throw new RuntimeException('Пауза изменена. Обновите карточку.');
+        $mode=adc_w_pick('resume_mode',['keep','new_date']);
+        $effective=null;
+        if($mode==='new_date'){
+            $effective=adc_w_date(adc_input('resume_start_on'));
+            if($effective < (string)$pause['paused_on'] || $effective > date('Y-m-d'))
+                throw new RuntimeException('Дата начала должна быть в периоде от паузы до сегодня.');
+            $q=$db->prepare('SELECT * FROM engagements WHERE client_id=? AND status="active"
+                 ORDER BY id DESC LIMIT 1 FOR UPDATE');
+            $q->execute([$clientId]);$eng=$q->fetch();
+            if(!$eng||$effective <= $eng['started_on'])
+                throw new RuntimeException('Дата новых условий должна быть позже первоначальной даты.');
+            $q=$db->prepare('SELECT MAX(effective_on) FROM engagement_terms WHERE engagement_id=?');
+            $q->execute([$eng['id']]);$last=$q->fetchColumn();
+            if($last!==null&&$last!==false&&$effective <= $last)
+                throw new RuntimeException('Новая дата пересекается с существующими условиями.');
+            $terms=adc_w_effective_terms($db,$eng,$effective);
+            if($last===null||$last===false){
+                $db->prepare('INSERT INTO engagement_terms
+                   (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
+                   VALUES (?,?,?,?,?,?,?)')->execute([$eng['id'],$eng['started_on'],$eng['started_on'],
+                       $eng['billing_day'],$eng['payment_mode'],$eng['currency'],$eng['quoted_amount']]);
+            }
+            $day=(int)substr($effective,8,2);
+            $db->prepare('INSERT INTO engagement_terms
+                 (engagement_id,effective_on,started_on,billing_day,payment_mode,currency,quoted_amount)
+                 VALUES (?,?,?,?,?,?,?)')->execute([$eng['id'],$effective,$effective,
+                     $day,$terms['payment_mode'],$terms['currency'],$terms['quoted_amount']]);
+            $db->prepare('UPDATE engagements SET billing_day=? WHERE id=?')->execute([$day,$eng['id']]);
+        }
+        $db->prepare('UPDATE client_pauses SET resumed_on=?,resume_mode=?,
+             resume_effective_on=?,resumed_by=?,closed_at=UTC_TIMESTAMP(6)
+             WHERE id=? AND client_id=? AND resumed_on IS NULL')->execute([
+               date('Y-m-d'),$mode,$effective,$actor,$pause['id'],$clientId]);
+        adc_audit($db,$actor,'resume_paused_client','client',$clientId,
+            ['mode'=>$mode,'effective_on'=>$effective]);
+    } elseif ($action === 'start_engagement') {
         $active = $db->prepare('SELECT id FROM engagements WHERE client_id=? AND status="active" FOR UPDATE');
         $active->execute([$clientId]);
         if ($active->fetch()) {
@@ -511,6 +595,8 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $stmt->execute([$end, substr(adc_input('end_reason'), 0, 500), $eid, $clientId]);
         adc_audit($db, $actor, 'archive_engagement', 'engagement', $eid, ['date'=>$end]);
     } elseif ($action === 'create_next_period') {
+        if(adc_w_active_pause($db,$clientId))
+            throw new RuntimeException('Во время паузы нельзя создавать новый расчётный период.');
         $eid = adc_w_id('engagement_id');
         $eng = adc_w_engagement($db,$clientId,$eid);
         $key=adc_input('submission_key');
@@ -543,6 +629,13 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
             throw new RuntimeException('Заключительный период уже создан. Новый автоматический период невозможен.');
         }
         $start=$latest ? $latest['period_end'] : $eng['started_on'];
+        $q=$db->prepare('SELECT paused_on,resumed_on,resume_effective_on FROM client_pauses
+            WHERE client_id=? AND resumed_on IS NOT NULL ORDER BY id DESC LIMIT 1');
+        $q->execute([$clientId]);$pause=$q->fetch();
+        if($pause && $start<=$pause['paused_on']){
+            $restart=$pause['resume_effective_on']??$pause['resumed_on'];
+            if($restart>$start)$start=(string)$restart;
+        }
         $end=adc_w_next_cycle_end_effective($db,$eng,$start);
         $stmt=$db->prepare('INSERT INTO billing_periods(engagement_id,period_start,period_end,creation_key) VALUES (?,?,?,?)');
         $stmt->execute([$eid,$start,$end,$key]);
@@ -814,9 +907,11 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
     $engagements = $stmt->fetchAll();
     $active = array_values(array_filter($engagements, fn($e) => $e['status'] === 'active'));
     $current = $active[0] ?? ($engagements[0] ?? null);
+    $pause=adc_w_active_pause($db,$id);
     $html = '<aside class="drawer customer-profile" id="client" role="region" aria-labelledby="client-heading">'.
         '<div class="drawer-head"><h2 id="client-heading">'.adc_h((string)$client['name']).
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '').
+        ($pause?' <span class="badge warning">Пауза</span>':'').
         '</h2><a class="btn secondary" href="'.adc_h($returnUrl).'">Закрыть ✕</a></div>'.
         '<section class="card customer-identity"><div class="client-summary-header"><h3>О клиенте</h3><div class="actions"><a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Выгрузить историю в CSV</a><a class="btn secondary" href="/?view=chat&amp;thread='.$id.'">Чат клиента</a></div></div><div class="profile-facts">'.
         '<div><small>Услуги</small><strong>'.adc_h((string)$client['platform_text'] ?: 'Не указаны').'</strong></div>'.
@@ -844,7 +939,28 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $html .= '<p class="client-note">'.nl2br(adc_h((string)$client['comment_text'])).'</p>';
     }
     $html .= '</section>';
-
+    if($active){
+        $html.='<section class="card client-pause-control">';
+        if($pause){
+            $html.='<p><span class="badge warning">Пауза</span> · Плановые документы временно не требуются. '.
+                'Старые документы и оплаты сохранены.</p>'.
+                '<details><summary class="btn secondary">Снять паузу</summary>'.
+                adc_w_form_start('resume_paused_client').
+                adc_w_hidden('client_id',$id).adc_w_hidden('pause_id',(int)$pause['id']).
+                '<label class="field"><input type="radio" name="resume_mode" value="keep" checked> '.
+                'Оставить прежний расчётный график</label>'.
+                '<label class="field"><input type="radio" name="resume_mode" value="new_date"> '.
+                'Начать новый расчётный период</label>'.
+                adc_w_field('Дата начала нового периода','resume_start_on',date('Y-m-d'),'date').
+                '<p class="muted">При прежнем графике сумму следующего документа '.
+                'можно изменить вручную.</p>'.
+                '<button type="submit">Возобновить</button></form></details>';
+        }else{
+            $html.=adc_w_form_start('pause_client').adc_w_hidden('client_id',$id).
+                '<button class="secondary" type="submit">Пауза</button></form>';
+        }
+        $html.='</section>';
+    }
     $html .= adc_ledger_panel($db,$user,$id);
     $historic=adc_w_client_balances($db,$id);
     if ($historic) {
@@ -993,7 +1109,9 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '</tr></thead><tbody>';
     $today=date('Y-m-d');
     foreach ($clients as $client) {
-        $status=adc_ledger_client_status($db,(int)$client['id'],$today);
+        $status=adc_w_active_pause($db,(int)$client['id'])
+            ? ['Пауза','warning']
+            : adc_ledger_client_status($db,(int)$client['id'],$today);
         $html.='<tr><td><strong>'.adc_h((string)$client['name']).'</strong>'.
             ((int)$client['is_demo']===1?' <span class="badge demo">Демо</span>':'').
             '</td><td>'.adc_h((string)$client['platform_text']).'</td>'.

@@ -113,6 +113,7 @@ function adc_client_reminders(PDO $db, string $today): array {
         $id=(int)$eng['id'];
         $docsStmt->execute([$id]);
         $documents=$docsStmt->fetchAll();
+        $pausePeriods=adc_w_pause_intervals($db,$id);
         $push=static function (string $date,string $kind,string $label) use (&$events,$eng,$id):void {
             $events[]=[
                 'date'=>$date,'kind'=>$kind,'client_id'=>$id,
@@ -135,6 +136,7 @@ function adc_client_reminders(PDO $db, string $today): array {
             }
         }
         if ($eng['started_on'] <= $maxDate &&
+            !adc_w_pause_covers($pausePeriods,(string)$eng['started_on']) &&
             !adc_reminder_document_found($documents,'needs_contract',$today,'prepayment')) {
             $push((string)$eng['started_on'],'contract','Подготовить договор');
         }
@@ -144,11 +146,13 @@ function adc_client_reminders(PDO $db, string $today): array {
             $last=$cursor->format('Y-m-t');
             if ((int)$eng['requires_acts']===1 &&
                 $last >= $minDate && $last <= $maxDate && $last >= $eng['started_on'] &&
+                !adc_w_pause_covers($pausePeriods,$last) &&
                 !adc_reminder_document_found($documents,'needs_act',$last,'prepayment')) {
                 $push($last,'act','Подготовить акт за календарный месяц');
             }
         }
         foreach ($billingDays as $date=>$mode) {
+            if(adc_w_pause_covers($pausePeriods,$date))continue;
             if (!adc_reminder_document_found($documents,'needs_invoice',$date,$mode)) {
                 $push($date,'invoice','Подготовить счёт ('.
                     ($mode==='prepayment'?'предоплата':'постоплата').')');
