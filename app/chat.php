@@ -103,21 +103,29 @@ function adc_chat_item(array $m,int $uid):string {
 }
 function adc_chat_html(PDO $db,array $user):string {
     $uid=(int)$user['id'];
+    $GLOBALS['adc_chat_read_stage']='thread';
     $thread=adc_chat_thread($db,$_GET['thread']??null);
+    $GLOBALS['adc_chat_read_stage']='messages';
     $rows=adc_chat_rows($db,0,$thread,$uid);
     $last=$rows?(int)$rows[count($rows)-1]['id']:0;
     $q=is_string($_GET['chat_q']??null)?trim((string)$_GET['chat_q']):'';
     $q=mb_substr($q,0,65);
-    $s=$db->prepare('SELECT c.id,c.name FROM clients c
-        WHERE (? = "" OR c.name LIKE ?)
-        ORDER BY c.id DESC LIMIT 40');
-    $s->execute([$q,'%'.$q.'%']);
-    $clients=$s->fetchAll();
+    $GLOBALS['adc_chat_read_stage']='clientlist';
+    if ($q==='') {
+        $clients=$db->query('SELECT id,name FROM clients ORDER BY id DESC LIMIT 40')->fetchAll();
+    } else {
+        $s=$db->prepare('SELECT id,name FROM clients WHERE name LIKE ? ORDER BY id DESC LIMIT 40');
+        $s->execute(['%'.$q.'%']);
+        $clients=$s->fetchAll();
+    }
+    $GLOBALS['adc_chat_read_stage']='unread';
     $unread=adc_chat_status($db,$uid)['room_unread'];
+    $GLOBALS['adc_chat_read_stage']='selected';
     if($thread){
         $s=$db->prepare('SELECT name FROM clients WHERE id=?');
         $s->execute([$thread]);$selectedName=(string)$s->fetchColumn();
     } else $selectedName='Общий чат';
+    $GLOBALS['adc_chat_read_stage']='render';
     $out='<section class="card"><h1>Чат команды</h1>'.
        '<p class="muted">Общий чат и переписки по клиентам. В сообщении набери @ для коллеги или # для клиента.</p>'.
        '<div class="actions"><button class="secondary" type="button" data-chat-sound>Включить звук</button>'.
