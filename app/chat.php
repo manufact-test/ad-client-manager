@@ -119,7 +119,18 @@ function adc_chat_html(PDO $db,array $user):string {
         $clients=$s->fetchAll();
     }
     $GLOBALS['adc_chat_read_stage']='unread';
-    $unread=adc_chat_status($db,$uid)['room_unread'];
+    // Notifications are an accessory, not a reason to lock out the chat.
+    // If a hosted MySQL variant fails the aggregate, allow people to read
+    // and send messages while the exact DB error is diagnosed separately.
+    $statusWarning=false;
+    try {
+        $unread=adc_chat_status($db,$uid)['room_unread'];
+    } catch (PDOException $statusError) {
+        error_log('ADC-CHAT-UNREAD-'.(int)($statusError->errorInfo[1]??0).
+            ' '.$statusError->getCode().' '.$statusError->getMessage());
+        $unread=[];
+        $statusWarning=true;
+    }
     $GLOBALS['adc_chat_read_stage']='selected';
     if($thread){
         $s=$db->prepare('SELECT name FROM clients WHERE id=?');
@@ -129,7 +140,9 @@ function adc_chat_html(PDO $db,array $user):string {
     $out='<section class="card"><h1>Чат команды</h1>'.
        '<p class="muted">Общий чат и переписки по клиентам. В сообщении набери @ для коллеги или # для клиента.</p>'.
        '<div class="actions"><button class="secondary" type="button" data-chat-sound>Включить звук</button>'.
-       '<span data-chat-state role="status" class="muted"></span></div>'.
+       '<span data-chat-state role="status" class="muted">'.
+       ($statusWarning?'Уведомления временно недоступны, переписка работает.':'').
+       '</span></div>'.
        '<div class="chat-layout"><aside class="chat-sidebar" aria-label="Переписки">'.
        '<a class="chat-room'.($thread===0?' selected':'').'" data-room="0" href="/?view=chat">💬 Общий чат'.
        (($count=(int)($unread['0']??0))?' <span class="chat-room-count">'.$count.'</span>':'').'</a>'.
