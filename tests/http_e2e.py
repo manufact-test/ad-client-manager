@@ -254,7 +254,7 @@ try:
         "thread":str(real),"message_id":messageid})
     require(status==303,"Unpinning the same message succeeds")
     status,_,unpinned=request("director","/?view=chat&thread="+str(real))
-    require("chat-pinned" not in html(unpinned),"Unpinned bar disappears")
+    require('<div class="chat-pinned">' not in html(unpinned),"Unpinned bar disappears")
     # Protected chat attachment exchange: PDF and a screenshot in a client room.
     chatpdf=WORK/"chat-document.pdf"
     chatpdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")

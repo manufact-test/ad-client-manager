@@ -215,7 +215,7 @@ function adc_chat_item(array $m,int $uid):string {
         '<div class="chat-meta"><strong>'.adc_h((string)$m['author']).'</strong>'.
         '<time>'.adc_h($time).'</time></div>';
     $thread=(int)($m['thread_client_id']??0);
-    if($m['reply_to_id']!==null){
+    if(($m['reply_to_id']??null)!==null){
         $replyId=(int)$m['reply_to_id'];
         $preview=mb_substr(trim((string)($m['reply_body']??'Сообщение недоступно')),0,130);
         if($preview==='')$preview='Вложение';
