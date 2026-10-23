@@ -216,14 +216,11 @@ try:
                 "Client-specific chat HTTP page loads for "+role)
     # Reply to a specific chat message, pin it and follow the pinned link.
     status,_,initial=request("director","/?view=chat&thread="+str(real))
-    require(status==200 and "chat-reply-btn" in html(initial),
-            "Reply action visible next to messages")
+    require(status==200 and 'data-chat-compose' in html(initial),
+            "Chat composer visible before first message")
     require("Общий чат и переписки по клиентам. В сообщении набери" not in html(initial)
             and "Закрепить / снять" not in html(initial),
             "No repeated subtitle and no mixed pin/unpin label")
-    require("📌 Закрепить" in html(initial) and
-            "chat-mini-action" in html(initial),
-            "Compact pin action has only its active verb")
     require('class="chat-attach-btn"' in html(initial) and
             'data-chat-file-name' in html(initial),
             "Custom attachment picker with selected filename")
@@ -243,6 +240,10 @@ try:
         match=re.search(r'data-chat-reply="(\d+)"',html(initial))
         require(match,"Chat messages have reply controls")
         messageid=match.group(1)
+    require("📌 Закрепить" in html(initial) and
+            "chat-reply-btn chat-mini-action" in html(initial) and
+            "chat-pin-btn chat-mini-action" in html(initial),
+            "Compact reply and pin tools rendered beside an actual message")
     status,headers,_=post("employee",employee,"chat_send",{
         "thread":str(real),"message":"This is an answer",
         "reply_to_id":messageid})
