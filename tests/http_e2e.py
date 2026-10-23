@@ -37,7 +37,7 @@ def csrf(raw):
     return m.group(1)
 def overview_money(page,label,ccy):
     match=re.search(r'<span>'+re.escape(label)+r' · '+re.escape(ccy)+
-                    r'</span><strong>([\\d\\s,]+) '+re.escape(ccy)+r'</strong>',page)
+                    r'</span><strong>([\d\s,]+) '+re.escape(ccy)+r'</strong>',page)
     require(match,'Overview amount present: '+label+' '+ccy)
     return Decimal(match.group(1).replace(' ','').replace(',','.'))
 def location(headers):
