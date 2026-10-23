@@ -347,7 +347,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
             margin-top:4px;opacity:0;transition:opacity .15s ease}
         .chat-msg:hover .chat-msg-tools,.chat-msg:focus-within .chat-msg-tools{opacity:1}
         .chat-msg-tools form{display:inline-flex;margin:0}
-        button.chat-mini-action{font:500 11px/1.3 inherit;line-height:1.3;padding:4px 1px;
+        button.chat-mini-action{font-family:inherit;font-size:11px;font-weight:500;line-height:1.3;padding:4px 1px;
             background:transparent;border:0;color:#625d91;border-radius:3px;box-shadow:none}
         button.chat-mini-action:hover{background:transparent;color:var(--accent-dark);
             text-decoration:underline}
