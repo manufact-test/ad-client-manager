@@ -907,9 +907,11 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
     $engagements = $stmt->fetchAll();
     $active = array_values(array_filter($engagements, fn($e) => $e['status'] === 'active'));
     $current = $active[0] ?? ($engagements[0] ?? null);
+    $pause=adc_w_active_pause($db,$id);
     $html = '<aside class="drawer customer-profile" id="client" role="region" aria-labelledby="client-heading">'.
         '<div class="drawer-head"><h2 id="client-heading">'.adc_h((string)$client['name']).
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '').
+        ($pause?' <span class="badge warning">Пауза</span>':'').
         '</h2><a class="btn secondary" href="'.adc_h($returnUrl).'">Закрыть ✕</a></div>'.
         '<section class="card customer-identity"><div class="client-summary-header"><h3>О клиенте</h3><div class="actions"><a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Выгрузить историю в CSV</a><a class="btn secondary" href="/?view=chat&amp;thread='.$id.'">Чат клиента</a></div></div><div class="profile-facts">'.
         '<div><small>Услуги</small><strong>'.adc_h((string)$client['platform_text'] ?: 'Не указаны').'</strong></div>'.
@@ -937,7 +939,28 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $html .= '<p class="client-note">'.nl2br(adc_h((string)$client['comment_text'])).'</p>';
     }
     $html .= '</section>';
-
+    if($active){
+        $html.='<section class="card client-pause-control">';
+        if($pause){
+            $html.='<p><span class="badge warning">Пауза</span> · Плановые документы временно не требуются. '.
+                'Старые документы и оплаты сохранены.</p>'.
+                '<details><summary class="btn secondary">Снять паузу</summary>'.
+                adc_w_form_start('resume_paused_client').
+                adc_w_hidden('client_id',$id).adc_w_hidden('pause_id',(int)$pause['id']).
+                '<label class="field"><input type="radio" name="resume_mode" value="keep" checked> '.
+                'Оставить прежний расчётный график</label>'.
+                '<label class="field"><input type="radio" name="resume_mode" value="new_date"> '.
+                'Начать новый расчётный период</label>'.
+                adc_w_field('Дата начала нового периода','resume_start_on',date('Y-m-d'),'date').
+                '<p class="muted">При прежнем графике сумму следующего документа '.
+                'можно изменить вручную.</p>'.
+                '<button type="submit">Возобновить</button></form></details>';
+        }else{
+            $html.=adc_w_form_start('pause_client').adc_w_hidden('client_id',$id).
+                '<button class="secondary" type="submit">Пауза</button></form>';
+        }
+        $html.='</section>';
+    }
     $html .= adc_ledger_panel($db,$user,$id);
     $historic=adc_w_client_balances($db,$id);
     if ($historic) {
@@ -1086,7 +1109,9 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '</tr></thead><tbody>';
     $today=date('Y-m-d');
     foreach ($clients as $client) {
-        $status=adc_ledger_client_status($db,(int)$client['id'],$today);
+        $status=adc_w_active_pause($db,(int)$client['id'])
+            ? ['Пауза','warning']
+            : adc_ledger_client_status($db,(int)$client['id'],$today);
         $html.='<tr><td><strong>'.adc_h((string)$client['name']).'</strong>'.
             ((int)$client['is_demo']===1?' <span class="badge demo">Демо</span>':'').
             '</td><td>'.adc_h((string)$client['platform_text']).'</td>'.
