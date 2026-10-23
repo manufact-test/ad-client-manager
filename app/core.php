@@ -403,7 +403,8 @@ function adc_login_blocked(PDO $db, string $key): bool {
     $stmt->execute([$key]);
     $record = $stmt->fetch();
     return $record && (int)$record['failure_count'] >= 5 &&
-        strtotime((string)$record['last_failure']) > time() - 900;
+        // login_attempts timestamps are always stored as UTC, even when UI is Minsk time.
+        strtotime((string)$record['last_failure'].' UTC') > time() - 900;
 }
 
 function adc_login_failure(PDO $db, string $key): void {
