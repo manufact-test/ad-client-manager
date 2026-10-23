@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import tempfile
+from decimal import Decimal
 from pathlib import Path
 
 BASE=os.environ.get("ADC_HTTP_TEST_BASE","http://127.0.0.1:8085")
@@ -34,6 +35,11 @@ def csrf(raw):
     m=re.search(r'name="csrf" value="([a-f0-9]{64})"',raw)
     require(m,"CSRF protection included")
     return m.group(1)
+def overview_money(page,label,ccy):
+    match=re.search(r'<span>'+re.escape(label)+r' · '+re.escape(ccy)+
+                    r'</span><strong>([\\d\\s,]+) '+re.escape(ccy)+r'</strong>',page)
+    require(match,'Overview amount present: '+label+' '+ccy)
+    return Decimal(match.group(1).replace(' ','').replace(',','.'))
 def location(headers):
     m=re.search(r"^Location:\s*(.+)$",headers,re.I|re.M)
     return m.group(1).strip() if m else ""
@@ -393,8 +399,9 @@ try:
             "Контроль оплат" not in html(paymentPage) and
             'name="action" value="receive_entry"' not in html(paymentPage),
             "No duplicate payment desk; receipts remain client-card actions")
-    require("Не оплачено · BYN" in html(paymentPage) and
-            "77,00 BYN" in html(paymentPage),
+    beforePaid=overview_money(html(paymentPage),"Оплачено","BYN")
+    beforeUnpaid=overview_money(html(paymentPage),"Не оплачено","BYN")
+    require(beforeUnpaid>=Decimal("77.00"),
             "Actual outstanding amount visible in overview, excluding demo")
     status,_,paymentExport=request("employee","/?export=payments")
     require(status==200 and "CI real ledger" in html(paymentExport) and
@@ -408,10 +415,10 @@ try:
     require(status==303 and "view=clients" in location(headers),
             "Receipt confirmed directly inside the client card")
     status,_,afterReceiptPage=request("director","/?view=overview")
-    require(status==200 and "Оплачено · BYN" in html(afterReceiptPage) and
-            "77,00 BYN" in html(afterReceiptPage),
-            "Confirmed receipt in overview: "+repr(
-                re.findall(r"(?s).{0,60}(?:Оплачено|Не оплачено).{0,140}",html(afterReceiptPage))[:5]))
+    require(status==200 and
+            overview_money(html(afterReceiptPage),"Оплачено","BYN")==beforePaid+Decimal("77.00") and
+            overview_money(html(afterReceiptPage),"Не оплачено","BYN")==beforeUnpaid-Decimal("77.00"),
+            "Receiving exactly one payment updates the one overview without losing old history")
     require("Для удаления сначала отмените получение" in panel("director",real),
             "Paid card request displays reversal-before-deletion guidance")
     status,_,blocked=post("director",director,"delete_card_entry",{
