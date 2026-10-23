@@ -816,7 +816,10 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         '<div class="drawer-head"><h2 id="client-heading">'.adc_h((string)$client['name']).
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '').
         '</h2><a class="btn secondary" href="'.adc_h($returnUrl).'">Закрыть ✕</a></div>'.
-        '<section class="card customer-identity"><div class="client-summary-header"><h3>О клиенте</h3><a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Выгрузить историю в CSV</a></div><div class="profile-facts">'.
+        '<section class="card customer-identity"><div class="client-summary-header"><h3>О клиенте</h3>'.
+        '<div class="actions"><a class="btn secondary" href="/?view=chat&amp;thread='.$id.'">Чат клиента</a>'.
+        '<a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Выгрузить историю в CSV</a></div>'.
+        '</div><div class="profile-facts>'.
         '<div><small>Услуги</small><strong>'.adc_h((string)$client['platform_text'] ?: 'Не указаны').'</strong></div>'.
         '<div><small>Тип</small><strong>'.((string)$client['legal_type']==='legal'?'Юридическое лицо':'Физическое лицо').'</strong></div>'.
         '<div><small>Откуда пришёл</small><strong>'.adc_h($source).'</strong></div>';
