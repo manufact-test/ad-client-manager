@@ -395,6 +395,23 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-reply-preview[hidden]{display:none}
         .chat-reply-preview button{padding:4px 9px}
         .chat-msg:target{outline:2px solid #7366e9;outline-offset:3px}
+        /* Targeted acceptance fixes: pause switch layout and chat selection contrast. */
+        .client-pause-control .pause-disclosure>summary::before{display:none}
+        .client-pause-control .pause-disclosure>summary{display:inline-flex;width:auto}
+        .client-pause-control .pause-disclosure form{margin:13px 0 0}
+        .client-pause-control .pause-label{font-size:13px;font-weight:650;margin:0 0 9px}
+        .client-pause-control .pause-choice{display:flex;align-items:center;gap:12px;
+          padding:12px 14px;margin:0 0 8px;cursor:pointer;border:1px solid #dedfeb;
+          border-radius:10px;background:#fff;line-height:1.35;font-size:14px}
+        .client-pause-control .pause-choice:has(input:checked){border-color:#8476da;background:#f0edff;color:#241a73}
+        .client-pause-control .pause-choice input[type=radio]{width:18px;min-width:18px;height:18px;
+          flex:0 0 18px;padding:0;margin:0;box-shadow:none;accent-color:#4d43c2}
+        .client-pause-control .pause-date-field{display:none;margin:13px 0 4px}
+        .client-pause-control .pause-resume-form:has(input[name=resume_mode][value=new_date]:checked) .pause-date-field{display:block}
+        .client-pause-control .pause-inline-error{margin:12px 0}
+        .chat-room:is(:hover,.selected),.chat-room:is(:hover,.selected) .chat-room-name{color:#19223a!important}
+        .chat-suggestion:is(:hover,:focus-visible,.highlight),
+        .chat-suggestion:is(:hover,:focus-visible,.highlight) small{color:#19223a!important}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script nonce="' . adc_h($adcJsNonce) . '">
 (function(){
   "use strict";
@@ -1274,6 +1291,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errorMessage = 'Не удалось выполнить действие. Проверьте корректность данных.';
         } else {
             $errorMessage = $error->getMessage();
+        }
+        // A failed resume must be explained inside the still-open client drawer.
+        if (($action??'')==='resume_paused_client' &&
+            ctype_digit((string)($_POST['client_id']??''))) {
+            $GLOBALS['adc_pause_error']=[
+                'client_id'=>(int)$_POST['client_id'],
+                'message'=>$errorMessage,
+                'mode'=>(string)($_POST['resume_mode']??'keep'),
+                'date'=>(string)($_POST['resume_start_on']??'')
+            ];
+            $errorMessage=null;
         }
     }
 }

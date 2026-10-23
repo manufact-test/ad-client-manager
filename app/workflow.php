@@ -423,8 +423,8 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $effective=null;
         if($mode==='new_date'){
             $effective=adc_w_date(adc_input('resume_start_on'));
-            if($effective < (string)$pause['paused_on'] || $effective > date('Y-m-d'))
-                throw new RuntimeException('Дата начала должна быть в периоде от паузы до сегодня.');
+            if($effective < (string)$pause['paused_on'])
+                throw new RuntimeException('Дата нового периода не может быть раньше начала паузы.');
             $q=$db->prepare('SELECT * FROM engagements WHERE client_id=? AND status="active"
                  ORDER BY id DESC LIMIT 1 FOR UPDATE');
             $q->execute([$clientId]);$eng=$q->fetch();
@@ -942,18 +942,28 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
     if($active){
         $html.='<section class="card client-pause-control">';
         if($pause){
+            $pauseError=$GLOBALS['adc_pause_error']??null;
+            $pauseFailed=is_array($pauseError) && (int)$pauseError['client_id']===$id;
+            $selectedMode=$pauseFailed && ($pauseError['mode']??'')==='new_date'?'new_date':'keep';
+            $resumeDate=$pauseFailed && ($pauseError['date']??'')!=='' ?
+                (string)$pauseError['date'] : date('Y-m-d');
             $html.='<p><span class="badge warning">Пауза</span> · Плановые документы временно не требуются. '.
                 'Старые документы и оплаты сохранены.</p>'.
-                '<details><summary class="btn secondary">Снять паузу</summary>'.
+                '<details class="pause-disclosure"'.($pauseFailed?' open':'').'>'.
+                '<summary class="btn secondary pause-toggle">Снять паузу</summary>'.
+                ($pauseFailed?'<div class="error pause-inline-error" role="alert">'.
+                    adc_h((string)$pauseError['message']).'</div>':'').
                 adc_w_form_start('resume_paused_client').
                 adc_w_hidden('client_id',$id).adc_w_hidden('pause_id',(int)$pause['id']).
-                '<label class="field"><input type="radio" name="resume_mode" value="keep" checked> '.
-                'Оставить прежний расчётный график</label>'.
-                '<label class="field"><input type="radio" name="resume_mode" value="new_date"> '.
-                'Начать новый расчётный период</label>'.
-                adc_w_field('Дата начала нового периода','resume_start_on',date('Y-m-d'),'date').
-                '<p class="muted">При прежнем графике сумму следующего документа '.
-                'можно изменить вручную.</p>'.
+                '<div class="pause-resume-form"><p class="pause-label">Как возобновить работу?</p>'.
+                '<label class="pause-choice"><input type="radio" name="resume_mode" value="keep"'.
+                    ($selectedMode==='keep'?' checked':'').'><span>Оставить прежний расчётный график</span></label>'.
+                '<label class="pause-choice"><input type="radio" name="resume_mode" value="new_date"'.
+                    ($selectedMode==='new_date'?' checked':'').'><span>Начать новый расчётный период</span></label>'.
+                '<div class="pause-date-field">'.
+                adc_w_field('Дата начала нового периода','resume_start_on',$resumeDate,'date',
+                    'min="'.adc_h((string)$pause['paused_on']).'"').
+                '</div></div>'.
                 '<button type="submit">Возобновить</button></form></details>';
         }else{
             $html.=adc_w_form_start('pause_client').adc_w_hidden('client_id',$id).
