@@ -10,7 +10,7 @@ function adc_restore_tables(): array {
         'users','login_attempts','audit_events','personal_tasks',
         'personal_task_completions','clients','engagements','billing_periods',
         'document_bundles','charge_lines','payment_events',
-        'client_entries','engagement_terms','team_chat_messages','team_chat_reads'
+        'client_entries','engagement_terms','team_chat_messages','team_chat_reads','team_chat_mentions','team_chat_thread_reads'
     ];
 }
 

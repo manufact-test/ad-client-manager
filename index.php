@@ -591,9 +591,11 @@ try {
  * MySQL schema. Never attempt implicit DDL on login or ordinary page requests.
  */
 function adc_staging_schema_upgrade_needed(PDO $db): bool {
-    foreach (['client_entries','engagement_terms','team_chat_messages','team_chat_reads'] as $table) {
+    foreach (['client_entries','engagement_terms','team_chat_messages','team_chat_reads',
+             'team_chat_mentions','team_chat_thread_reads'] as $table) {
         if (!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()) return true;
     }
+    if (!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch()) return true;
     $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
     if (!$price || strtolower((string)$price['Type'])!=='decimal(16,2)' ||
         $price['Null']!=='YES') return true;
@@ -631,6 +633,11 @@ function adc_staging_schema_upgrade_eligible(PDO $db): bool {
     )->fetchColumn();
     if ($directorCount < 1) {
         return false;
+    }
+    if (in_array('team_chat_messages',$tables,true)) {
+        $col=$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch();
+        if ($col && (strtolower((string)$col['Type'])!=='bigint unsigned' ||
+                     $col['Null']!=='YES')) return false;
     }
     if (in_array('engagement_terms',$tables,true)) {
         $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
@@ -818,12 +825,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action==='chat_send') {
             adc_chat_send($db,$current);
             adc_flash('Сообщение отправлено.');
-            adc_redirect('?view=chat');
+            $chatThread=adc_chat_thread($db,adc_chat_post('thread'));
+            adc_redirect('?view=chat'.($chatThread?'&thread='.$chatThread:''));
         }
         if ($action==='chat_read') {
             $id=adc_input('last_id');
             if(!ctype_digit($id))throw new RuntimeException('Некорректная отметка прочтения.');
-            adc_chat_read($db,(int)$current['id'],(int)$id);
+            adc_chat_read($db,(int)$current['id'],(int)$id,
+                adc_chat_thread($db,adc_input('thread')));
             header('Content-Type: application/json; charset=UTF-8');
             echo '{"ok":true}';
             exit;
@@ -1014,7 +1023,7 @@ if (!$initialized) {
     adc_page('Первичная настройка', $html);
 }
 
-$user = adc_current_user($db,!isset($_GET['chat_poll']));
+$user = adc_current_user($db,!isset($_GET['chat_poll'])&&!isset($_GET['chat_suggest']));
 if (!$user) {
     $html = '<section class="card narrow"><h1>Вход</h1><p class="muted">Доступ только для сотрудников компании.</p>' . $alert
         . '<form method="post" class="stack"><input type="hidden" name="csrf" value="' . $csrf . '">'
@@ -1070,6 +1079,7 @@ if ($schemaUpgradeRequired) {
 
 // Chat polls do not extend idle sessions.
 if(isset($_GET['chat_poll']))adc_chat_poll($db,$user);
+if(isset($_GET['chat_suggest']))adc_chat_suggest($db,$user);
 
 // Financial downloads follow the same session and temporary-password gates.
 if (isset($_GET['export']) && is_string($_GET['export'])) {
