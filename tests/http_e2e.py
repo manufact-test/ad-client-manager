@@ -8,6 +8,7 @@ import re
 import subprocess
 import tempfile
 from decimal import Decimal
+from datetime import date, timedelta
 from pathlib import Path
 
 BASE=os.environ.get("ADC_HTTP_TEST_BASE","http://127.0.0.1:8085")
@@ -179,6 +180,36 @@ try:
             "pause-date-field" in pausePage and
             ".chat-suggestion:is(:hover,:focus-visible,.highlight)" in pausePage,
             "Pause radios and chat choices have explicit scoped visual styles")
+    # Pausing is exercised with an isolated demo so later ledger totals stay unchanged.
+    pause_only=create_client(director,"CI pause controls only",True)
+    status,headers,_=post("director",director,"pause_client",{"client_id":pause_only})
+    require(status==303,"Director can pause an active client")
+    paused_page=panel("director",pause_only)
+    pause_match=re.search(r'name="pause_id" value="(\d+)"',paused_page)
+    require(pause_match and 'value="keep" checked' in paused_page and
+            '<summary class="btn secondary pause-toggle">Снять паузу</summary>' in paused_page,
+            "Pause drawer shows aligned choices and defaults to prior schedule")
+    require("Пауза" in panel("employee",pause_only),
+            "Employee sees paused client")
+    status,_,bad_body=request("director","/?view=clients&client="+str(pause_only),payload={
+        "csrf":director,"action":"resume_paused_client","client_id":pause_only,
+        "pause_id":pause_match.group(1),"resume_mode":"new_date",
+        "resume_start_on":"2000-01-01"})
+    bad_page=html(bad_body)
+    require(status==200 and '<details class="pause-disclosure" open>' in bad_page and
+            'class="error pause-inline-error"' in bad_page and
+            'Дата нового периода не может быть раньше начала паузы.' in bad_page,
+            "Bad date error remains in the open customer drawer")
+    next_day=date.today()+timedelta(days=1)
+    status,headers,_=post("director",director,"resume_paused_client",{
+        "client_id":pause_only,"pause_id":pause_match.group(1),
+        "resume_mode":"new_date","resume_start_on":next_day.isoformat()})
+    require(status==303,"Future start date resumes client")
+    resume_page=panel("director",pause_only)
+    require("расчётный день "+str(next_day.day) in resume_page and
+            next_day.strftime("%d.%m.%Y") in resume_page and
+            'name="action" value="pause_client"' in resume_page,
+            "Future billing date shown in both client summary and contract terms")
     # Daily operating overview and read-only client paperwork CSV are authenticated.
     status,_,overview=request("director","/?view=overview")
     require(status==200 and "<h1>Обзор</h1>" in html(overview) and
