@@ -252,6 +252,24 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .ac-days button.is-selected{border-radius:9px}
         .task-actions [data-task-toggle][aria-expanded=true]{background:#eeebff;color:#3326a4;border-color:#9d93e7}
         @media(max-width:700px){.client-list-table tbody td{padding:12px 14px}.client-list-table .status-cell{padding:12px 16px}}
+
+        .chat-badge{display:inline-flex;min-width:18px;height:18px;justify-content:center;align-items:center;
+          background:#cf3959;color:#fff;border-radius:20px;font-size:11px;padding:0 5px}
+        .chat-badge[hidden]{display:none}
+        .chat-feed{min-height:230px;max-height:480px;overflow-y:auto;margin:16px 0;border:1px solid #e4e6ed;
+          background:#f8f9fc;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:11px}
+        .chat-msg{align-self:flex-start;max-width:88%;overflow-wrap:anywhere;background:#fff;
+          border:1px solid #e0e3ed;padding:10px 13px;border-radius:12px}
+        .chat-msg.mine{align-self:flex-end;background:#eeeaff;border-color:#d8d2fa}
+        .chat-msg.ping{background:#faf1ff;border-color:#bea8df}
+        .chat-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:#59647b;margin-bottom:5px}
+        .chat-meta time{font-size:11px;color:#737d91}
+        .chat-ping{font-size:13px;font-weight:700;color:#4a35b2}
+        .chat-link{display:block;margin-top:7px;font-size:13px;color:#4535b6}
+        .chat-compose textarea{width:100%;min-height:88px;border:1px solid #cfd5df;border-radius:8px;
+          padding:11px;font:inherit;color:inherit;resize:vertical}
+        .chat-picks{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+        @media(max-width:600px){.chat-msg{max-width:98%}.chat-picks{grid-template-columns:1fr}}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script nonce="' . adc_h($adcJsNonce) . '">
 (function(){
   "use strict";
@@ -411,6 +429,87 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     });
     document.addEventListener("keydown",function(e){if(e.key==="Escape")closeMenus();});
   });
+
+  (function(){
+    var badge=document.querySelector("[data-chat-badge]");
+    if(!badge)return;
+    var feed=document.querySelector("[data-last]");
+    var soundButton=document.querySelector("[data-chat-sound]");
+    var audible=false,activated=false,lastOther=null,busy=false;
+    try{audible=localStorage.getItem("adc-chat-sound")==="on";}catch(e){}
+    function beep(){
+      if(!audible||!activated)return;
+      try{
+        var context=new (window.AudioContext||window.webkitAudioContext)();
+        var oscillator=context.createOscillator(),gain=context.createGain();
+        oscillator.type="sine";oscillator.frequency.value=810;
+        gain.gain.setValueAtTime(0.065,context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001,context.currentTime+0.16);
+        oscillator.connect(gain);gain.connect(context.destination);
+        oscillator.start();oscillator.stop(context.currentTime+0.17);
+        oscillator.onended=function(){context.close();};
+      }catch(e){}
+    }
+    function soundLabel(){
+      if(!soundButton)return;
+      soundButton.textContent=audible?"Выключить звук":"Включить звук";
+      soundButton.setAttribute("aria-pressed",String(audible));
+    }
+    document.addEventListener("pointerdown",function(){activated=true;},{once:true});
+    document.addEventListener("keydown",function(){activated=true;},{once:true});
+    if(soundButton)soundButton.addEventListener("click",function(){
+      audible=!audible;activated=true;
+      try{localStorage.setItem("adc-chat-sound",audible?"on":"off");}catch(e){}
+      soundLabel();if(audible)beep();
+    });
+    soundLabel();
+    function markRead(id){
+      if(!feed||!id||document.hidden||!document.hasFocus())return;
+      var form=new FormData();
+      form.set("action","chat_read");
+      form.set("csrf",document.querySelector("[data-chat-compose] [name=csrf]").value);
+      form.set("last_id",String(id));
+      fetch("/",{method:"POST",credentials:"same-origin",body:form})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(r){if(r&&r.ok)badge.hidden=true;}).catch(function(){});
+    }
+    function poll(){
+      if(busy)return;busy=true;
+      var after=feed?Number(feed.getAttribute("data-last")||0):0;
+      fetch("/?chat_poll=1&status="+(feed?"0":"1")+"&after="+after,
+        {credentials:"same-origin",cache:"no-store"})
+      .then(function(r){if(!r.ok)throw Error("poll failed");return r.json();})
+      .then(function(r){
+        if(!r.ok)return;
+        var count=Number(r.unread)||0,mentions=Number(r.mentions)||0;
+        badge.hidden=!count;
+        badge.textContent=count?(mentions?"@"+Math.min(99,mentions):
+          String(Math.min(99,count))+(count>99?"+":"")):"";
+        badge.title=mentions?mentions+" упоминаний":count+" непрочитанных";
+        var last=Number(r.newest_other_id)||0;
+        if(lastOther!==null&&last>lastOther)beep();
+        lastOther=last;
+        if(!feed||!Array.isArray(r.messages)||!r.messages.length)return;
+        var nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<110;
+        var empty=feed.querySelector("[data-empty]");if(empty)empty.remove();
+        var lastId=after;
+        r.messages.forEach(function(m){
+          var id=Number(m.id)||0;if(id<=lastId)return;
+          var t=document.createElement("template");t.innerHTML=m.html;
+          if(t.content.firstElementChild)feed.appendChild(t.content.firstElementChild);
+          lastId=id;
+        });
+        feed.setAttribute("data-last",String(lastId));
+        while(feed.querySelectorAll(".chat-msg").length>120)
+          feed.querySelector(".chat-msg").remove();
+        if(nearBottom)feed.scrollTop=feed.scrollHeight;
+        markRead(lastId);
+      }).catch(function(){}).finally(function(){busy=false;});
+    }
+    if(feed){feed.scrollTop=feed.scrollHeight;markRead(Number(feed.getAttribute("data-last")||0));}
+    poll();window.setInterval(poll,12000);
+    document.addEventListener("visibilitychange",function(){if(!document.hidden)poll();});
+  })();
 })();
 </script></body></html>';
     exit;
