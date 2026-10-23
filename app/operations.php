@@ -59,8 +59,9 @@ function adc_operations_snapshot(PDO $db,array $user,string $today): array {
             COALESCE(SUM(t.due_date<?),0) overdue_count
             FROM users u LEFT JOIN personal_tasks t
                 ON t.user_id=u.id AND t.is_done=0
+              AND u.is_active=1
             GROUP BY u.id,u.display_name,u.role,u.is_active
-            ORDER BY u.is_active DESC,u.display_name,u.id');
+            ORDER BY u.display_name,u.id');
         $statement->execute([$today]);
         $team=$statement->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -71,102 +72,80 @@ function adc_operations_snapshot(PDO $db,array $user,string $today): array {
         'team'=>$team,'today'=>$today];
 }
 
-function adc_operations_html(PDO $db,array $user): string {
+/**
+ * One uncluttered overview. The detail/actions live in client cards.
+ * Received amounts and amounts still awaiting payment are separate,
+ * grouped by currency and based on actual records rather than contract prices.
+ */
+function adc_operations_html(PDO $db,array $user):string {
     $today=date('Y-m-d');
     $data=adc_operations_snapshot($db,$user,$today);
-    $counts=$data['reminder_counts'];
     $own=$data['task_counts'];
-    $html='<h1>Обзор работы</h1>'.
-        '<p class="muted">Актуальные задачи, документы и ожидания оплаты по рабочим клиентам. '.
-        'Только просмотр — никакого автоматического начисления или отправки документов.</p>'.
-        '<section class="card"><h2>Сегодня · '.adc_h(date('d.m.Y',strtotime($today))).'</h2>'.
-        '<div class="grid">'.
-        '<div><strong>'.(int)$data['active_clients'].'</strong>'.
-            '<p class="muted">Активных рабочих клиентов</p><a href="/?view=clients&amp;demo=0">Открыть клиентов</a></div>'.
-        '<div><strong>'.(int)$counts['overdue'].'</strong>'.
-            '<p class="muted">Просроченных действий по документам</p>'.
-            '<a href="/?view=control&amp;scope=overdue">Открыть контроль</a></div>'.
-        '<div><strong>'.((int)$counts['today']+(int)$counts['next_week']).'</strong>'.
-            '<p class="muted">Документных действий сегодня и за следующие 7 дней</p>'.
-            '<a href="/?view=control&amp;scope=upcoming">Все предстоящие</a></div>'.
-        '<div><strong>'.(int)$own['overdue'].'</strong>'.
-            '<p class="muted">Моих просроченных задач</p><a href="/?view=tasks">Мои задачи</a></div>'.
-        '<div><strong>'.(int)$data['unpaid_count'].'</strong>'.
-            '<p class="muted">Отправленных запросов без подтверждения оплаты · '.
-            (int)$data['unpaid_clients'].' клиентов</p>'.
-            '<a href="/?view=payments">Перейти к оплатам</a></div>'.
-        '</div></section>';
-    $html.='<section class="card"><h2>Ожидают оплаты</h2>'.
-        '<p class="muted">Суммы только по отправленным неоплаченным записям нового учёта. '.
-        'Не полная дебиторская задолженность по старой истории. Демо исключены. '.
-        'Валюты не смешиваются.</p>';
-    if (!$data['unpaid_totals']) {
-        $html.='<p class="muted">Открытых отправленных запросов нет.</p>';
-    } else {
-        $html.='<div class="actions">';
-        foreach($data['unpaid_totals'] as $currency=>$minor) {
-            $html.='<span class="badge">'.adc_h($currency).': '.
-                adc_h(adc_fin_format($minor,$currency)).'</span>';
-        }
-        $html.='</div>';
-        foreach($data['unpaid'] as $item){
-            $view=(int)$item['is_active']===1?'clients':'archive';
-            $html.='<div class="item"><div><strong>'.adc_h((string)$item['name']).'</strong>'.
-                '<p class="muted">'.(int)$item['items'].' запрос(ов) · '.
-                adc_h(adc_fin_format(adc_fin_minor((string)$item['total']),
-                    (string)$item['currency'])).'</p></div>'.
-                '<a class="btn secondary" href="/?view='.$view.'&amp;client='.
-                (int)$item['client_id'].'">Открыть клиента</a></div>';
-        }
-        if($data['unpaid_clients']>16)$html.='<p class="muted">Показана часть клиентов. '.
-            'Все суммы по валютам учтены выше; подробности доступны в аналитике.</p>';
+    $payments=[];
+    $entries=$db->query('SELECT e.currency,
+        SUM(CASE WHEN e.received_at IS NOT NULL THEN e.amount ELSE 0 END) paid,
+        SUM(CASE WHEN e.sent_at IS NOT NULL AND e.received_at IS NULL THEN e.amount ELSE 0 END) unpaid
+        FROM client_entries e JOIN clients c ON c.id=e.client_id
+        WHERE c.is_demo=0 AND e.is_void=0 AND e.amount IS NOT NULL
+        GROUP BY e.currency')->fetchAll(PDO::FETCH_ASSOC);
+    foreach($entries as $entry) {
+        $ccy=(string)$entry['currency'];
+        $payments[$ccy]=[
+            'paid'=>adc_fin_minor((string)$entry['paid']),
+            'unpaid'=>adc_fin_minor((string)$entry['unpaid'])
+        ];
     }
-    $html.='<p><a class="btn secondary" href="/?view=payments">Вся очередь оплат и просрочек</a></p>'.
-        '</section><section class="card"><div class="actions"><h2>Ближайшая работа с документами</h2>'.
-        '<a class="btn secondary" href="/?export=control">Скачать план CSV</a>'.
-        '<a class="btn secondary" href="/?view=control">Весь контроль</a></div>'.
-        '<p class="muted">Просрочено: '.(int)$counts['overdue'].
-            ' · сегодня: '.(int)$counts['today'].
-            ' · следующие 7 дней: '.(int)$counts['next_week'].
-            '. CSV содержит все вычисленные действия только рабочих клиентов.</p>';
-    $assigned=adc_team_control_assignments($db);
-    foreach($data['reminders'] as $item){
-        $key=adc_team_control_key((int)$item['client_id'],
-            (string)$item['kind'],(string)$item['date']);
-        $executor=isset($assigned[$key])?' · в работе: '.
-            adc_h((string)$assigned[$key]['display_name']):'';
-        $html.='<div class="item"><div><strong>'.adc_h((string)$item['label']).'</strong>'.
-            '<p class="muted">'.adc_h((string)$item['client_name']).' · '.
-            adc_h(date('d.m.Y',strtotime((string)$item['date']))).$executor.
-            '</p></div><a class="btn secondary" href="/?view=clients&amp;client='.
-            (int)$item['client_id'].'">Открыть</a></div>';
+    // Preserve payments entered through the previously agreed period history.
+    $historic=$db->query('SELECT p.currency,
+        SUM(CASE WHEN p.event_type="received" THEN p.amount ELSE -p.amount END) paid
+        FROM payment_events p JOIN clients c ON c.id=p.client_id
+        WHERE c.is_demo=0 GROUP BY p.currency')->fetchAll(PDO::FETCH_ASSOC);
+    foreach($historic as $entry){
+        $ccy=(string)$entry['currency'];
+        $payments[$ccy]['paid']=adc_fin_add($payments[$ccy]['paid']??0,
+            adc_fin_minor((string)$entry['paid']));
+        $payments[$ccy]['unpaid']=$payments[$ccy]['unpaid']??0;
     }
-    if (!$data['reminders'])$html.='<p class="muted">Срочных действий не обнаружено.</p>';
-    if ((int)$counts['all']>count($data['reminders'])) $html.=
-        '<p class="muted">Показаны первые 16 срочных событий. Полный список с фильтрами — в «Контроле».</p>';
-    $html.='</section><section class="card"><h2>Мои ближайшие задачи</h2>'.
-        '<p class="muted">Открытых: '.(int)$own['total'].
-        ' · сегодня: '.(int)$own['today'].' · следующие 7 дней: '.
-        (int)$own['next_week'].'.</p>';
-    foreach ($data['tasks'] as $task) {
+    ksort($payments);
+    $html='<h1>Обзор</h1><section class="card"><h2>Сегодня · '.
+        adc_h(date('d.m.Y',strtotime($today))).'</h2>'.
+        '<div class="overview-stats">'.
+        '<div class="overview-stat"><strong>'.(int)$data['active_clients'].'</strong><span>Клиентов в работе</span></div>'.
+        '<div class="overview-stat"><strong>'.(int)$own['overdue'].'</strong><span>Моих просроченных задач</span></div>'.
+        '<div class="overview-stat"><strong>'.(int)$own['today'].'</strong><span>Моих задач на сегодня</span></div>'.
+        '</div><div class="overview-money">';
+    if(!$payments){
+        $html.='<div class="overview-money-item"><span>Оплачено</span><strong>0</strong></div>'.
+               '<div class="overview-money-item"><span>Не оплачено</span><strong>0</strong></div>';
+    }else {
+        foreach($payments as $ccy=>$values) {
+            $html.='<div class="overview-money-item"><span>Оплачено · '.adc_h($ccy).'</span><strong>'.
+                adc_h(adc_fin_format($values['paid'],$ccy)).'</strong></div>'.
+                '<div class="overview-money-item"><span>Не оплачено · '.adc_h($ccy).'</span><strong>'.
+                adc_h(adc_fin_format($values['unpaid'],$ccy)).'</strong></div>';
+        }
+    }
+    $html.='</div></section>'.
+        '<section class="card"><h2>Мои ближайшие задачи</h2>';
+    foreach($data['tasks'] as $task){
+        $late=(string)$task['due_date']<$today;
         $html.='<div class="item"><strong>'.adc_h((string)$task['title']).'</strong>'.
-            '<span class="muted">'.adc_h(date('d.m.Y',strtotime((string)$task['due_date']))).
-            ((int)$task['repeat_monthly']===1?' · ежемесячно':'').'</span></div>';
+            '<span'.($late?' class="overdue-text"':' class="muted"').'>'
+            .adc_h(date('d.m.Y',strtotime((string)$task['due_date']))).
+            ($late?' · Просрочено':'').'</span></div>';
     }
-    if(!$data['tasks']) $html.='<p class="muted">Открытых задач нет.</p>';
-    $html.='<p><a class="btn secondary" href="/?view=tasks">Открыть «Мои задачи»</a></p></section>';
-    if (($user['role']??'')==='director') {
-        $html.='<section class="card"><h2>Команда · открытые задачи</h2>'.
-            '<p class="muted">Директор видит общую загрузку команды, включая личные задачи; '.
-            'редактировать чужие личные дела здесь нельзя.</p>';
-        foreach($data['team'] as $member) {
-            $html.='<div class="item"><div><strong>'.adc_h((string)$member['display_name']).'</strong>'.
-                ((int)$member['is_active']===1?'':' <span class="badge">Отключён</span>').
-                '<p class="muted">Открыто: '.(int)$member['open_count'].
-                ' · просрочено: '.(int)$member['overdue_count'].'</p></div>'.
-                '<a class="btn secondary" href="/?view=tasks&amp;team_scope=all&amp;team_member='.
-                (int)$member['id'].'">Календарь</a></div>';
+    if(!$data['tasks'])$html.='<p class="muted">Нет ближайших задач.</p>';
+    $html.='<p><a class="btn secondary" href="/?view=tasks">Мои задачи</a></p></section>';
+    if(($user['role']??'')==='director'){
+        $html.='<section class="card"><h2>Команда · открытые задачи</h2>';
+        foreach($data['team'] as $member){
+            if((int)$member['is_active']!==1)continue;
+            $html.='<div class="item"><strong>'.adc_h((string)$member['display_name']).'</strong>'.
+                '<span>Открыто: '.(int)$member['open_count'].
+                ((int)$member['overdue_count']>0?' · <span class="overdue-text">Просрочено: '.
+                    (int)$member['overdue_count'].'</span>':'').'</span></div>';
         }
+        if(!$data['team'])$html.='<p class="muted">Нет активных сотрудников.</p>';
         $html.='</section>';
     }
     return $html;

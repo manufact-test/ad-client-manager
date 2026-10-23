@@ -79,4 +79,14 @@ $_POST=['message'=>'Unknown thread','thread'=>'999999999'];
 $blocked=false;
 try{adc_chat_send($db,['id'=>$a['id'],'role'=>'director']);}catch(RuntimeException $e){$blocked=true;}
 $ok($blocked,'Unknown client conversation rejected');
+// Exercise the full chat page rendering, not only message helpers.
+$_GET=['view'=>'chat'];
+$page=adc_chat_html($db,['id'=>$a['id'],'role'=>'director']);
+$ok(str_contains($page,'Чат команды') && str_contains($page,'Общий чат'),
+    'Director can render the complete general chat without HTTP 500');
+$_GET=['view'=>'chat','thread'=>(string)$client];
+$page=adc_chat_html($db,['id'=>$b['id'],'role'=>'employee']);
+$ok(str_contains($page,'chat-feed') && str_contains($page,$clientName),
+    'Employee can render a client conversation without HTTP 500');
+unset($_GET['thread']);
 echo "Chat integration PASS: multi mentions, inline staff/client tags, safe links, separate rooms, isolated unread, persistence\n";
