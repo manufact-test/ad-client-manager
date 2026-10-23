@@ -229,18 +229,24 @@ try:
     require(js_check.returncode==0,"Inline calendar and task JavaScript has valid syntax")
     require("var opened=toggle?target.hidden:false;" in inline_script.group(1),
             "Task edit button opens previously hidden form")
-    require("Обзор" not in page or "Финансы" in page,"Approved client card section is restored")
-    require('class="card client-overview"' in page and
-            'id="client-finance"' in page and
-            'id="client-periods"' in page and
-            'id="client-documents"' in page and
+    # Accepted card structure: client facts + price, monthly work/receipts,
+    # documents, and only then collapsed editing and CSV.
+    a=page.find('class="card client-overview"')
+    b=page.find('id="client-periods"')
+    c=page.find('id="client-documents"')
+    d=page.find('id="client-edit"')
+    require(a>=0 and a<b<c<d and
+            "Оплата за месяц" in page and "Работы и оплаты по месяцам" in page and
             "Чат клиента" in page,
-            "Original approved client card layout, finance, periods and chat shortcut")
+            "Approved compact card order: facts/price, monthly work, documents, edit")
+    require('href="#client-finance"' not in page and
+            'href="#client-periods"' not in page and
+            'href="#client-documents"' not in page,
+            "No unrequested navigation tabs inside client card")
     require("Документы и оплаты" in page and "Загрузить документ" in page,
-            "New ledger actions remain within original document section")
-    require("Выгрузить операции" in page,"Existing client CSV shortcut retained")
-    require("Изменить условия сотрудничества" in page and "Добавить период вручную" in page,
-            "Original client period editing restored")
+            "Ledger receipt actions remain under documents")
+    require("Выгрузить историю в CSV" in page and "Корректировки и управление периодами" in page,
+            "Editing and export available only after visible history")
     require("Загрузить документ" not in panel("employee",demo),"Employees cannot upload PDFs")
     status,_,_=post("employee",employee,"create_card_entry",{
         "client_id":demo,"amount":"100.00","currency":"BYN","category":"advertising"})
