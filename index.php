@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+date_default_timezone_set('Europe/Minsk');
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 require __DIR__ . '/app/core.php';
@@ -10,7 +11,7 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('Referrer-Policy: no-referrer');
 $adcJsNonce=base64_encode(random_bytes(24));
-header("Content-Security-Policy: default-src 'none'; script-src 'nonce-" . $adcJsNonce . "'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+header("Content-Security-Policy: default-src 'none'; script-src 'nonce-" . $adcJsNonce . "'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
 adc_session();
 
 function adc_page(string $title, string $body, ?array $user = null): never {
@@ -319,6 +320,15 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .customer-profile .period-total{margin:8px 0}
         .customer-profile .customer-edit{margin-top:14px}
         @media(max-width:520px){.customer-profile .profile-facts{grid-template-columns:1fr 1fr}}
+        .chat-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+        .chat-top h1{margin:0}
+        .chat-top [data-chat-sound]{margin-left:auto}
+        .chat-attach{display:flex;flex-direction:column;align-items:flex-start;gap:7px;
+            margin:8px 0 13px;font-size:13px;color:#525d77}
+        .chat-attach input{max-width:100%;font:inherit}
+        .chat-file{display:block;margin-top:10px;overflow-wrap:anywhere;font-size:13px}
+        .chat-image img{display:block;max-width:min(100%,280px);max-height:240px;
+            object-fit:contain;border-radius:9px;border:1px solid #e1e4ef;margin-bottom:5px}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script nonce="' . adc_h($adcJsNonce) . '">
 (function(){
   "use strict";
@@ -485,8 +495,9 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var feed=document.querySelector("[data-last]");
     var thread=feed?Number(feed.getAttribute("data-thread")||0):0;
     var soundButton=document.querySelector("[data-chat-sound]");
-    var audible=false,activated=false,lastOther=null,busy=false;
-    try{audible=localStorage.getItem("adc-chat-sound")==="on";}catch(e){}
+    var audible=true,activated=false,lastOther=null,busy=false;
+    // Sound is ON unless this browser explicitly disabled it.
+    try{audible=localStorage.getItem("adc-chat-sound")!=="off";}catch(e){}
     function beep(){
       if(!audible||!activated)return;
       try{
@@ -667,11 +678,28 @@ function adc_notice(): string {
     }
     $value = (string) $_SESSION['flash'];
     unset($_SESSION['flash']);
+    // Discard any routine toast queued before the deployment.
+    if(!adc_important_notice($value))return '';
     return '<div class="notice" role="status">' . adc_h($value) . '</div>';
 }
 
+function adc_important_notice(string $message):bool {
+    foreach ([
+        'Учётная запись директора создана.',
+        'Пароль изменён.',
+        'Сотрудник добавлен.',
+        'Временный пароль установлен.',
+        'Период уже был создан.',
+        'Операция уже сохранена.',
+    ] as $prefix) if(str_starts_with($message,$prefix))return true;
+    return false;
+}
 function adc_flash(string $message): void {
-    $_SESSION['flash'] = $message;
+    // Successful routine actions are already visible in the interface.
+    // Only consequential setup/account notices and duplicate prevention
+    // should occupy the top of the screen; errors use a separate path.
+    if(adc_important_notice($message))$_SESSION['flash']=$message;
+    else unset($_SESSION['flash']);
 }
 
 require __DIR__ . '/app/finance.php';
@@ -729,7 +757,7 @@ try {
  */
 function adc_staging_schema_upgrade_needed(PDO $db): bool {
     foreach (['client_entries','engagement_terms','team_chat_messages','team_chat_reads',
-             'team_chat_mentions','team_chat_thread_reads'] as $table) {
+             'team_chat_mentions','team_chat_thread_reads','team_chat_attachments'] as $table) {
         if (!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()) return true;
     }
     if (!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch()) return true;
@@ -1252,6 +1280,9 @@ if (isset($_GET['export']) && is_string($_GET['export'])) {
 // Only authenticated users who have changed a temporary password can retrieve PDFs.
 if (isset($_GET['download'])) {
     adc_doc_download($db, $user);
+}
+if (isset($_GET['chat_attachment'])) {
+    adc_chat_download($db);
 }
 
 // The old demo-only and month-switching dashboard has been superseded.

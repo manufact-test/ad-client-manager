@@ -240,6 +240,18 @@ function adc_schema(PDO $db): void {
             CONSTRAINT fk_chat_tag_message FOREIGN KEY(message_id) REFERENCES team_chat_messages(id) ON DELETE CASCADE,
             CONSTRAINT fk_chat_tag_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_attachments (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            message_id BIGINT UNSIGNED NOT NULL UNIQUE,
+            storage_key VARCHAR(100) NOT NULL UNIQUE,
+            original_filename VARCHAR(200) NOT NULL,
+            mime_type VARCHAR(50) NOT NULL,
+            byte_size INT UNSIGNED NOT NULL,
+            content_sha256 CHAR(64) NOT NULL,
+            created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+            CONSTRAINT fk_chat_attachment_message
+                FOREIGN KEY(message_id) REFERENCES team_chat_messages(id) ON DELETE CASCADE
+        )'
         ,'CREATE TABLE IF NOT EXISTS team_chat_thread_reads (
             user_id BIGINT UNSIGNED NOT NULL,
             thread_key BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -391,7 +403,8 @@ function adc_login_blocked(PDO $db, string $key): bool {
     $stmt->execute([$key]);
     $record = $stmt->fetch();
     return $record && (int)$record['failure_count'] >= 5 &&
-        strtotime((string)$record['last_failure']) > time() - 900;
+        // login_attempts timestamps are always stored as UTC, even when UI is Minsk time.
+        strtotime((string)$record['last_failure'].' UTC') > time() - 900;
 }
 
 function adc_login_failure(PDO $db, string $key): void {
