@@ -216,18 +216,37 @@ function adc_schema(PDO $db): void {
             body TEXT NOT NULL,
             mentioned_user_id BIGINT UNSIGNED NULL,
             client_id BIGINT UNSIGNED NULL,
+            thread_client_id BIGINT UNSIGNED NULL,
             created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
             INDEX idx_chat_author(author_user_id,id),
+            INDEX idx_chat_thread(thread_client_id,id),
             INDEX idx_chat_mention(mentioned_user_id,id),
             CONSTRAINT fk_chat_author FOREIGN KEY(author_user_id) REFERENCES users(id),
             CONSTRAINT fk_chat_mention FOREIGN KEY(mentioned_user_id) REFERENCES users(id) ON DELETE SET NULL,
-            CONSTRAINT fk_chat_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE SET NULL
+            CONSTRAINT fk_chat_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE SET NULL,
+            CONSTRAINT fk_chat_thread FOREIGN KEY(thread_client_id) REFERENCES clients(id) ON DELETE SET NULL
         )'
         ,'CREATE TABLE IF NOT EXISTS team_chat_reads (
             user_id BIGINT UNSIGNED PRIMARY KEY,
             last_read_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_chat_read_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_mentions (
+            message_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NOT NULL,
+            PRIMARY KEY(message_id,user_id),
+            INDEX idx_chat_tag_user(user_id,message_id),
+            CONSTRAINT fk_chat_tag_message FOREIGN KEY(message_id) REFERENCES team_chat_messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_chat_tag_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_thread_reads (
+            user_id BIGINT UNSIGNED NOT NULL,
+            thread_key BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            last_read_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(user_id,thread_key),
+            CONSTRAINT fk_chat_thread_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         )'
         ,'CREATE TABLE IF NOT EXISTS engagement_terms (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -245,6 +264,15 @@ function adc_schema(PDO $db): void {
     ];
     foreach ($statements as $sql) {
         $db->exec($sql . $options);
+    }
+    // Earlier chat installations contain messages but no client discussion field.
+    // Keep historical messages, append only a nullable thread reference.
+    if (!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch()) {
+        $db->exec('ALTER TABLE team_chat_messages
+            ADD COLUMN thread_client_id BIGINT UNSIGNED NULL,
+            ADD INDEX idx_chat_thread(thread_client_id,id),
+            ADD CONSTRAINT fk_chat_thread FOREIGN KEY(thread_client_id)
+              REFERENCES clients(id) ON DELETE SET NULL');
     }
     // Earlier releases had no price in historic terms. Unknown rates remain
     // SQL NULL rather than being filled with invented historic amounts.
