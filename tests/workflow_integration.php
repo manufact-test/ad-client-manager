@@ -953,7 +953,7 @@ try {
     check($pauseId>0 && $pauseEng!==false,'Synthetic paused client created');
     $ledger=$db->prepare('INSERT INTO client_entries
         (client_id,entry_kind,note,amount,currency,sent_at)
-        VALUES (?,"document","Old request","111.00","BYN",UTC_TIMESTAMP())');
+        VALUES (?,"card","Old request","111.00","BYN",UTC_TIMESTAMP())');
     $ledger->execute([$pauseId]);$oldEntry=(int)$db->lastInsertId();
     $beforeRows=(int)$db->query("SELECT COUNT(*) FROM billing_periods WHERE engagement_id=".(int)$pauseEng['id'])->fetchColumn();
     run_action($db,$director,'pause_client',['client_id'=>(string)$pauseId]);
