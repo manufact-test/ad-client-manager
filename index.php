@@ -311,6 +311,14 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .overview-money-item span{font-size:13px;color:#59647b}
         .overview-money-item strong{font-size:18px;overflow-wrap:anywhere}
         @media(max-width:600px){.overview-stats{grid-template-columns:1fr 1fr}.overview-money{grid-template-columns:1fr}}
+        .client-headline{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+        .client-headline h3{margin:0}
+        .customer-profile .profile-facts>div{min-width:0}
+        .customer-profile .profile-facts small{display:block;font-size:12px;color:#66718d;margin-bottom:6px}
+        .customer-profile .profile-facts strong{font-size:15px;line-height:1.35;overflow-wrap:anywhere}
+        .customer-profile .period-total{margin:8px 0}
+        .customer-profile .customer-edit{margin-top:14px}
+        @media(max-width:520px){.customer-profile .profile-facts{grid-template-columns:1fr 1fr}}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script nonce="' . adc_h($adcJsNonce) . '">
 (function(){
   "use strict";
@@ -1247,4 +1255,19 @@ if (isset($_GET['download'])) {
 }
 
 // The old demo-only and month-switching dashboard has been superseded.
-adc_w_page($db, $user, $alert);
+// Only chat errors are isolated; the rest of the application is untouched.
+// Keep full details in the private server log, not in an HTTP response.
+try {
+    adc_w_page($db, $user, $alert);
+} catch (Throwable $chatError) {
+    if (($_GET['view']??'') !== 'chat') throw $chatError;
+    $errorClass=$chatError instanceof PDOException ? 'DB' : 'APP';
+    $errorCode=(string)$chatError->getCode();
+    if (!preg_match('/^[a-zA-Z0-9]{1,12}$/D',$errorCode)) $errorCode='OTHER';
+    error_log('ADC-CHAT-'.$errorClass.'-'.$errorCode.' '.get_class($chatError).': '.$chatError->getMessage());
+    http_response_code(503);
+    adc_page('Чат команды', '<section class="card"><h1>Чат команды</h1>'.
+        '<p>Не удалось открыть чат. Другие разделы приложения продолжают работать.</p>'.
+        '<p class="muted">Код ошибки: ADC-CHAT-'.$errorClass.'-'.$errorCode.'</p>'.
+        '<p><a class="btn secondary" href="/?view=chat">Повторить</a></p></section>',$user);
+}
