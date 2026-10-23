@@ -101,6 +101,14 @@ adc_chat_toggle_pin($db,['id'=>$a['id']]);
 $clientPin=adc_chat_pinned($db,$client);
 $ok($clientPin&&(int)$clientPin['id']===(int)$reply['id'],
     'Client chat has its own pin');
+$_GET=['view'=>'chat','thread'=>(string)$client];
+$pinnedMarkup=adc_chat_html($db,['id'=>$a['id'],'role'=>'director']);
+$ok(str_contains($pinnedMarkup,'class="chat-pinned-copy"') &&
+    str_contains($pinnedMarkup,'class="chat-pinned-text"') &&
+    str_contains($pinnedMarkup,'Перейти к сообщению') &&
+    str_contains($pinnedMarkup,'Открепить'),
+    'Pinned content is separate from navigation and unpin controls');
+
 $_POST=['thread'=>(string)$client,'message_id'=>(string)$m['id']];
 $rejected=false;
 try{adc_chat_toggle_pin($db,['id'=>$a['id']]);}

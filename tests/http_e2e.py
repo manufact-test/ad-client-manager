@@ -266,9 +266,13 @@ try:
         "thread":str(real),"message_id":messageid})
     require(status==303,"Pinning a client message succeeds")
     status,_,pinPage=request("employee","/?view=chat&thread="+str(real))
-    require("chat-pinned" in html(pinPage) and
+    require('class="chat-pinned-copy"' in html(pinPage) and
+            'class="chat-pinned-text"' in html(pinPage) and
+            'class="chat-pinned-actions"' in html(pinPage) and
+            "Перейти к сообщению" in html(pinPage) and
+            "Открепить" in html(pinPage) and
             "focus="+messageid in html(pinPage),
-            "Pinned bar visible to colleague in the same client room")
+            "Pin is selectable text with separate navigation and unpin controls")
     status,_,focusPage=request("employee","/?view=chat&thread="+str(real)+
                               "&focus="+messageid)
     require(status==200 and 'data-focused="1"' in html(focusPage) and
@@ -279,6 +283,27 @@ try:
     require(status==303,"Unpinning the same message succeeds")
     status,_,unpinned=request("director","/?view=chat&thread="+str(real))
     require('<div class="chat-pinned">' not in html(unpinned),"Unpinned bar disappears")
+    # A URL in a pin must be clickable without navigating into chat history.
+    status,headers,_=post("director",director,"chat_send",{
+        "thread":str(real),"message":"Shared brief https://example.org/manual.pdf"})
+    require(status==303,"Pinned URL fixture created")
+    status,_,linkPage=request("director","/?view=chat&thread="+str(real))
+    ids=re.findall(r'data-chat-reply="(\d+)"',html(linkPage))
+    require(ids,"Chat URL message appears in conversation")
+    linkMessageId=ids[-1]
+    status,headers,_=post("director",director,"chat_toggle_pin",{
+        "thread":str(real),"message_id":linkMessageId})
+    require(status==303,"URL message can be pinned")
+    status,_,linkPinPage=request("employee","/?view=chat&thread="+str(real))
+    require(status==200 and
+            re.search(r'<div class="chat-pinned-text">(?s:.*?)<a href="https://example.org/manual.pdf"',
+                      html(linkPinPage)) is not None and
+            "Перейти к сообщению" in html(linkPinPage) and
+            "Открепить" in html(linkPinPage),
+            "Pinned URL is independently clickable and original message has separate navigation")
+    status,headers,_=post("director",director,"chat_toggle_pin",{
+        "thread":str(real),"message_id":linkMessageId})
+    require(status==303,"Pinned URL can be unpinned")
     # Protected chat attachment exchange: PDF and a screenshot in a client room.
     chatpdf=WORK/"chat-document.pdf"
     chatpdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")
