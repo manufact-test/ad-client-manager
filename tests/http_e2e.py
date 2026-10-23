@@ -229,24 +229,22 @@ try:
     require(js_check.returncode==0,"Inline calendar and task JavaScript has valid syntax")
     require("var opened=toggle?target.hidden:false;" in inline_script.group(1),
             "Task edit button opens previously hidden form")
-    # Accepted card structure: client facts + price, monthly work/receipts,
-    # documents, and only then collapsed editing and CSV.
-    a=page.find('class="card client-overview"')
-    b=page.find('id="client-periods"')
-    c=page.find('id="client-documents"')
-    d=page.find('id="client-edit"')
-    require(a>=0 and a<b<c<d and
-            "Оплата за месяц" in page and "Работы и оплаты по месяцам" in page and
-            "Чат клиента" in page,
-            "Approved compact card order: facts/price, monthly work, documents, edit")
-    require('href="#client-finance"' not in page and
-            'href="#client-periods"' not in page and
-            'href="#client-documents"' not in page,
-            "No unrequested navigation tabs inside client card")
-    require("Документы и оплаты" in page and "Загрузить документ" in page,
-            "Ledger receipt actions remain under documents")
-    require("Выгрузить историю в CSV" in page and "Корректировки и управление периодами" in page,
-            "Editing and export available only after visible history")
+    # Restore the actual accepted card from 2387ba7e8540: top CSV,
+    # client overview -> ledger -> secondary actions; no invented monthly block.
+    a=page.find('class="card customer-identity"')
+    b=page.find('class="card ledger-panel"')
+    c=page.find('class="card customer-more"')
+    require(a>=0 and a<b<c and 'class="client-summary-header"' in page,
+            "Accepted original client-card overview / ledger / actions")
+    require("Выгрузить историю в CSV" in page and "Чат клиента" in page and
+            page.find("Выгрузить историю в CSV")<page.find("Документы и оплаты"),
+            "Top CSV button and chat next to original overview heading")
+    require("Работы и оплаты по месяцам" not in page and
+            'href="#client-finance"' not in page and
+            " расчётный день" not in page[:b],
+            "No unrequested monthly block or payment day in top summary")
+    require("Дополнительные действия" in page and "Загрузить документ" in page,
+            "Agreed ledger and secondary actions retained")
     require("Загрузить документ" not in panel("employee",demo),"Employees cannot upload PDFs")
     status,_,_=post("employee",employee,"create_card_entry",{
         "client_id":demo,"amount":"100.00","currency":"BYN","category":"advertising"})
