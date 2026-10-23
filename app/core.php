@@ -210,6 +210,25 @@ function adc_schema(PDO $db): void {
             CONSTRAINT fk_entry_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
             CONSTRAINT fk_entry_document FOREIGN KEY(document_id) REFERENCES document_bundles(id) ON DELETE SET NULL
         )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            author_user_id BIGINT UNSIGNED NOT NULL,
+            body TEXT NOT NULL,
+            mentioned_user_id BIGINT UNSIGNED NULL,
+            client_id BIGINT UNSIGNED NULL,
+            created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+            INDEX idx_chat_author(author_user_id,id),
+            INDEX idx_chat_mention(mentioned_user_id,id),
+            CONSTRAINT fk_chat_author FOREIGN KEY(author_user_id) REFERENCES users(id),
+            CONSTRAINT fk_chat_mention FOREIGN KEY(mentioned_user_id) REFERENCES users(id) ON DELETE SET NULL,
+            CONSTRAINT fk_chat_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE SET NULL
+        )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_reads (
+            user_id BIGINT UNSIGNED PRIMARY KEY,
+            last_read_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_chat_read_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
         ,'CREATE TABLE IF NOT EXISTS engagement_terms (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             engagement_id BIGINT UNSIGNED NOT NULL,
@@ -388,7 +407,7 @@ function adc_auth_session_timely(array $session, int $now): bool {
         ($now-$issued)<=12*3600 && ($now-$last)<=30*60;
 }
 
-function adc_current_user(PDO $db): ?array {
+function adc_current_user(PDO $db,bool $touchActivity=true): ?array {
     $id = $_SESSION['user_id'] ?? null;
     if (!is_int($id) || $id < 1 || !adc_auth_session_timely($_SESSION,time())) {
         adc_auth_session_clear();
@@ -404,7 +423,7 @@ function adc_current_user(PDO $db): ?array {
         adc_auth_session_clear();
         return null;
     }
-    $_SESSION['auth_last_seen_at']=time();
+    if($touchActivity)$_SESSION['auth_last_seen_at']=time();
     unset($row['password_hash']);
     return $row;
 }

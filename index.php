@@ -21,9 +21,9 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
         $menu = '<div class="header-inner"><nav class="top-nav" aria-label="Основные разделы">';
         foreach (['overview'=>'Обзор','clients'=>'Клиенты','payments'=>'Оплаты','control'=>'Контроль','tasks'=>'Мои задачи','archive'=>'Архив',
-                  'analytics'=>'Аналитика','team'=>'Настройки'] as $id=>$label) {
+                  'analytics'=>'Аналитика','chat'=>'Чат','team'=>'Настройки'] as $id=>$label) {
             $menu .= '<a href="/?view='.$id.'"'.($view===$id?' class="active" aria-current="page"':'').
-                '>'.adc_h($label).'</a>';
+                '>'.adc_h($label).($id==='chat'?' <span data-chat-badge class="chat-badge" hidden></span>':'').'</a>';
         }
         $menu .= '</nav><div class="account"><span>'.$name.' · '.
             ($user['role']==='director'?'Директор':'Сотрудник').'</span>'.
@@ -450,6 +450,7 @@ require __DIR__ . '/app/collections.php';
 require __DIR__ . '/app/import.php';
 require __DIR__ . '/app/quick_import.php';
 require __DIR__ . '/app/audit.php';
+require __DIR__ . '/app/chat.php';
 
 $config = adc_config();
 if ($config === null) {
@@ -491,7 +492,7 @@ try {
  * MySQL schema. Never attempt implicit DDL on login or ordinary page requests.
  */
 function adc_staging_schema_upgrade_needed(PDO $db): bool {
-    foreach (['client_entries','engagement_terms'] as $table) {
+    foreach (['client_entries','engagement_terms','team_chat_messages','team_chat_reads'] as $table) {
         if (!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()) return true;
     }
     $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
@@ -715,6 +716,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Connected workflow actions share the established authentication and CSRF gates.
+        if ($action==='chat_send') {
+            adc_chat_send($db,$current);
+            adc_flash('Сообщение отправлено.');
+            adc_redirect('?view=chat');
+        }
+        if ($action==='chat_read') {
+            $id=adc_input('last_id');
+            if(!ctype_digit($id))throw new RuntimeException('Некорректная отметка прочтения.');
+            adc_chat_read($db,(int)$current['id'],(int)$id);
+            header('Content-Type: application/json; charset=UTF-8');
+            echo '{"ok":true}';
+            exit;
+        }
         if (adc_team_task_action($db, $current, $action)) {
             adc_redirect();
         }
@@ -901,7 +915,7 @@ if (!$initialized) {
     adc_page('Первичная настройка', $html);
 }
 
-$user = adc_current_user($db);
+$user = adc_current_user($db,!isset($_GET['chat_poll']));
 if (!$user) {
     $html = '<section class="card narrow"><h1>Вход</h1><p class="muted">Доступ только для сотрудников компании.</p>' . $alert
         . '<form method="post" class="stack"><input type="hidden" name="csrf" value="' . $csrf . '">'
@@ -927,7 +941,7 @@ if ($schemaUpgradeRequired) {
         $eligible = adc_staging_schema_upgrade_eligible($db);
         $body = '<section class="card narrow"><h1>Обновление тестовой базы</h1>'
             . $alert
-            . '<p>Новая версия добавляет историю месячных договорных сумм без пересчёта прежних оплат. '
+            . '<p>Новая версия добавляет историю договорных сумм и таблицы командного чата без пересчёта прежних оплат. '
             . 'Директор, сотрудники, клиенты, задачи и существующие документы сохраняются. Новые записи учитываются отдельно от старых.</p>'
             . '<p><strong>Сейчас в тестовой базе:</strong> '
             . adc_h(implode('; ', adc_staging_existing_record_counts($db))) . '.</p>'
@@ -954,6 +968,9 @@ if ($schemaUpgradeRequired) {
         . '<p>Операции временно закрыты. Обратитесь к директору.</p></section>',
         $user);
 }
+
+// Chat polls do not extend idle sessions.
+if(isset($_GET['chat_poll']))adc_chat_poll($db,$user);
 
 // Financial downloads follow the same session and temporary-password gates.
 if (isset($_GET['export']) && is_string($_GET['export'])) {
