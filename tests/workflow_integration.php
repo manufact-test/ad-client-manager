@@ -936,6 +936,8 @@ try {
         !str_contains(adc_operations_html($db,$employee),'Команда · открытые задачи'),
         'Team load available to director but not employee');
 
+    // Finish the independent read-only financial fixture before client writes.
+    if ($db->inTransaction()) $db->rollBack();
     // Pause affects planned work only, never documents, payments, history, or chat.
     $pauseName='Synthetic pause '.bin2hex(random_bytes(5));
     run_action($db,$director,'save_client',[
