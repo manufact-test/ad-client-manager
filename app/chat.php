@@ -19,11 +19,13 @@ function adc_chat_alias(string $name,int $id,string $prefix):string {
     return $prefix.($name!==''?$name:($prefix==='@'?'сотрудник':'клиент')).'_'.$id;
 }
 function adc_chat_status(PDO $db,int $uid):array {
-    $sql='SELECT COUNT(*) unread,COALESCE(SUM(
-         CASE WHEN m.mentioned_user_id=? OR EXISTS(
-           SELECT 1 FROM team_chat_mentions um WHERE um.message_id=m.id AND um.user_id=?
-         ) THEN 1 ELSE 0 END),0) mentions
+    // A simple LEFT JOIN avoids a correlated EXISTS in the message aggregate
+    // (older hosted MySQL variants can reject complex statement preparations).
+    $sql='SELECT COUNT(*) unread,
+          COALESCE(SUM(CASE WHEN m.mentioned_user_id=? OR um.user_id IS NOT NULL
+             THEN 1 ELSE 0 END),0) mentions
        FROM team_chat_messages m
+       LEFT JOIN team_chat_mentions um ON um.message_id=m.id AND um.user_id=?
        LEFT JOIN team_chat_thread_reads r ON r.user_id=? AND r.thread_key=COALESCE(m.thread_client_id,0)
        WHERE m.author_user_id<>? AND m.id>COALESCE(r.last_read_id,0)';
     $s=$db->prepare($sql);$s->execute([$uid,$uid,$uid,$uid]);
@@ -50,12 +52,12 @@ function adc_chat_thread_unread(PDO $db,int $uid,int $thread):int {
 }
 function adc_chat_rows(PDO $db,int $after=0,int $thread=0,int $uid=0):array {
     $sql='SELECT m.*,u.display_name author,mu.display_name mention_name,c.name client_name,
-        EXISTS(SELECT 1 FROM team_chat_mentions tags
-               WHERE tags.message_id=m.id AND tags.user_id=?) is_mentioned
+        CASE WHEN tags.user_id IS NULL THEN 0 ELSE 1 END is_mentioned
         FROM team_chat_messages m
         JOIN users u ON u.id=m.author_user_id
         LEFT JOIN users mu ON mu.id=m.mentioned_user_id
         LEFT JOIN clients c ON c.id=m.client_id
+        LEFT JOIN team_chat_mentions tags ON tags.message_id=m.id AND tags.user_id=?
         WHERE COALESCE(m.thread_client_id,0)=?';
     if($after>0){
         $s=$db->prepare($sql.' AND m.id>? ORDER BY m.id ASC LIMIT 60');
@@ -107,11 +109,11 @@ function adc_chat_html(PDO $db,array $user):string {
     $q=is_string($_GET['chat_q']??null)?trim((string)$_GET['chat_q']):'';
     $q=mb_substr($q,0,65);
     $s=$db->prepare('SELECT c.id,c.name FROM clients c
-        WHERE ?="" OR LOCATE(LOWER(?),LOWER(c.name))>0
-        ORDER BY (SELECT COALESCE(MAX(id),0) FROM team_chat_messages cm
-          WHERE cm.thread_client_id=c.id) DESC,c.id DESC LIMIT 40');
-    $s->execute([$q,$q]);
+        WHERE (? = "" OR c.name LIKE ?)
+        ORDER BY c.id DESC LIMIT 40');
+    $s->execute([$q,'%'.$q.'%']);
     $clients=$s->fetchAll();
+    $unread=adc_chat_status($db,$uid)['room_unread'];
     if($thread){
         $s=$db->prepare('SELECT name FROM clients WHERE id=?');
         $s->execute([$thread]);$selectedName=(string)$s->fetchColumn();
@@ -122,7 +124,7 @@ function adc_chat_html(PDO $db,array $user):string {
        '<span data-chat-state role="status" class="muted"></span></div>'.
        '<div class="chat-layout"><aside class="chat-sidebar" aria-label="Переписки">'.
        '<a class="chat-room'.($thread===0?' selected':'').'" data-room="0" href="/?view=chat">💬 Общий чат'.
-       (($count=adc_chat_thread_unread($db,$uid,0))?' <span class="chat-room-count">'.$count.'</span>':'').'</a>'.
+       (($count=(int)($unread['0']??0))?' <span class="chat-room-count">'.$count.'</span>':'').'</a>'.
        '<form method="get" class="chat-search"><input type="hidden" name="view" value="chat">'.
        '<label for="chat-client-search">Чаты клиентов</label>'.
        '<input id="chat-client-search" type="search" name="chat_q" maxlength="65" '.
@@ -130,7 +132,7 @@ function adc_chat_html(PDO $db,array $user):string {
        '<div class="chat-room-list">';
     foreach($clients as $client){
         $id=(int)$client['id'];$active=$thread===$id;
-        $n=adc_chat_thread_unread($db,$uid,$id);
+        $n=(int)($unread[(string)$id]??0);
         $out.='<a class="chat-room'.($active?' selected':'').'" data-room="'.$id.'" href="/?view=chat&amp;thread='.$id.'">'.
             '<span class="chat-room-name">'.adc_h((string)$client['name']).'</span>'.
             ($n?'<span class="chat-room-count">'.$n.'</span>':'').'</a>';
