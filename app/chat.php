@@ -242,14 +242,14 @@ function adc_chat_item(array $m,int $uid):string {
     }
     $preview=mb_substr(trim((string)$m['body']),0,120);
     if($preview==='')$preview='Вложение';
-    $out.='<div class="chat-msg-tools"><button type="button" class="chat-reply-btn secondary"'.
+    $out.='<div class="chat-msg-tools"><button type="button" class="chat-reply-btn chat-mini-action" title="Ответить на сообщение"'.
         ' data-chat-reply="'.(int)$m['id'].'" data-reply-preview="'.
         adc_h((string)$m['author'].': '.$preview).'">↩ Ответить</button>'.
         '<form method="post"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
         '<input type="hidden" name="action" value="chat_toggle_pin">'.
         '<input type="hidden" name="thread" value="'.$thread.'">'.
         '<input type="hidden" name="message_id" value="'.(int)$m['id'].'">'.
-        '<button class="secondary chat-pin-btn" type="submit">📌 Закрепить / снять</button>'.
+        '<button class="chat-pin-btn chat-mini-action" type="submit" title="Закрепить сообщение">📌 Закрепить</button>'.
         '</form></div>';
     return $out.'</article>';
 }
@@ -300,7 +300,6 @@ function adc_chat_html(PDO $db,array $user):string {
     $GLOBALS['adc_chat_read_stage']='render';
     $out='<section class="card"><div class="chat-top"><h1>Чат команды</h1>'.
        '<button class="secondary" type="button" data-chat-sound>Выключить звук</button></div>'.
-       '<p class="muted">Общий чат и переписки по клиентам. В сообщении набери @ для коллеги или # для клиента.</p>'.
        '<div><span data-chat-state role="status" class="muted">'.
        ($statusWarning?'Уведомления временно недоступны, переписка работает.':'').
        '</span></div>'.
@@ -356,8 +355,11 @@ function adc_chat_html(PDO $db,array $user):string {
         'placeholder="Вопрос команде… @сотрудник #клиент" autocomplete="off"></textarea>'.
         '<div class="chat-suggest" data-chat-suggestions hidden role="listbox"></div></div>'.
         '<p class="muted chat-hint">Наберите @ и выберите сотрудника или # и выберите клиента из подсказок.</p>'.
-        '<label class="chat-attach">📎 Прикрепить PDF или скриншот (до 10 МБ)'.
-        '<input type="file" name="chat_attachment" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp"></label>'.
+        '<label class="chat-attach">'.
+        '<input type="file" name="chat_attachment" data-chat-file '.
+        'accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp">'.
+        '<span class="chat-attach-btn">📎 Прикрепить файл</span>'.
+        '<span class="chat-attach-name" data-chat-file-name>PDF или изображение · до 10 МБ</span></label>'.
         '<button type="submit">Отправить сообщение</button></form></div></div></section>';
     return $out;
 }
