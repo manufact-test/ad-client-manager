@@ -988,7 +988,8 @@ try {
         'Keep schedule never rewrites historical terms');
     run_action($db,$director,'pause_client',['client_id'=>(string)$pauseId]);
     $newPause=adc_w_active_pause($db,$pauseId);
-    $newDate=date('Y-m-d');
+    // Future start dates are valid: e.g. a pause on the 23rd resumes on the 24th.
+    $newDate=(new DateTimeImmutable('tomorrow'))->format('Y-m-d');
     run_action($db,$director,'resume_paused_client',[
         'client_id'=>(string)$pauseId,'pause_id'=>(string)$newPause['id'],
         'resume_mode'=>'new_date','resume_start_on'=>$newDate,
@@ -996,6 +997,12 @@ try {
     $updated=adc_w_engagement($db,$pauseId,(int)$pauseEng['id']);
     check((int)$updated['billing_day']===(int)substr($newDate,8,2),
         'New date adjusts billing day without changing initial collaboration start');
+    check(adc_w_pause_covers(adc_w_pause_intervals($db,$pauseId),date('Y-m-d')),
+        'Scheduled future restart still suppresses paperwork inside the pause');
+    $newPanel=adc_w_client_panel($db,$director,$pauseId,'clients','/?view=clients');
+    check(str_contains($newPanel,'Дата начала текущих условий') &&
+        str_contains($newPanel,date('d.m.Y',strtotime($newDate))),
+        'Scheduled restart date is shown in client summary');
     check($updated['started_on']==='2026-01-07' &&
         (int)$db->query("SELECT COUNT(*) FROM engagement_terms WHERE engagement_id=".(int)$pauseEng['id'])->fetchColumn()===2,
         'Original and resumed billing terms both preserved');

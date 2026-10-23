@@ -175,6 +175,10 @@ try:
     pausePage=panel("director",real)
     require('name="action" value="pause_client"' in pausePage,
             "Current client card offers pause without changing its original sections")
+    require(".pause-choice input[type=radio]" in pausePage and
+            "pause-date-field" in pausePage and
+            ".chat-suggestion:is(:hover,:focus-visible,.highlight)" in pausePage,
+            "Pause radios and chat choices have explicit scoped visual styles")
     # Daily operating overview and read-only client paperwork CSV are authenticated.
     status,_,overview=request("director","/?view=overview")
     require(status==200 and "<h1>Обзор</h1>" in html(overview) and
