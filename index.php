@@ -118,6 +118,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .task-actions .btn,.task-actions button{min-width:82px;height:39px;text-align:center}
         .task-inline-edit{margin:6px 0 12px;padding:16px;border-radius:10px;background:#f8f7ff;border:1px solid #dedaf9}
         .task-create .check{margin:4px 0 10px}.task-create .grid{gap:12px}
+        .task-empty{padding:24px 22px;display:flex;align-items:center}
+        .task-empty>p{margin:0;line-height:1.5}
+        .team-calendar-filters .team-calendar-show{margin-top:13px}
+        .team-calendar-count{margin:14px 0 0}
+        .team-calendar-no-results{margin:14px 0 0}
         .customer-edit{margin-top:15px}.customer-tools{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
         @media(max-width:760px){.header-inner{align-items:flex-start;flex-direction:column;padding:9px 0}.top-nav{overflow-x:auto;flex-wrap:nowrap;width:100%;scrollbar-width:thin}.top-nav a{padding:9px 11px}.account{align-self:flex-end}.card{padding:16px}.drawer{padding:12px}.drawer-head{top:-12px}}
         @media(max-width:480px){main{padding:0 12px 40px;margin-top:18px}.task-row{flex-direction:column}.task-actions{align-self:flex-end}.top-nav{font-size:13px}.summary-grid{grid-template-columns:1fr 1fr}}
@@ -349,8 +354,17 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-pinned{display:flex;align-items:center;gap:12px;justify-content:space-between;
             background:#faf7df;border:1px solid #f0dfa7;border-radius:10px;
             padding:10px 12px;margin-top:12px;font-size:13px}
-        .chat-pinned a{min-width:0;overflow-wrap:anywhere;flex:1}
-        .chat-pinned form{flex-shrink:0}
+        .chat-pinned-copy{flex:1;min-width:0;user-select:text}
+        .chat-pinned-label{font-weight:600;font-size:12px;margin-bottom:6px}
+        .chat-pinned-text{overflow-wrap:anywhere;max-height:128px;overflow-y:auto;
+            line-height:1.5;user-select:text}
+        .chat-pinned-text a{overflow-wrap:anywhere;user-select:text}
+        .chat-pinned-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0}
+        .chat-pinned-actions form{margin:0}
+        .chat-pinned-actions .btn,.chat-pinned-actions button{font-size:12px;
+            padding:7px 10px;line-height:1.3;white-space:nowrap}
+        @media(max-width:650px){.chat-pinned{flex-wrap:wrap}
+          .chat-pinned-actions{width:100%}}
         /* Action tools do not reserve empty height OR width in a resting bubble.
            Hover/focus expands the message only when the buttons are needed. */
         .chat-msg-tools{display:none;gap:9px;align-items:center;flex-wrap:wrap;

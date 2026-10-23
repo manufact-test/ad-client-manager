@@ -324,16 +324,25 @@ function adc_chat_html(PDO $db,array $user):string {
         ($thread?'<a href="/?view=clients&amp;client='.$thread.'">Карточка клиента ↗</a>':'').
         '</div>';
     if($pin){
-        $summary=mb_substr(trim((string)$pin['body']),0,100);
-        if($summary==='')$summary='Вложение';
-        $out.='<div class="chat-pinned"><a href="/?view=chat&amp;thread='.$thread.
-            '&amp;focus='.(int)$pin['id'].'#chat-msg-'.(int)$pin['id'].'">'.
-            '📌 Закреплено · '.adc_h((string)$pin['author']).': '.adc_h($summary).
-            '</a><form method="post"><input type="hidden" name="csrf" value="'.
+        // Keep pinned content selectable and URLs directly clickable.
+        // Navigation to the original message is a separate explicit action.
+        $body=trim((string)$pin['body']);
+        $content=$body===''?'Вложение':adc_chat_safe_text($body,
+            $pin['client_id']===null?null:(int)$pin['client_id']);
+        $out.='<div class="chat-pinned">'.
+            '<div class="chat-pinned-copy">'.
+            '<div class="chat-pinned-label">📌 Закреплено · '.
+                adc_h((string)$pin['author']).'</div>'.
+            '<div class="chat-pinned-text">'.$content.'</div></div>'.
+            '<div class="chat-pinned-actions">'.
+            '<a class="btn secondary" href="/?view=chat&amp;thread='.$thread.
+                '&amp;focus='.(int)$pin['id'].'#chat-msg-'.(int)$pin['id'].'">'.
+                'Перейти к сообщению</a>'.
+            '<form method="post"><input type="hidden" name="csrf" value="'.
             adc_csrf().'"><input type="hidden" name="action" value="chat_toggle_pin">'.
             '<input type="hidden" name="thread" value="'.$thread.'">'.
             '<input type="hidden" name="message_id" value="'.(int)$pin['id'].'">'.
-            '<button type="submit" class="secondary">Открепить</button></form></div>';
+            '<button type="submit" class="secondary">Открепить</button></form></div></div>';
     }
     if($focus)$out.='<p><a href="/?view=chat&amp;thread='.$thread.
         '">← Вернуться к последним сообщениям</a></p>';
@@ -391,7 +400,7 @@ function adc_chat_references(PDO $db,string $body,int $self):array {
     return [array_keys($users),$client];
 }
 function adc_chat_pinned(PDO $db,int $thread):?array {
-    $s=$db->prepare('SELECT m.id,m.body,u.display_name author
+    $s=$db->prepare('SELECT m.id,m.body,m.client_id,u.display_name author
         FROM team_chat_pins p JOIN team_chat_messages m ON m.id=p.message_id
         JOIN users u ON u.id=m.author_user_id WHERE p.thread_key=?
           AND COALESCE(m.thread_client_id,0)=?');

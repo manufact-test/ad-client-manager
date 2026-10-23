@@ -1069,7 +1069,7 @@ function adc_w_team_schedule(PDO $db,array $user): string {
         '<p class="muted">Личные задачи сотрудников доступны для просмотра; '.
         'поручения директора можно изменять, переназначать и отменять, '.
         'а завершать задачи может только их исполнитель.</p>'.
-        '<form method="get"><input type="hidden" name="view" value="tasks"><div class="grid">'.
+        '<form method="get" class="team-calendar-filters"><input type="hidden" name="view" value="tasks"><div class="grid">'.
         '<label class="field">Сотрудник<select name="team_member">'.
         '<option value="0">Вся команда</option>';
     foreach ($staff as $member) {
@@ -1082,10 +1082,10 @@ function adc_w_team_schedule(PDO $db,array $user): string {
     foreach ($allowed as $key=>$label) {
         $html.='<option value="'.$key.'"'.($key===$scope?' selected':'').'>'.adc_h($label).'</option>';
     }
-    $html.='</select></label></div><button type="submit">Показать</button></form>'.
-        '<p class="muted">Задач в выборке: '.count($tasks).
+    $html.='</select></label></div><button class="team-calendar-show" type="submit">Показать</button></form>'.
+        '<p class="muted team-calendar-count">Задач в выборке: '.count($tasks).
         ($truncated?' (первые 300; уточните сотрудника или срок)':'').'</p>';
-    if (!$tasks) return $html.'<p class="muted">Задач с такими условиями нет.</p></section>';
+    if (!$tasks) return $html.'<p class="muted team-calendar-no-results">Задач с такими условиями нет.</p></section>';
     $day='';
     foreach ($tasks as $task) {
         $date=(string)$task['due_date'];
@@ -1178,7 +1178,7 @@ function adc_w_tasks(PDO $db, array $user): string {
 
     }
     if ($month!=='') $html.='</div></div></section>';
-    if (!$tasks) $html.='<section class="card"><p class="muted">Пока нет задач.</p></section>';
+    if (!$tasks) $html.='<section class="card task-empty"><p class="muted">Пока нет задач.</p></section>';
     $html.=adc_w_team_schedule($db,$user);
     if (($user['role']??'')==='director') $html.=adc_team_task_completions($db);
     return $html;
