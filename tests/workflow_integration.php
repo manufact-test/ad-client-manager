@@ -1000,7 +1000,7 @@ try {
     check((int)$saved===1,'Old unpaid document survives both pause cycles');
     check((int)$db->query("SELECT COUNT(*) FROM billing_periods WHERE engagement_id=".(int)$pauseEng['id'])->fetchColumn()===$beforeRows,
         'Neither pause nor resume creates periods or money');
-    check((int)$db->query("SELECT COUNT(*) FROM client_pauses WHERE client_id=$pauseId")===2,
+    check((int)$db->query("SELECT COUNT(*) FROM client_pauses WHERE client_id=$pauseId")->fetchColumn()===2,
         'Both pause cycles retained in audit history');
     $_GET=[];
 } finally {
