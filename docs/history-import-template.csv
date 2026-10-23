@@ -1,0 +1,4 @@
+external_client_id,client_name,is_demo,started_on,billing_day,payment_mode,currency,period_start,period_end,category,work_name,billed,received,refunded,payment_date,archived_on,platform_text,source_kind
+example-001,Вымышленное агентство,0,2026-09-07,7,prepayment,BYN,2026-09-07,2026-10-07,advertising,Контекстная реклама,100.10,50.00,,2026-09-08,,Яндекс Директ,referral
+example-001,Вымышленное агентство,0,2026-09-07,7,prepayment,BYN,2026-09-07,2026-10-07,development,Макет баннера,25.20,,,,,Яндекс Директ,referral
+example-002,Демо-компания,1,2026-10-01,1,postpayment,USD,2026-10-01,2026-11-01,advertising,Демо услуга,9999.00,,,,,Рекламная площадка,other

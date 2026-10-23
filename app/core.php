@@ -39,7 +39,7 @@ function adc_db(array $config): PDO {
     ]);
 }
 
-function adc_schema(PDO $db): void {
+function adc_schema(PDO $db, bool $chatOnly=false): void {
     $options = ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
     $statements = [
         'CREATE TABLE IF NOT EXISTS users (
@@ -102,6 +102,21 @@ function adc_schema(PDO $db): void {
             INDEX idx_client_previous(previous_client_id),
             INDEX idx_demo_client(is_demo)
         )',
+        'CREATE TABLE IF NOT EXISTS client_pauses (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        client_id BIGINT UNSIGNED NOT NULL,
+        paused_on DATE NOT NULL,
+        resumed_on DATE NULL,
+        resume_mode ENUM("keep","new_date") NULL,
+        resume_effective_on DATE NULL,
+        paused_by BIGINT UNSIGNED NOT NULL,
+        resumed_by BIGINT UNSIGNED NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        closed_at DATETIME(6) NULL,
+        INDEX idx_pause_current(client_id,resumed_on),
+        CONSTRAINT fk_pause_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
+        CONSTRAINT fk_pause_by FOREIGN KEY(paused_by) REFERENCES users(id)
+    )',
         'CREATE TABLE IF NOT EXISTS engagements (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             client_id BIGINT UNSIGNED NOT NULL,
@@ -133,6 +148,8 @@ function adc_schema(PDO $db): void {
             period_end DATE NOT NULL,
             period_note VARCHAR(400) NULL,
             is_final TINYINT(1) NOT NULL DEFAULT 0,
+            creation_key CHAR(64) NULL,
+            UNIQUE KEY uq_period_creation_key(creation_key),
             UNIQUE KEY uq_engagement_period(engagement_id, period_start, period_end),
             INDEX idx_period_start(period_start),
             CONSTRAINT fk_period_engagement FOREIGN KEY(engagement_id) REFERENCES engagements(id) ON DELETE CASCADE
@@ -183,14 +200,175 @@ function adc_schema(PDO $db): void {
             currency CHAR(3) NOT NULL,
             occurred_on DATE NOT NULL,
             note VARCHAR(500) NULL,
+            submission_key CHAR(64) NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_payment_submission(submission_key),
             INDEX idx_payment_client(client_id, occurred_on),
             CONSTRAINT fk_payment_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
             CONSTRAINT fk_payment_period FOREIGN KEY(period_id) REFERENCES billing_periods(id) ON DELETE SET NULL
         )'
+        ,'CREATE TABLE IF NOT EXISTS client_entries (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            client_id BIGINT UNSIGNED NOT NULL,
+            document_id BIGINT UNSIGNED NULL,
+            entry_kind ENUM("document","card") NOT NULL,
+            amount DECIMAL(16,2) NULL,
+            currency CHAR(3) NULL,
+            category ENUM("advertising","development","other") NOT NULL DEFAULT "advertising",
+            note VARCHAR(500) NULL,
+            sent_at DATETIME NULL,
+            received_at DATETIME NULL,
+            is_void TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_entry_document(document_id),
+            INDEX idx_entry_client(client_id,is_void),
+            CONSTRAINT fk_entry_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE,
+            CONSTRAINT fk_entry_document FOREIGN KEY(document_id) REFERENCES document_bundles(id) ON DELETE SET NULL
+        )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            author_user_id BIGINT UNSIGNED NOT NULL,
+            body TEXT NOT NULL,
+            mentioned_user_id BIGINT UNSIGNED NULL,
+            client_id BIGINT UNSIGNED NULL,
+            thread_client_id BIGINT UNSIGNED NULL,
+            reply_to_id BIGINT UNSIGNED NULL,
+            created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+            INDEX idx_chat_author(author_user_id,id),
+            INDEX idx_chat_thread(thread_client_id,id),
+            INDEX idx_chat_reply(reply_to_id),
+            INDEX idx_chat_mention(mentioned_user_id,id),
+            CONSTRAINT fk_chat_author FOREIGN KEY(author_user_id) REFERENCES users(id),
+            CONSTRAINT fk_chat_mention FOREIGN KEY(mentioned_user_id) REFERENCES users(id) ON DELETE SET NULL,
+            CONSTRAINT fk_chat_client FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE SET NULL,
+            CONSTRAINT fk_chat_thread FOREIGN KEY(thread_client_id) REFERENCES clients(id) ON DELETE SET NULL
+        )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_reads (
+            user_id BIGINT UNSIGNED PRIMARY KEY,
+            last_read_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_chat_read_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_mentions (
+            message_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NOT NULL,
+            PRIMARY KEY(message_id,user_id),
+            INDEX idx_chat_tag_user(user_id,message_id),
+            CONSTRAINT fk_chat_tag_message FOREIGN KEY(message_id) REFERENCES team_chat_messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_chat_tag_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_pins (
+            thread_key BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+            message_id BIGINT UNSIGNED NOT NULL,
+            pinned_by BIGINT UNSIGNED NOT NULL,
+            created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+            CONSTRAINT fk_chat_pin_message FOREIGN KEY(message_id)
+                REFERENCES team_chat_messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_chat_pin_user FOREIGN KEY(pinned_by)
+                REFERENCES users(id) ON DELETE CASCADE
+        )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_attachments (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            message_id BIGINT UNSIGNED NOT NULL UNIQUE,
+            storage_key VARCHAR(100) NOT NULL UNIQUE,
+            original_filename VARCHAR(200) NOT NULL,
+            mime_type VARCHAR(50) NOT NULL,
+            byte_size INT UNSIGNED NOT NULL,
+            content_sha256 CHAR(64) NOT NULL,
+            created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+            CONSTRAINT fk_chat_attachment_message
+                FOREIGN KEY(message_id) REFERENCES team_chat_messages(id) ON DELETE CASCADE
+        )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_thread_reads (
+            user_id BIGINT UNSIGNED NOT NULL,
+            thread_key BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            last_read_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(user_id,thread_key),
+            CONSTRAINT fk_chat_thread_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )'
+        ,'CREATE TABLE IF NOT EXISTS engagement_terms (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            engagement_id BIGINT UNSIGNED NOT NULL,
+            effective_on DATE NOT NULL,
+            started_on DATE NOT NULL,
+            billing_day TINYINT UNSIGNED NOT NULL,
+            payment_mode ENUM("prepayment","postpayment") NOT NULL,
+            currency CHAR(3) NOT NULL,
+            quoted_amount DECIMAL(16,2) NULL DEFAULT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_terms_effective(engagement_id,effective_on),
+            CONSTRAINT fk_terms_engagement FOREIGN KEY(engagement_id) REFERENCES engagements(id) ON DELETE CASCADE
+        )'
     ];
     foreach ($statements as $sql) {
+        // On an existing Hostinger installation a missing chat table must
+        // never cause a migration of financial or user records.
+        if($chatOnly && !str_starts_with($sql,'CREATE TABLE IF NOT EXISTS team_chat_'))continue;
         $db->exec($sql . $options);
+    }
+    if($chatOnly){
+        // Extend existing chat messages without replacing their records.
+        if(!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch()){
+            $db->exec('ALTER TABLE team_chat_messages
+                ADD COLUMN thread_client_id BIGINT UNSIGNED NULL,
+                ADD INDEX idx_chat_thread(thread_client_id,id)');
+        }
+        if(!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'reply_to_id'")->fetch()){
+            $db->exec('ALTER TABLE team_chat_messages
+                ADD COLUMN reply_to_id BIGINT UNSIGNED NULL,
+                ADD INDEX idx_chat_reply(reply_to_id)');
+        }
+        return;
+    }
+    if (!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'reply_to_id'")->fetch()){
+        $db->exec('ALTER TABLE team_chat_messages
+            ADD COLUMN reply_to_id BIGINT UNSIGNED NULL,
+            ADD INDEX idx_chat_reply(reply_to_id)');
+    }
+    // Earlier chat installations contain messages but no client discussion field.
+    // Keep historical messages, append only a nullable thread reference.
+    if (!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'thread_client_id'")->fetch()) {
+        $db->exec('ALTER TABLE team_chat_messages
+            ADD COLUMN thread_client_id BIGINT UNSIGNED NULL,
+            ADD INDEX idx_chat_thread(thread_client_id,id),
+            ADD CONSTRAINT fk_chat_thread FOREIGN KEY(thread_client_id)
+              REFERENCES clients(id) ON DELETE SET NULL');
+    }
+    // Earlier releases had no price in historic terms. Unknown rates remain
+    // SQL NULL rather than being filled with invented historic amounts.
+    if (!$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch()) {
+        $db->exec('ALTER TABLE engagement_terms
+            ADD COLUMN quoted_amount DECIMAL(16,2) NULL DEFAULT NULL');
+    }
+    // Migrate existing documents into the unified list without fabricating money.
+    // Backfill is idempotent: one linked entry per existing PDF.
+    $db->exec('INSERT INTO client_entries(client_id,document_id,entry_kind,sent_at,created_at)
+        SELECT d.client_id,d.id,"document",d.transferred_at,d.created_at
+        FROM document_bundles d LEFT JOIN client_entries e ON e.document_id=d.id
+        WHERE d.is_void=0 AND e.id IS NULL');
+    // Legacy test installations can have payment_events without the nullable
+    // idempotency key. Never rewrite existing payments or generate keys for
+    // historic imports: MySQL UNIQUE permits multiple NULL legacy rows.
+    $hasKey=$db->query("SHOW COLUMNS FROM payment_events LIKE 'submission_key'")->fetch();
+    if (!$hasKey) {
+        $db->exec('ALTER TABLE payment_events
+            ADD COLUMN submission_key CHAR(64) NULL,
+            ADD UNIQUE KEY uq_payment_submission(submission_key)');
+    } else {
+        $idx=$db->query("SHOW INDEX FROM payment_events WHERE Key_name='uq_payment_submission'")->fetch();
+        if (!$idx) $db->exec('ALTER TABLE payment_events ADD UNIQUE KEY uq_payment_submission(submission_key)');
+    }
+    // Existing periods and historical imports retain NULL. A nullable UNIQUE
+    // key safely recognizes repeated automatic creation requests.
+    $hasPeriodKey=$db->query("SHOW COLUMNS FROM billing_periods LIKE 'creation_key'")->fetch();
+    if (!$hasPeriodKey) {
+        $db->exec('ALTER TABLE billing_periods
+            ADD COLUMN creation_key CHAR(64) NULL,
+            ADD UNIQUE KEY uq_period_creation_key(creation_key)');
+    } else {
+        $periodIndex=$db->query("SHOW INDEX FROM billing_periods WHERE Key_name='uq_period_creation_key'")->fetch();
+        if (!$periodIndex) $db->exec('ALTER TABLE billing_periods ADD UNIQUE KEY uq_period_creation_key(creation_key)');
     }
 }
 
@@ -274,7 +452,8 @@ function adc_login_blocked(PDO $db, string $key): bool {
     $stmt->execute([$key]);
     $record = $stmt->fetch();
     return $record && (int)$record['failure_count'] >= 5 &&
-        strtotime((string)$record['last_failure']) > time() - 900;
+        // login_attempts timestamps are always stored as UTC, even when UI is Minsk time.
+        strtotime((string)$record['last_failure'].' UTC') > time() - 900;
 }
 
 function adc_login_failure(PDO $db, string $key): void {
@@ -285,19 +464,58 @@ function adc_login_failure(PDO $db, string $key): void {
     $stmt->execute([$key]);
 }
 
-function adc_current_user(PDO $db): ?array {
+/**
+ * A session is valid only for the exact password hash used when it was issued.
+ * Password changes revoke all other sessions without adding a new database
+ * migration. Older sessions without a binding intentionally require re-login.
+ */
+function adc_auth_binding(string $passwordHash): string {
+    return hash('sha256', 'ad-client-manager-auth-v1:' . $passwordHash);
+}
+
+function adc_auth_session_issue(int $userId, string $passwordHash): void {
+    // Never carry pending import approvals or old CSRF tokens across logins.
+    $_SESSION = [];
+    session_regenerate_id(true);
+    $_SESSION['user_id']=$userId;
+    $_SESSION['auth_binding']=adc_auth_binding($passwordHash);
+    $_SESSION['auth_issued_at']=time();
+    $_SESSION['auth_last_seen_at']=time();
+}
+
+function adc_auth_session_clear(): void {
+    unset($_SESSION['user_id'],$_SESSION['auth_binding'],
+        $_SESSION['auth_issued_at'],$_SESSION['auth_last_seen_at'],
+        $_SESSION['history_import_preview'],$_SESSION['quick_clients_preview']);
+}
+
+function adc_auth_session_timely(array $session, int $now): bool {
+    $issued=$session['auth_issued_at'] ?? null;
+    $last=$session['auth_last_seen_at'] ?? null;
+    return is_int($issued) && is_int($last) && $issued>0 && $last>0 &&
+        $issued<=$now && $last<=$now && $last>=$issued &&
+        ($now-$issued)<=12*3600 && ($now-$last)<=30*60;
+}
+
+function adc_current_user(PDO $db,bool $touchActivity=true): ?array {
     $id = $_SESSION['user_id'] ?? null;
-    if (!is_int($id) || $id < 1) {
+    if (!is_int($id) || $id < 1 || !adc_auth_session_timely($_SESSION,time())) {
+        adc_auth_session_clear();
         return null;
     }
-    $stmt = $db->prepare('SELECT id, email, display_name, role, is_active, must_change_password FROM users WHERE id = ?');
+    $stmt=$db->prepare('SELECT id,email,display_name,role,is_active,must_change_password,password_hash
+        FROM users WHERE id=?');
     $stmt->execute([$id]);
-    $user = $stmt->fetch();
-    if (!$user || (int)$user['is_active'] !== 1) {
-        unset($_SESSION['user_id']);
+    $row=$stmt->fetch();
+    $provided=$_SESSION['auth_binding'] ?? null;
+    if (!$row || (int)$row['is_active']!==1 ||
+        !is_string($provided) || !hash_equals(adc_auth_binding((string)$row['password_hash']),$provided)) {
+        adc_auth_session_clear();
         return null;
     }
-    return $user;
+    if($touchActivity)$_SESSION['auth_last_seen_at']=time();
+    unset($row['password_hash']);
+    return $row;
 }
 
 function adc_require_director(array $user): void {

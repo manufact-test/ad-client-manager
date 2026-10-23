@@ -1,6 +1,13 @@
 Options -Indexes
 DirectoryIndex index.php index.html
 
-<FilesMatch "^(\\.env|\\.git|composer\\.(json|lock))$">
+# Never expose Git metadata present inside Hostinger's public_html.
+# FilesMatch alone does not protect nested .git/HEAD or .git/config paths.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(?:\.git|\.svn|\.hg)(?:/|$) - [F,L,NC]
+</IfModule>
+
+<FilesMatch "^(\.htaccess|\.htpasswd|\.env(?:\..*)?|\.git|\.svn|\.hg|composer\.(json|lock))$">
     Require all denied
 </FilesMatch>

@@ -3,7 +3,18 @@ name: Verify and deploy Ad Client Manager
 on:
   push:
     branches: [main]
+  # Manual verification is safe from any branch. Publication also requires
+  # selecting main and explicitly confirming the release below.
   workflow_dispatch:
+    inputs:
+      confirm_release:
+        description: 'Approve publishing verified main to deploy (only after all release gates)'
+        required: true
+        type: choice
+        options:
+          - 'NO'
+          - 'YES'
+        default: 'NO'
   pull_request:
     branches: [main]
 
@@ -35,6 +46,9 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Enforce release trigger and file promotion policy
+        run: python3 tests/release_policy.py
+
       - name: Check PHP version
         run: |
           php -v
@@ -44,6 +58,7 @@ jobs:
         run: |
           find . -type f -name '*.php' -not -path './.git/*' -print0 | xargs -0 -r -n 1 php -l
           test -f index.php
+          test -f favicon.ico
           test -f .htaccess
           test -f app/core.php
           test -f app/.htaccess
@@ -54,6 +69,15 @@ jobs:
 
       - name: Test recurrence and demo filter without database
         run: php tests/smoke.php
+
+      - name: Test session lifetime and revocation boundaries
+        run: php tests/auth_regression.php
+
+      - name: Test private PDF validation and storage boundaries
+        run: php tests/document_smoke.php
+
+      - name: Validate safe chat attachments and Minsk timestamps
+        run: php tests/chat_file_smoke.php
 
       - name: Test MySQL migrations and demo finance exclusion
         env:
@@ -67,6 +91,16 @@ jobs:
             sudo apt-get install -y php8.3-mysql
           fi
           php tests/mysql_integration.php
+          php tests/workflow_integration.php
+          php tests/ledger_status_integration.php
+          php tests/collections_integration.php
+          php tests/reminders_integration.php
+          php tests/finance_integration.php
+          php tests/export_integration.php
+          php tests/import_integration.php
+          php tests/quick_import_integration.php
+           php tests/chat_integration.php
+          php tests/audit_integration.php
 
       - name: Check bootstrap form behavior (when available)
         run: |
@@ -85,10 +119,195 @@ jobs:
           test "$code" = "503"
           grep -Eq 'Ведутся технические работы|Конфигурация базы данных ещё не установлена' /tmp/adclients-response.html
 
-  deploy:
-    name: Publish verified server application files only
+
+      - name: Full authenticated HTTP and PDF upload/download E2E (disposable MySQL)
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_NAME: adclients_test
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: ci-only-root
+          ADC_HTTP_TEST_FIXTURE: isolated-github-actions
+          ADC_PREFLIGHT_TEST_FIXTURE: isolated-github-actions
+        run: |
+          php tests/http_fixture.php init
+          php scripts/staging_migrate.php --plan
+          if php scripts/staging_migrate.php --apply; then
+            echo "Unconfirmed staging migration unexpectedly succeeded" >&2
+            exit 1
+          fi
+          ADC_STAGING_MIGRATE=CONFIRM_TEST_SITE php scripts/staging_migrate.php --apply
+          php -r 'require "app/core.php"; require "app/documents.php"; adc_doc_ensure_directory();'
+          php scripts/release_preflight.php --verify-pdfs
+          php -S 127.0.0.1:8085 -t . >/tmp/adclients-http-e2e.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; php tests/http_fixture.php cleanup' EXIT
+          for i in 1 2 3 4 5 6 7 8; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8085/ || true)
+            if [ "$code" = "200" ]; then break; fi
+            sleep 1
+          done
+          test "$code" = "200"
+          python3 tests/http_e2e.py || { tail -n 75 /tmp/adclients-http-e2e.log; exit 1; }
+          python3 tests/http_auth_e2e.py || { tail -n 75 /tmp/adclients-http-e2e.log; exit 1; }
+          # An active, valid private PDF must pass preflight; corruption must
+          # cause a hard failure even when database connectivity is healthy.
+          php tests/preflight_fixture.php seed
+          php scripts/release_preflight.php --verify-pdfs
+          php tests/preflight_fixture.php corrupt
+          if php scripts/release_preflight.php --verify-pdfs; then
+            echo "Preflight incorrectly accepted a damaged private PDF" >&2
+            exit 1
+          fi
+          php tests/preflight_fixture.php cleanup
+          php scripts/release_preflight.php --verify-pdfs
+
+
+      - name: Verify backup/restore of SQL and private PDFs in a second database
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_NAME: adclients_test
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: ci-only-root
+          ADC_RESTORE_TEST_FIXTURE: isolated-github-actions
+          MYSQL_PWD: ci-only-root
+        run: |
+          set -euo pipefail
+          if ! command -v mysqldump >/dev/null || ! command -v mysql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y default-mysql-client
+          fi
+          tempdir=$(mktemp -d)
+          trap 'php tests/restore_fixture.php cleanup; rm -rf "$tempdir"' EXIT
+          mysql -h 127.0.0.1 -u root -e 'CREATE DATABASE adclients_restore_source_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
+          TEST_DB_NAME=adclients_restore_source_test php tests/restore_fixture.php seed
+          private_dir=$(php -r 'require "app/core.php"; require "app/documents.php"; echo adc_doc_directory();')
+          test -d "$private_dir"
+          test ! -d "$tempdir/restored-pdfs"
+          mysqldump -h 127.0.0.1 -u root --single-transaction --no-tablespaces adclients_restore_source_test > "$tempdir/backup.sql"
+          mkdir "$tempdir/backup-pdfs" "$tempdir/restored-pdfs"
+          cp -p "$private_dir"/*.pdf "$tempdir/backup-pdfs/"
+          mysql -h 127.0.0.1 -u root -e 'CREATE DATABASE adclients_restore_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
+          mysql -h 127.0.0.1 -u root adclients_restore_test < "$tempdir/backup.sql"
+          cp -p "$tempdir/backup-pdfs/"*.pdf "$tempdir/restored-pdfs/"
+          TEST_DB_NAME=adclients_restore_test ADC_RESTORE_PDF_DIR="$tempdir/restored-pdfs" php tests/restore_fixture.php verify
+          # Compare BOTH existing databases and their private PDFs read-only.
+          # This never creates or restores a real Hostinger database.
+          export ADC_RESTORE_COMPARE=READ_ONLY_APPROVED
+          export ADC_RESTORE_COMPARE_CI=isolated-github-actions
+          export ADC_RESTORE_DB_HOST=127.0.0.1
+          export ADC_RESTORE_DB_NAME=adclients_restore_test
+          export ADC_RESTORE_DB_USER=root
+          export ADC_RESTORE_DB_PASSWORD="$TEST_DB_PASSWORD"
+          export ADC_RESTORE_PDF_DIR="$tempdir/restored-pdfs"
+          TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare
+          # Negative proof: a damaged restored PDF MUST block the comparison.
+          fixture_pdf="$tempdir/restored-pdfs/$(printf 'd%.0s' {1..48}).pdf"
+          printf 'broken' >> "$fixture_pdf"
+          if TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare; then
+            echo "Corrupt restored PDF unexpectedly verified" >&2
+            exit 1
+          fi
+          cp -p "$tempdir/backup-pdfs/$(printf 'd%.0s' {1..48}).pdf" "$fixture_pdf"
+          TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare
+          # Negative proof: row counts, money and PDFs can all stay identical
+          # while a non-financial client value has silently been corrupted.
+          mysql -h 127.0.0.1 -u root adclients_restore_test -e \
+            "UPDATE clients SET name='Restorable fictional client tampered' WHERE name='Restorable fictional client'"
+          if TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare; then
+            echo "Modified client data unexpectedly verified" >&2
+            exit 1
+          fi
+          # updated_at changed automatically during the deliberate mutation:
+          # put back BOTH the name and timestamp from the isolated source.
+          mysql -h 127.0.0.1 -u root adclients_restore_test -e \
+            "UPDATE adclients_restore_test.clients AS restored
+             JOIN adclients_restore_source_test.clients AS original ON original.id=restored.id
+             SET restored.name=original.name, restored.updated_at=original.updated_at
+             WHERE restored.name='Restorable fictional client tampered'"
+          TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare
+          # Negative proof: a lost/hallucinated historical PDF must fail, even
+          # when every active PDF and all 13 SQL tables still match exactly.
+          historical_pdf="$tempdir/restored-pdfs/$(printf 'e%.0s' {1..48}).pdf"
+          printf '%%PDF-1.4\n%%EOF\n' > "$historical_pdf"
+          if TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare; then
+            echo "Unexpected extra private PDF was accepted" >&2
+            exit 1
+          fi
+          rm -f "$historical_pdf"
+          TEST_DB_NAME=adclients_restore_source_test php scripts/compare_restore.php --compare
+
+
+
+      - name: Director-approved legacy schema upgrade over real HTTP (separate disposable DB)
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_NAME: adclients_test
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: ci-only-root
+          ADC_STAGING_UPGRADE_FIXTURE: isolated-github-actions
+        run: |
+          set -euo pipefail
+          server_pid=""
+          trap 'if test -n "$server_pid"; then kill "$server_pid" 2>/dev/null || true; fi; php tests/staging_upgrade_fixture.php cleanup' EXIT
+          php tests/staging_upgrade_fixture.php seed
+          php -S 127.0.0.1:8092 -t . >/tmp/adclients-staging-upgrade.log 2>&1 &
+          server_pid=$!
+          for i in 1 2 3 4 5 6 7 8; do
+            status=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: darkred-crow-882796.hostingersite.com' http://127.0.0.1:8092/ || true)
+            if test "$status" = "200"; then break; fi
+            sleep 1
+          done
+          test "$status" = "200"
+          python3 tests/staging_upgrade_http.py || { tail -n 40 /tmp/adclients-staging-upgrade.log; exit 1; }
+          php tests/staging_upgrade_fixture.php verify
+
+
+  staging_package:
+    name: Tested ZIP for manual Hostinger acceptance (no deployment)
     needs: verify
-    if: github.event_name == 'push'
+    # Only package the trusted same-repository feature PR. No branch writes,
+    # no Hostinger access and no credentials or customer data are involved.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feature/integrated-client-workflow'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact tested feature commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Build allowlisted test-site archive
+        run: |
+          python3 scripts/staging_package.py /tmp/ad-client-manager-staging.zip
+          unzip -l /tmp/ad-client-manager-staging.zip
+      - name: Read-only public HTTP probe of designated Hostinger test site
+        # Informational only: cannot prove database, login or restore correctness.
+        # Discard response bodies to avoid printing content from the target.
+        run: |
+          for path in / /app/core.php /scripts/staging_migrate.php /.git/HEAD /.git/config /.htaccess /.env; do
+            status=$(curl -sS --max-time 15 --connect-timeout 8 -o /dev/null -w '%{http_code}' "https://darkred-crow-882796.hostingersite.com$path") || status="000"
+            echo "Hostinger test route $path returned HTTP $status (read-only, body discarded)"
+            case "$path" in
+              /.git/*|/.htaccess|/.env)
+                if test "$status" = "200"; then
+                  echo "::warning title=Private metadata route reachable::HTTP 200 for a private test-site route"
+                fi
+                ;;
+            esac
+          done
+      - name: Publish staging ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: adclient-staging-${{ github.event.pull_request.head.sha }}
+          path: /tmp/ad-client-manager-staging.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Manual release of verified application files only
+    needs: verify
+    # IMPORTANT: main push/PR/manual runs without YES MUST NOT promote files.
+    # The deploy branch is only updated by an explicit manual confirmation
+    # from main, after the operator has passed docs/RELEASE.md release gates.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirm_release == 'YES'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -102,7 +321,7 @@ jobs:
         run: |
           git fetch origin main deploy
           git switch --detach origin/deploy
-          git restore --source=origin/main --staged --worktree -- index.php .htaccess app
+          git restore --source=origin/main --staged --worktree -- index.php .htaccess app favicon.ico
           if git diff --cached --quiet; then
             echo "No deployment changes needed."
             exit 0
