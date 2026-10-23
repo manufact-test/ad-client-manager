@@ -218,6 +218,19 @@ try:
     status,_,initial=request("director","/?view=chat&thread="+str(real))
     require(status==200 and "chat-reply-btn" in html(initial),
             "Reply action visible next to messages")
+    require("Общий чат и переписки по клиентам. В сообщении набери" not in html(initial)
+            and "Закрепить / снять" not in html(initial),
+            "No repeated subtitle and no mixed pin/unpin label")
+    require("📌 Закрепить" in html(initial) and
+            "chat-mini-action" in html(initial),
+            "Compact pin action has only its active verb")
+    require('class="chat-attach-btn"' in html(initial) and
+            'data-chat-file-name' in html(initial),
+            "Custom attachment picker with selected filename")
+    status,_,home=request("director","/?view=overview")
+    require(status==200 and "<title>Реклама MANUFACT</title>" in html(home)
+            and 'class="logout-btn"' in html(home),
+            "Brand title and properly sized logout button across app")
     match=re.search(r'data-chat-reply="(\d+)"',html(initial))
     # Before posting the first message in this room there may be no replies.
     if match:

@@ -29,11 +29,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         $menu .= '</nav><div class="account"><span>'.$name.' · '.
             ($user['role']==='director'?'Директор':'Сотрудник').'</span>'.
             '<form method="post" class="inline"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
-            '<input type="hidden" name="action" value="logout"><button type="submit" class="link">Выйти</button></form>'.
+            '<input type="hidden" name="action" value="logout"><button type="submit" class="logout-btn">Выйти</button></form>'.
             '</div></div>';
     }
     echo '<!doctype html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-       . '<meta name="robots" content="noindex,nofollow"><title>' . adc_h($title) . ' · Ad Client Manager</title>'
+       . '<meta name="robots" content="noindex,nofollow"><title>Реклама MANUFACT</title>'
        . '<style>
        *{box-sizing:border-box}body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Arial,sans-serif;margin:0;background:#f6f7fa;color:#182130}
        header{padding:16px max(20px,calc((100vw - 980px)/2));background:#fff;border-bottom:1px solid #e8ebf1;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
@@ -323,9 +323,18 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
         .chat-top h1{margin:0}
         .chat-top [data-chat-sound]{margin-left:auto}
-        .chat-attach{display:flex;flex-direction:column;align-items:flex-start;gap:7px;
-            margin:8px 0 13px;font-size:13px;color:#525d77}
-        .chat-attach input{max-width:100%;font:inherit}
+        .chat-attach{position:relative;display:inline-flex;align-items:center;gap:10px;
+            max-width:100%;cursor:pointer;margin:8px 0 13px;font-size:13px;color:#525d77;font-weight:500}
+        .chat-attach input{position:absolute;left:0;top:0;width:1px;height:1px;
+            padding:0;margin:0;opacity:0;overflow:hidden;pointer-events:none}
+        .chat-attach-btn{display:inline-flex;align-items:center;gap:7px;padding:8px 12px;
+            color:var(--accent-dark);background:#fff;border:1px solid #d0d1e4;
+            border-radius:9px;font-size:13px;font-weight:600;white-space:nowrap;transition:.16s ease}
+        .chat-attach:hover .chat-attach-btn{background:var(--accent-soft);border-color:#9790d8}
+        .chat-attach input:focus-visible+.chat-attach-btn{outline:2px solid var(--accent);outline-offset:2px}
+        .chat-attach-name{font-size:12px;color:#65718c;min-width:0;overflow:hidden;
+            white-space:nowrap;text-overflow:ellipsis;max-width:260px;font-weight:400}
+        @media(max-width:560px){.chat-attach{flex-wrap:wrap}.chat-attach-name{max-width:190px}}
         .chat-file{display:block;margin-top:10px;overflow-wrap:anywhere;font-size:13px}
         .chat-image img{display:block;max-width:min(100%,280px);max-height:240px;
             object-fit:contain;border-radius:9px;border:1px solid #e1e4ef;margin-bottom:5px}
@@ -334,9 +343,24 @@ function adc_page(string $title, string $body, ?array $user = null): never {
             padding:10px 12px;margin-top:12px;font-size:13px}
         .chat-pinned a{min-width:0;overflow-wrap:anywhere;flex:1}
         .chat-pinned form{flex-shrink:0}
-        .chat-msg-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
-        .chat-msg-tools form{display:inline}
-        .chat-reply-btn,.chat-pin-btn{font-size:12px;padding:5px 9px}
+        .chat-msg-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+            margin-top:4px;opacity:0;transition:opacity .15s ease}
+        .chat-msg:hover .chat-msg-tools,.chat-msg:focus-within .chat-msg-tools{opacity:1}
+        .chat-msg-tools form{display:inline-flex;margin:0}
+        button.chat-mini-action{font:500 11px/1.3 inherit;line-height:1.3;padding:4px 1px;
+            background:transparent;border:0;color:#625d91;border-radius:3px;box-shadow:none}
+        button.chat-mini-action:hover{background:transparent;color:var(--accent-dark);
+            text-decoration:underline}
+        button.chat-mini-action:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+        @media(hover:none),(pointer:coarse){.chat-msg-tools{opacity:1}}
+        .account .logout-btn{display:inline-flex;align-items:center;justify-content:center;
+            background:#fff;border:1px solid #c5c9dd;border-radius:8px;color:var(--accent-dark);
+            padding:7px 12px;min-height:35px;line-height:1.2;font-weight:600;font-size:12px;
+            white-space:nowrap;box-shadow:none}
+        .account .logout-btn:hover{background:var(--accent-soft);color:var(--accent-dark);
+            border-color:#9991d6}
+        .account .inline{margin:0;display:inline-flex;align-items:center}
+        .account{gap:12px}
         .chat-replied{display:block;max-width:100%;margin-bottom:8px;padding:7px 10px;
             border-left:3px solid #6256c9;background:#f6f4ff;border-radius:5px;
             font-size:12px;text-decoration:none;overflow-wrap:anywhere}
@@ -615,6 +639,15 @@ function adc_page(string $title, string $body, ?array $user = null): never {
 
     // Telegram-like composer: type @ or #, choose a match, insert a stable tag.
     // Suggestions are loaded only for authenticated staff and do not write data.
+    var fileInput=document.querySelector("[data-chat-file]");
+    var fileLabel=document.querySelector("[data-chat-file-name]");
+    if(fileInput&&fileLabel){
+      fileInput.addEventListener("change",function(){
+        var file=fileInput.files&&fileInput.files[0];
+        fileLabel.textContent=file?file.name:"PDF или изображение · до 10 МБ";
+        fileLabel.title=file?file.name:"";
+      });
+    }
     var textarea=document.getElementById("chat-text");
     var popup=document.querySelector("[data-chat-suggestions]");
     var replyInput=document.querySelector("[data-reply-id]");
