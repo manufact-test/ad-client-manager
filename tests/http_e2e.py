@@ -224,6 +224,11 @@ try:
     require('class="chat-attach-btn"' in html(initial) and
             'data-chat-file-name' in html(initial),
             "Custom attachment picker with selected filename")
+    require('class="chat-submit-row"><button type="submit">Отправить сообщение</button>' in html(initial),
+            "Send button has its own row below the attachment control")
+    require('.chat-msg-tools{display:none' in html(initial) and
+            '.chat-msg:is(:hover,:focus-within) .chat-msg-tools{display:flex}' in html(initial),
+            "Invisible message tools reserve no bubble space until hover or focus")
     status,_,home=request("director","/?view=overview")
     require(status==200 and "<title>Реклама MANUFACT</title>" in html(home)
             and 'class="logout-btn"' in html(home),
