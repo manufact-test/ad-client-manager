@@ -1264,10 +1264,19 @@ try {
     $errorClass=$chatError instanceof PDOException ? 'DB' : 'APP';
     $errorCode=(string)$chatError->getCode();
     if (!preg_match('/^[a-zA-Z0-9]{1,12}$/D',$errorCode)) $errorCode='OTHER';
-    error_log('ADC-CHAT-'.$errorClass.'-'.$errorCode.' '.get_class($chatError).': '.$chatError->getMessage());
+    // SQLSTATE HY000 alone is not enough to diagnose a hosted DB failure.
+    // Include only a numeric native MySQL error and an allowlisted render stage.
+    $mysqlNumber=$chatError instanceof PDOException ?
+        (int)($chatError->errorInfo[1]??0):0;
+    $phase=(string)($GLOBALS['adc_chat_read_stage']??'unknown');
+    if(!in_array($phase,['thread','messages','clientlist','unread','selected','render'],true)){
+        $phase='unknown';
+    }
+    $safeId='ADC-CHAT-'.$errorClass.'-'.$errorCode.'-'.max(0,$mysqlNumber).'-'.$phase;
+    error_log($safeId.' '.get_class($chatError).': '.$chatError->getMessage());
     http_response_code(503);
     adc_page('Чат команды', '<section class="card"><h1>Чат команды</h1>'.
         '<p>Не удалось открыть чат. Другие разделы приложения продолжают работать.</p>'.
-        '<p class="muted">Код ошибки: ADC-CHAT-'.$errorClass.'-'.$errorCode.'</p>'.
+        '<p class="muted">Код ошибки: '.adc_h($safeId).'</p>'.
         '<p><a class="btn secondary" href="/?view=chat">Повторить</a></p></section>',$user);
 }

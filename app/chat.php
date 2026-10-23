@@ -103,25 +103,46 @@ function adc_chat_item(array $m,int $uid):string {
 }
 function adc_chat_html(PDO $db,array $user):string {
     $uid=(int)$user['id'];
+    $GLOBALS['adc_chat_read_stage']='thread';
     $thread=adc_chat_thread($db,$_GET['thread']??null);
+    $GLOBALS['adc_chat_read_stage']='messages';
     $rows=adc_chat_rows($db,0,$thread,$uid);
     $last=$rows?(int)$rows[count($rows)-1]['id']:0;
     $q=is_string($_GET['chat_q']??null)?trim((string)$_GET['chat_q']):'';
     $q=mb_substr($q,0,65);
-    $s=$db->prepare('SELECT c.id,c.name FROM clients c
-        WHERE (? = "" OR c.name LIKE ?)
-        ORDER BY c.id DESC LIMIT 40');
-    $s->execute([$q,'%'.$q.'%']);
-    $clients=$s->fetchAll();
-    $unread=adc_chat_status($db,$uid)['room_unread'];
+    $GLOBALS['adc_chat_read_stage']='clientlist';
+    if ($q==='') {
+        $clients=$db->query('SELECT id,name FROM clients ORDER BY id DESC LIMIT 40')->fetchAll();
+    } else {
+        $s=$db->prepare('SELECT id,name FROM clients WHERE name LIKE ? ORDER BY id DESC LIMIT 40');
+        $s->execute(['%'.$q.'%']);
+        $clients=$s->fetchAll();
+    }
+    $GLOBALS['adc_chat_read_stage']='unread';
+    // Notifications are an accessory, not a reason to lock out the chat.
+    // If a hosted MySQL variant fails the aggregate, allow people to read
+    // and send messages while the exact DB error is diagnosed separately.
+    $statusWarning=false;
+    try {
+        $unread=adc_chat_status($db,$uid)['room_unread'];
+    } catch (PDOException $statusError) {
+        error_log('ADC-CHAT-UNREAD-'.(int)($statusError->errorInfo[1]??0).
+            ' '.$statusError->getCode().' '.$statusError->getMessage());
+        $unread=[];
+        $statusWarning=true;
+    }
+    $GLOBALS['adc_chat_read_stage']='selected';
     if($thread){
         $s=$db->prepare('SELECT name FROM clients WHERE id=?');
         $s->execute([$thread]);$selectedName=(string)$s->fetchColumn();
     } else $selectedName='Общий чат';
+    $GLOBALS['adc_chat_read_stage']='render';
     $out='<section class="card"><h1>Чат команды</h1>'.
        '<p class="muted">Общий чат и переписки по клиентам. В сообщении набери @ для коллеги или # для клиента.</p>'.
        '<div class="actions"><button class="secondary" type="button" data-chat-sound>Включить звук</button>'.
-       '<span data-chat-state role="status" class="muted"></span></div>'.
+       '<span data-chat-state role="status" class="muted">'.
+       ($statusWarning?'Уведомления временно недоступны, переписка работает.':'').
+       '</span></div>'.
        '<div class="chat-layout"><aside class="chat-sidebar" aria-label="Переписки">'.
        '<a class="chat-room'.($thread===0?' selected':'').'" data-room="0" href="/?view=chat">💬 Общий чат'.
        (($count=(int)($unread['0']??0))?' <span class="chat-room-count">'.$count.'</span>':'').'</a>'.
