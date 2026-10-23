@@ -75,6 +75,9 @@ jobs:
       - name: Test private PDF validation and storage boundaries
         run: php tests/document_smoke.php
 
+      - name: Validate safe chat attachments and Minsk timestamps
+        run: php tests/chat_file_smoke.php
+
       - name: Test MySQL migrations and demo finance exclusion
         env:
           TEST_DB_HOST: 127.0.0.1

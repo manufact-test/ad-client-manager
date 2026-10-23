@@ -3,6 +3,7 @@
 Runs only with disposable CI identities, database and out-of-root PDF storage.
 """
 import os
+import base64
 import re
 import subprocess
 import tempfile
@@ -213,6 +214,59 @@ try:
         require(status==200 and "chat-feed" in html(roomPage) and
                 "CI real ledger" in html(roomPage),
                 "Client-specific chat HTTP page loads for "+role)
+    # Protected chat attachment exchange: PDF and a screenshot in a client room.
+    chatpdf=WORK/"chat-document.pdf"
+    chatpdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")
+    status,_,chatHtml=request("director","/?view=chat&thread="+str(real))
+    require(status==200 and 'name="chat_attachment"' in html(chatHtml) and
+            'enctype="multipart/form-data"' in html(chatHtml),
+            "Team chat exposes private PDF and image attachment input")
+    status,headers,_=request("director",files={
+        "csrf":director,"action":"chat_send","thread":str(real),
+        "message":"Private test PDF",
+        "chat_attachment":"@"+str(chatpdf)+";filename=test.pdf;type=application/pdf"
+    })
+    require(status==303 and "view=chat" in location(headers),"Chat PDF sent in client discussion")
+    status,_,chatHtml=request("employee","/?view=chat&thread="+str(real))
+    match=re.search(r'chat_attachment=(\d+)',html(chatHtml))
+    require(status==200 and match,"Employee can see shared PDF link")
+    pdfid=match.group(1)
+    status,_,payload=request("visitor","/?chat_attachment="+pdfid)
+    require(status==200 and "Вход" in html(payload),"Unauthenticated attachment is blocked")
+    status,_,payload=request("employee","/?chat_attachment="+pdfid)
+    require(status==200 and payload.startswith(b"%PDF-"),"Staff can download attached PDF")
+    png=WORK/"chat-screenshot.png"
+    png.write_bytes(base64.b64decode(
+       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/JP8AAAAASUVORK5CYII="
+    ))
+    status,headers,_=request("employee",files={
+        "csrf":employee,"action":"chat_send","thread":str(real),
+        "message":"Screenshot",
+        "chat_attachment":"@"+str(png)+";filename=screen.png;type=image/png"
+    })
+    require(status==303,"Employee can share PNG in private client room")
+    status,_,chatHtml=request("director","/?view=chat&thread="+str(real))
+    require(status==200 and 'class="chat-file chat-image"' in html(chatHtml) and
+            'src="/?chat_attachment=' in html(chatHtml),
+            "Chat previews attached screenshot with authenticated URL")
+    ids=re.findall(r'chat_attachment=(\d+)',html(chatHtml))
+    require(len(set(ids))==2,"Both chat files are in one client discussion")
+    status,_,payload=request("director","/?chat_attachment="+ids[-1])
+    require(status==200 and payload.startswith(b"\x89PNG\r\n\x1a\n"),
+            "Director can view staff screenshot bytes")
+    forged=WORK/"chat-forged.pdf"
+    forged.write_bytes(b"<script>alert(1)</script>")
+    status,_,error=request("director",files={
+        "csrf":director,"action":"chat_send","thread":str(real),
+        "message":"Rejected malicious file",
+        "chat_attachment":"@"+str(forged)+";filename=spoof.pdf;type=application/pdf"
+    })
+    require(status==200 and ("Содержимое файла" in html(error) or
+                            "Недопустимое содержимое" in html(error)),
+            "PDF type spoof rejected by content validation")
+    # Routine send notification is intentionally silent; initial setup remains visible.
+    require("Сообщение отправлено." not in html(chatHtml),
+            "Chat send does not add redundant top success toast")
     # UI behaviors require an authorized nonce: no unsafe-inline script policy.
     status,headers,rendered=request("director","/?view=clients&client="+str(demo))
     page=html(rendered)
