@@ -935,6 +935,74 @@ try {
     check(str_contains(adc_operations_html($db,$director),'Команда · открытые задачи') &&
         !str_contains(adc_operations_html($db,$employee),'Команда · открытые задачи'),
         'Team load available to director but not employee');
+
+    // Pause affects planned work only, never documents, payments, history, or chat.
+    $pauseName='Synthetic pause '.bin2hex(random_bytes(5));
+    run_action($db,$director,'save_client',[
+        'client_name'=>$pauseName,'platform_text'=>'Advertising',
+        'legal_type'=>'legal','source_kind'=>'advertising','source_note'=>'',
+        'started_on'=>'2026-01-07','payment_mode'=>'prepayment',
+        'billing_day'=>'7','quoted_amount'=>'990.00','currency'=>'BYN',
+    ]);
+    $idStmt=$db->prepare('SELECT id FROM clients WHERE name=? ORDER BY id DESC LIMIT 1');
+    $idStmt->execute([$pauseName]);$pauseId=(int)$idStmt->fetchColumn();
+    $engStmt=$db->prepare('SELECT * FROM engagements WHERE client_id=?');
+    $engStmt->execute([$pauseId]);$pauseEng=$engStmt->fetch();
+    check($pauseId>0 && $pauseEng!==false,'Synthetic paused client created');
+    $ledger=$db->prepare('INSERT INTO client_entries
+        (client_id,entry_kind,note,amount,currency,sent_at)
+        VALUES (?,"document","Old request","111.00","BYN",UTC_TIMESTAMP())');
+    $ledger->execute([$pauseId]);$oldEntry=(int)$db->lastInsertId();
+    $beforeRows=(int)$db->query("SELECT COUNT(*) FROM billing_periods WHERE engagement_id=".(int)$pauseEng['id'])->fetchColumn();
+    run_action($db,$director,'pause_client',['client_id'=>(string)$pauseId]);
+    $paused=adc_w_active_pause($db,$pauseId);
+    check($paused!==null && adc_ledger_client_status($db,$pauseId,date('Y-m-d'))[0]==='Пауза',
+        'Paused client stays active with visible pause status');
+    check(str_contains(adc_w_clients($db,$director,'clients'),'Пауза'),
+        'Paused customer remains in normal client list');
+    $pausedPanel=adc_w_client_panel($db,$director,$pauseId,'clients','/?view=clients');
+    check(str_contains($pausedPanel,'Снять паузу') &&
+        str_contains($pausedPanel,'name="resume_mode" value="new_date"'),
+        'Resume has new-date and old-date options');
+    check(adc_w_pause_covers(adc_w_pause_intervals($db,$pauseId),date('Y-m-d')),
+        'Current paused day blocks newly planned paperwork');
+    try {
+        run_action($db,$employee,'pause_client',['client_id'=>(string)$pauseId]);
+        throw new RuntimeException('Duplicate pause accepted');
+    } catch(RuntimeException $e) {
+        check(str_contains($e->getMessage(),'уже на паузе'),'Duplicate pause rejected');
+        if($db->inTransaction())$db->rollBack();
+    }
+    run_action($db,$employee,'resume_paused_client',[
+        'client_id'=>(string)$pauseId,'pause_id'=>(string)$paused['id'],
+        'resume_mode'=>'keep',
+    ]);
+    check(adc_w_active_pause($db,$pauseId)===null,'Old schedule resumes');
+    $afterKeep=adc_w_engagement($db,$pauseId,(int)$pauseEng['id']);
+    check((int)$afterKeep['billing_day']===7,'Keeping schedule does not shift original billing date');
+    check((int)$db->query("SELECT COUNT(*) FROM engagement_terms WHERE engagement_id=".(int)$pauseEng['id'])->fetchColumn()===0,
+        'Keep schedule never rewrites historical terms');
+    run_action($db,$director,'pause_client',['client_id'=>(string)$pauseId]);
+    $newPause=adc_w_active_pause($db,$pauseId);
+    $newDate=date('Y-m-d');
+    run_action($db,$director,'resume_paused_client',[
+        'client_id'=>(string)$pauseId,'pause_id'=>(string)$newPause['id'],
+        'resume_mode'=>'new_date','resume_start_on'=>$newDate,
+    ]);
+    $updated=adc_w_engagement($db,$pauseId,(int)$pauseEng['id']);
+    check((int)$updated['billing_day']===(int)substr($newDate,8,2),
+        'New date adjusts billing day without changing initial collaboration start');
+    check($updated['started_on']==='2026-01-07' &&
+        (int)$db->query("SELECT COUNT(*) FROM engagement_terms WHERE engagement_id=".(int)$pauseEng['id'])->fetchColumn()===2,
+        'Original and resumed billing terms both preserved');
+    $saved=$db->query("SELECT COUNT(*) FROM client_entries WHERE id=$oldEntry
+        AND amount='111.00' AND received_at IS NULL")->fetchColumn();
+    check((int)$saved===1,'Old unpaid document survives both pause cycles');
+    check((int)$db->query("SELECT COUNT(*) FROM billing_periods WHERE engagement_id=".(int)$pauseEng['id'])->fetchColumn()===$beforeRows,
+        'Neither pause nor resume creates periods or money');
+    check((int)$db->query("SELECT COUNT(*) FROM client_pauses WHERE client_id=$pauseId")===2,
+        'Both pause cycles retained in audit history');
+    $_GET=[];
 } finally {
     $_GET=[];
     if ($db->inTransaction()) $db->rollBack();

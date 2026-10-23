@@ -171,6 +171,10 @@ try:
             "Successful import clears the pending confirmation")
     demo=create_client(director,"CI demo ledger",True)
     real=create_client(director,"CI real ledger",False)
+    # Staging pause controls render in existing card, not a separate page.
+    pausePage=panel("director",real)
+    require('name="action" value="pause_client"' in pausePage,
+            "Current client card offers pause without changing its original sections")
     # Daily operating overview and read-only client paperwork CSV are authenticated.
     status,_,overview=request("director","/?view=overview")
     require(status==200 and "<h1>Обзор</h1>" in html(overview) and
