@@ -33,7 +33,8 @@ function adc_page(string $title, string $body, ?array $user = null): never {
             '</div></div>';
     }
     echo '<!doctype html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-       . '<meta name="robots" content="noindex,nofollow"><title>Реклама MANUFACT</title>'
+       . '<meta name="robots" content="noindex,nofollow"><title>Реклама MANUFACT</title>'.
+       '<link rel="icon" type="image/x-icon" href="/favicon.ico?v=97b21d17">'
        . '<style>
        *{box-sizing:border-box}body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Arial,sans-serif;margin:0;background:#f6f7fa;color:#182130}
        header{padding:16px max(20px,calc((100vw - 980px)/2));background:#fff;border-bottom:1px solid #e8ebf1;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
