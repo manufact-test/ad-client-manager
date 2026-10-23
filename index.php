@@ -268,8 +268,15 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-meta time{font-size:11px;color:#737d91}
         .chat-ping{font-size:13px;font-weight:700;color:#4a35b2}
         .chat-link{display:block;margin-top:7px;font-size:13px;color:#4535b6}
+        .chat-compose{display:flex;flex-direction:column;align-items:stretch;min-width:0}
         .chat-compose textarea{width:100%;min-height:88px;border:1px solid #cfd5df;border-radius:8px;
           padding:11px;font:inherit;color:inherit;resize:vertical}
+        .chat-compose>.chat-attach{align-self:flex-start;margin:6px 0 0}
+        .chat-submit-row{display:flex;align-items:center;justify-content:flex-start;
+          clear:both;margin-top:15px}
+        .chat-submit-row>button{display:inline-flex;align-items:center;justify-content:center;
+          margin:0;min-height:40px}
+        @media(max-width:450px){.chat-submit-row{margin-top:12px}}
         .chat-picks{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
         @media(max-width:600px){.chat-msg{max-width:98%}.chat-picks{grid-template-columns:1fr}}
 
@@ -344,16 +351,19 @@ function adc_page(string $title, string $body, ?array $user = null): never {
             padding:10px 12px;margin-top:12px;font-size:13px}
         .chat-pinned a{min-width:0;overflow-wrap:anywhere;flex:1}
         .chat-pinned form{flex-shrink:0}
-        .chat-msg-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
-            margin-top:4px;opacity:0;transition:opacity .15s ease}
-        .chat-msg:hover .chat-msg-tools,.chat-msg:focus-within .chat-msg-tools{opacity:1}
+        /* Action tools do not reserve empty height OR width in a resting bubble.
+           Hover/focus expands the message only when the buttons are needed. */
+        .chat-msg-tools{display:none;gap:9px;align-items:center;flex-wrap:wrap;
+            margin:6px 0 0}
+        .chat-msg:is(:hover,:focus-within) .chat-msg-tools{display:flex}
+        .chat-msg:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
         .chat-msg-tools form{display:inline-flex;margin:0}
         button.chat-mini-action{font-family:inherit;font-size:11px;font-weight:500;line-height:1.3;padding:4px 1px;
             background:transparent;border:0;color:#625d91;border-radius:3px;box-shadow:none}
         button.chat-mini-action:hover{background:transparent;color:var(--accent-dark);
             text-decoration:underline}
         button.chat-mini-action:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-        @media(hover:none),(pointer:coarse){.chat-msg-tools{opacity:1}}
+        @media(hover:none),(pointer:coarse){.chat-msg-tools{display:flex}}
         .account .logout-btn{display:inline-flex;align-items:center;justify-content:center;
             background:#fff;border:1px solid #c5c9dd;border-radius:8px;color:var(--accent-dark);
             padding:7px 12px;min-height:35px;line-height:1.2;font-weight:600;font-size:12px;

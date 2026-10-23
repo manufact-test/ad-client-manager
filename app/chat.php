@@ -211,7 +211,7 @@ function adc_chat_item(array $m,int $uid):string {
     $created=new DateTimeImmutable((string)$m['created_at'],new DateTimeZone('UTC'));
     $time=$created->setTimezone(new DateTimeZone('Europe/Minsk'))->format('d.m.Y H:i');
     $out='<article id="chat-msg-'.(int)$m['id'].'" class="chat-msg'.$class.
-        '" data-mid="'.(int)$m['id'].'">'.
+        '" data-mid="'.(int)$m['id'].'" tabindex="0">'.
         '<div class="chat-meta"><strong>'.adc_h((string)$m['author']).'</strong>'.
         '<time>'.adc_h($time).'</time></div>';
     $thread=(int)($m['thread_client_id']??0);
@@ -360,7 +360,8 @@ function adc_chat_html(PDO $db,array $user):string {
         'accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp">'.
         '<span class="chat-attach-btn">📎 Прикрепить файл</span>'.
         '<span class="chat-attach-name" data-chat-file-name>PDF или изображение · до 10 МБ</span></label>'.
-        '<button type="submit">Отправить сообщение</button></form></div></div></section>';
+        '<div class="chat-submit-row"><button type="submit">Отправить сообщение</button></div>'.
+        '</form></div></div></section>';
     return $out;
 }
 function adc_chat_post(string $name):string {
