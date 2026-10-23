@@ -30,8 +30,16 @@ function adc_chat_status(PDO $db,int $uid):array {
     $values=$s->fetch();
     $s=$db->prepare('SELECT COALESCE(MAX(id),0) FROM team_chat_messages WHERE author_user_id<>?');
     $s->execute([$uid]);
+    $newest=(int)$s->fetchColumn();
+    $s=$db->prepare('SELECT COALESCE(m.thread_client_id,0) room,COUNT(*) unread
+        FROM team_chat_messages m LEFT JOIN team_chat_thread_reads r
+        ON r.user_id=? AND r.thread_key=COALESCE(m.thread_client_id,0)
+        WHERE m.author_user_id<>? AND m.id>COALESCE(r.last_read_id,0)
+        GROUP BY COALESCE(m.thread_client_id,0)');
+    $s->execute([$uid,$uid]);$rooms=[];
+    foreach($s->fetchAll() as $room)$rooms[(string)$room['room']]=(int)$room['unread'];
     return ['unread'=>(int)$values['unread'],'mentions'=>(int)$values['mentions'],
-       'newest_other_id'=>(int)$s->fetchColumn()];
+       'newest_other_id'=>$newest,'room_unread'=>$rooms];
 }
 function adc_chat_thread_unread(PDO $db,int $uid,int $thread):int {
     $s=$db->prepare('SELECT COUNT(*) FROM team_chat_messages m
@@ -113,7 +121,7 @@ function adc_chat_html(PDO $db,array $user):string {
        '<div class="actions"><button class="secondary" type="button" data-chat-sound>Включить звук</button>'.
        '<span data-chat-state role="status" class="muted"></span></div>'.
        '<div class="chat-layout"><aside class="chat-sidebar" aria-label="Переписки">'.
-       '<a class="chat-room'.($thread===0?' selected':'').'" href="/?view=chat">💬 Общий чат'.
+       '<a class="chat-room'.($thread===0?' selected':'').'" data-room="0" href="/?view=chat">💬 Общий чат'.
        (($count=adc_chat_thread_unread($db,$uid,0))?' <span class="chat-room-count">'.$count.'</span>':'').'</a>'.
        '<form method="get" class="chat-search"><input type="hidden" name="view" value="chat">'.
        '<label for="chat-client-search">Чаты клиентов</label>'.
@@ -123,7 +131,7 @@ function adc_chat_html(PDO $db,array $user):string {
     foreach($clients as $client){
         $id=(int)$client['id'];$active=$thread===$id;
         $n=adc_chat_thread_unread($db,$uid,$id);
-        $out.='<a class="chat-room'.($active?' selected':'').'" href="/?view=chat&amp;thread='.$id.'">'.
+        $out.='<a class="chat-room'.($active?' selected':'').'" data-room="'.$id.'" href="/?view=chat&amp;thread='.$id.'">'.
             '<span class="chat-room-name">'.adc_h((string)$client['name']).'</span>'.
             ($n?'<span class="chat-room-count">'.$n.'</span>':'').'</a>';
     }

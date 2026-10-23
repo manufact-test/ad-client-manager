@@ -9,34 +9,74 @@ $db=adc_db(['db'=>[
     'user'=>getenv('TEST_DB_USER')?:'root',
     'password'=>getenv('TEST_DB_PASSWORD')?:'',
 ]]);
-adc_schema($db);
-$ok=static function(bool $value,string $label):void {
-    if(!$value)throw new RuntimeException('Chat integration: '.$label);
+adc_schema($db);adc_schema($db);
+$ok=static function(bool $value,string $why):void {
+    if(!$value)throw new RuntimeException('Chat integration: '.$why);
 };
 $users=[];
-foreach(['director','employee'] as $role) {
+foreach(['director','employee','employee'] as $role){
+    $key=count($users)+1;
+    $name='Chat User '.$key;
     $db->prepare('INSERT INTO users(email,display_name,password_hash,role)
-        VALUES (?,?,"test-hash",?)')->execute([
-        'chat-'.bin2hex(random_bytes(8)).'@example.test','Fixture '.$role,$role]);
-    $users[$role]=(int)$db->lastInsertId();
+        VALUES (?,?,"fixture-hash",?)')->execute([
+        'chat-'.bin2hex(random_bytes(8)).'@example.test',$name,$role]);
+    $users[]=['id'=>(int)$db->lastInsertId(),'name'=>$name];
 }
-$_POST=['message'=>'Hello <script>alert(1)</script> https://example.org',
-    'mention'=>(string)$users['employee'],'client'=>''];
-adc_chat_send($db,['id'=>$users['director'],'role'=>'director']);
-$rows=adc_chat_rows($db);
-$last=end($rows);
-$ok($last&&(int)$last['mentioned_user_id']===$users['employee'],'Stored stable mentioned user');
-$html=adc_chat_item($last,$users['employee']);
-$ok(str_contains($html,'&lt;script&gt;')&&!str_contains($html,'<script>'),'Escaped message');
-$ok(str_contains($html,'rel="noopener noreferrer nofollow"'),'Safe links');
-$unread=adc_chat_status($db,$users['employee']);
-$ok($unread['mentions']>=1 && $unread['unread']>=1,'Unread mention');
-adc_chat_read($db,$users['employee'],(int)$last['id']);
-$unread=adc_chat_status($db,$users['employee']);
-$ok($unread['unread']===0&&$unread['mentions']===0,'Read marker');
-$_POST=['message'=>'Unknown mention','mention'=>'999999999','client'=>''];
-$threw=false;
-try{adc_chat_send($db,['id'=>$users['employee'],'role'=>'employee']);}
-catch(RuntimeException $e){$threw=true;}
-$ok($threw,'Reject unknown mention');
-echo "Chat integration PASS: messages, mentions, read receipts, XSS, links and validation\n";
+[$a,$b,$c]=$users;
+$clientName='Fictional Chat Factory '.bin2hex(random_bytes(3));
+$db->prepare('INSERT INTO clients(name,is_demo) VALUES (?,1)')->execute([$clientName]);
+$client=(int)$db->lastInsertId();
+$alice=adc_chat_alias($a['name'],$a['id'],'@');
+$bob=adc_chat_alias($b['name'],$b['id'],'@');
+$charlie=adc_chat_alias($c['name'],$c['id'],'@');
+$clientTag=adc_chat_alias($clientName,$client,'#');
+$ok(str_contains($bob,(string)$b['id'])&&str_starts_with($clientTag,'#'),
+    'Stable unique usernames and client tags');
+$_POST=['message'=>'Hello '.$bob.' and '.$charlie.' about '.$clientTag.
+    ' <script>alert(1)</script> https://example.org','thread'=>'0'];
+adc_chat_send($db,['id'=>$a['id'],'role'=>'director']);
+$general=adc_chat_rows($db,0,0,$b['id']);$m=end($general);
+$ok($m&&(int)$m['author_user_id']===$a['id'],'General room contains new message');
+$ok((int)$m['client_id']===$client,'Client tag resolved into persistent client link');
+$tagCount=(int)$db->query('SELECT COUNT(*) FROM team_chat_mentions WHERE message_id='.(int)$m['id'])->fetchColumn();
+$ok($tagCount===2,'Two tagged employees both receive mention');
+$html=adc_chat_item($m,$b['id']);
+$ok(str_contains($html,'&lt;script&gt;')&&!str_contains($html,'<script>'),
+    'XSS escaped');
+$ok(str_contains($html,'rel="noopener noreferrer nofollow"'),
+    'External URL secured');
+$ok(str_contains($html,'view=chat&amp;thread='.$client),
+    'Clickable client tag opens internal client chat');
+$unread=adc_chat_status($db,$b['id']);
+$ok($unread['mentions']>=1&&$unread['unread']>=1,
+    'Tagged recipient receives unread notification');
+adc_chat_read($db,$b['id'],(int)$m['id'],0);
+$after=adc_chat_status($db,$b['id']);
+$ok($after['unread']===0&&$after['mentions']===0,'Reading general chat clears only general unread');
+$ok(adc_chat_status($db,$c['id'])['mentions']>=1,
+    'Other tagged employee retains an independent notification');
+$_POST=['message'=>'Проверь, пожалуйста, платёж '.$alice,
+    'thread'=>(string)$client];
+adc_chat_send($db,['id'=>$b['id'],'role'=>'employee']);
+$privateRoom=adc_chat_rows($db,0,$client,$a['id']);$reply=end($privateRoom);
+$ok((int)$reply['thread_client_id']===$client,'Client conversation persists separately');
+$ok(!array_filter($general,static fn($x)=>(int)$x['id']===(int)$reply['id']),
+    'Client messages cannot leak into general room query');
+$ok(adc_chat_thread_unread($db,$a['id'],$client)===1,'Client room unread count');
+$ok(adc_chat_thread_unread($db,$a['id'],0)===0,'Unrelated room stays read');
+adc_chat_read($db,$a['id'],(int)$reply['id'],0);
+$ok(adc_chat_thread_unread($db,$a['id'],$client)===1,
+    'Marking general chat read cannot mark client thread read');
+adc_chat_read($db,$a['id'],(int)$reply['id'],$client);
+$ok(adc_chat_thread_unread($db,$a['id'],$client)===0,
+    'Only client thread watermark advances');
+$_POST=['message'=>'Suspicious @fake_999999999 and #fake_999999999','thread'=>'0'];
+adc_chat_send($db,['id'=>$c['id'],'role'=>'employee']);
+$fake=adc_chat_rows($db,0,0,$a['id']);$last=end($fake);
+$ok((int)$last['id']>(int)$m['id'] && $last['mentioned_user_id']===null
+    && $last['client_id']===null,'Forged tags do not target people or clients');
+$_POST=['message'=>'Unknown thread','thread'=>'999999999'];
+$blocked=false;
+try{adc_chat_send($db,['id'=>$a['id'],'role'=>'director']);}catch(RuntimeException $e){$blocked=true;}
+$ok($blocked,'Unknown client conversation rejected');
+echo "Chat integration PASS: multi mentions, inline staff/client tags, safe links, separate rooms, isolated unread, persistence\n";
