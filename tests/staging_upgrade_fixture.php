@@ -73,6 +73,7 @@ if ($mode === 'seed') {
         VALUES (?,?,"fictional-existing-document.pdf",1)')
         ->execute([$realClient,$period]);
     adc_audit($db,null,'fixture_existing','client',$realClient);
+    $db->exec('DROP TABLE IF EXISTS team_chat_pins');
     $db->exec('DROP TABLE IF EXISTS team_chat_attachments');
     $db->exec('DROP TABLE IF EXISTS team_chat_thread_reads');
     $db->exec('DROP TABLE IF EXISTS team_chat_mentions');

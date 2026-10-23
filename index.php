@@ -329,6 +329,23 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-file{display:block;margin-top:10px;overflow-wrap:anywhere;font-size:13px}
         .chat-image img{display:block;max-width:min(100%,280px);max-height:240px;
             object-fit:contain;border-radius:9px;border:1px solid #e1e4ef;margin-bottom:5px}
+        .chat-pinned{display:flex;align-items:center;gap:12px;justify-content:space-between;
+            background:#faf7df;border:1px solid #f0dfa7;border-radius:10px;
+            padding:10px 12px;margin-top:12px;font-size:13px}
+        .chat-pinned a{min-width:0;overflow-wrap:anywhere;flex:1}
+        .chat-pinned form{flex-shrink:0}
+        .chat-msg-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+        .chat-msg-tools form{display:inline}
+        .chat-reply-btn,.chat-pin-btn{font-size:12px;padding:5px 9px}
+        .chat-replied{display:block;max-width:100%;margin-bottom:8px;padding:7px 10px;
+            border-left:3px solid #6256c9;background:#f6f4ff;border-radius:5px;
+            font-size:12px;text-decoration:none;overflow-wrap:anywhere}
+        .chat-reply-preview{display:flex;align-items:center;gap:8px;
+            justify-content:space-between;border-left:3px solid #6256c9;
+            padding:8px 12px;background:#f4f2ff;border-radius:5px;font-size:13px;margin:10px 0}
+        .chat-reply-preview[hidden]{display:none}
+        .chat-reply-preview button{padding:4px 9px}
+        .chat-msg:target{outline:2px solid #7366e9;outline-offset:3px}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script nonce="' . adc_h($adcJsNonce) . '">
 (function(){
   "use strict";
@@ -493,6 +510,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var badge=document.querySelector("[data-chat-badge]");
     if(!badge)return;
     var feed=document.querySelector("[data-last]");
+    var focused=!!(feed&&feed.getAttribute("data-focused")==="1");
     var thread=feed?Number(feed.getAttribute("data-thread")||0):0;
     var soundButton=document.querySelector("[data-chat-sound]");
     var audible=true,activated=false,lastOther=null,busy=false;
@@ -525,7 +543,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     });
     soundLabel();
     function markRead(id){
-      if(!feed||!id||document.hidden||!document.hasFocus())return;
+      if(!feed||!id||focused||document.hidden||!document.hasFocus())return;
       var form=new FormData();
       form.set("action","chat_read");
       form.set("csrf",document.querySelector("[data-chat-compose] [name=csrf]").value);
@@ -563,7 +581,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         var newest=Number(r.newest_other_id)||0;
         if(lastOther!==null&&newest>lastOther)beep();
         lastOther=newest;
-        if(!feed||!Array.isArray(r.messages)||!r.messages.length)return;
+        if(!feed||focused||!Array.isArray(r.messages)||!r.messages.length)return;
         var wasNearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<110;
         var empty=feed.querySelector("[data-empty]");if(empty)empty.remove();
         var maxId=after;
@@ -580,7 +598,18 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         markRead(maxId);
       }).catch(function(){}).finally(function(){busy=false;});
     }
-    if(feed){feed.scrollTop=feed.scrollHeight;markRead(Number(feed.getAttribute("data-last")||0));}
+    if(feed){
+      if(focused){
+        var key=window.location.hash.replace("#","");
+        var target=key?document.getElementById(key):null;
+        if(target)window.requestAnimationFrame(function(){
+          feed.scrollTop=Math.max(0,target.offsetTop-feed.offsetTop-45);
+        });
+      }else{
+        feed.scrollTop=feed.scrollHeight;
+        markRead(Number(feed.getAttribute("data-last")||0));
+      }
+    }
     poll();window.setInterval(poll,12000);
     document.addEventListener("visibilitychange",function(){if(!document.hidden)poll();});
 
@@ -588,6 +617,24 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     // Suggestions are loaded only for authenticated staff and do not write data.
     var textarea=document.getElementById("chat-text");
     var popup=document.querySelector("[data-chat-suggestions]");
+    var replyInput=document.querySelector("[data-reply-id]");
+    var replyPreview=document.querySelector("[data-reply-preview]");
+    var replyLabel=document.querySelector("[data-reply-label]");
+    var replyCancel=document.querySelector("[data-reply-cancel]");
+    if(replyInput&&replyPreview&&replyLabel&&textarea){
+      document.addEventListener("click",function(e){
+        var btn=e.target.closest("[data-chat-reply]");
+        if(!btn)return;
+        replyInput.value=btn.getAttribute("data-chat-reply")||"0";
+        replyLabel.textContent="↪ "+(btn.getAttribute("data-reply-preview")||"Сообщение");
+        replyPreview.hidden=false;
+        textarea.focus();
+      });
+      if(replyCancel)replyCancel.addEventListener("click",function(){
+        replyInput.value="0";replyPreview.hidden=true;replyLabel.textContent="";
+        textarea.focus();
+      });
+    }
     if(!textarea||!popup)return;
     var suggestions=[],position=-1,range=null,seq=0,debounce=null;
     function hide(){
@@ -985,6 +1032,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action==='chat_send') {
             adc_chat_send($db,$current);
             adc_flash('Сообщение отправлено.');
+            $chatThread=adc_chat_thread($db,adc_chat_post('thread'));
+            adc_redirect('?view=chat'.($chatThread?'&thread='.$chatThread:''));
+        }
+        if ($action==='chat_toggle_pin') {
+            adc_chat_toggle_pin($db,$current);
             $chatThread=adc_chat_thread($db,adc_chat_post('thread'));
             adc_redirect('?view=chat'.($chatThread?'&thread='.$chatThread:''));
         }
