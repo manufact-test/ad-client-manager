@@ -10,7 +10,7 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('Referrer-Policy: no-referrer');
 $adcJsNonce=base64_encode(random_bytes(24));
-header("Content-Security-Policy: default-src 'none'; script-src 'nonce-" . $adcJsNonce . "'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+header("Content-Security-Policy: default-src 'none'; script-src 'nonce-" . $adcJsNonce . "'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
 adc_session();
 
 function adc_page(string $title, string $body, ?array $user = null): never {
@@ -270,6 +270,35 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           padding:11px;font:inherit;color:inherit;resize:vertical}
         .chat-picks{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
         @media(max-width:600px){.chat-msg{max-width:98%}.chat-picks{grid-template-columns:1fr}}
+
+        .chat-layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;margin-top:15px}
+        .chat-sidebar{border:1px solid #e4e6ed;background:#fcfcfe;border-radius:12px;padding:9px;min-width:0}
+        .chat-room-list{max-height:495px;overflow-y:auto}
+        .chat-room{display:flex;align-items:center;gap:7px;padding:9px 10px;border-radius:9px;
+          color:#28345a;text-decoration:none;font-size:13px;min-width:0}
+        .chat-room:hover,.chat-room.selected{background:#ebe8ff;color:#3829a1}
+        .chat-room-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+        .chat-room-count{margin-left:auto;padding:1px 6px;border-radius:15px;background:#5547ba;
+          color:white;font-weight:700;font-size:11px;flex-shrink:0}
+        .chat-search{margin:12px 0 5px}.chat-search label{display:block;margin-bottom:5px}
+        .chat-search input{font-size:13px}
+        .chat-heading{display:flex;align-items:baseline;gap:10px;justify-content:space-between;flex-wrap:wrap}
+        .chat-heading h2{margin:0}.chat-heading a{font-size:13px}
+        .chat-feed{min-height:260px}
+        .chat-input-box{position:relative}
+        .chat-suggest{position:absolute;bottom:100%;left:0;right:0;max-height:230px;overflow-y:auto;
+          border:1px solid #c6c3e4;background:#fff;z-index:50;box-shadow:0 12px 30px #28205030;
+          border-radius:9px;padding:5px}
+        .chat-suggest[hidden]{display:none}
+        .chat-suggestion{display:flex;width:100%;padding:7px 10px;justify-content:space-between;gap:8px;
+          background:white;color:#282546;border:0;text-align:left;border-radius:6px}
+        .chat-suggestion.highlight,.chat-suggestion:hover{background:#eeeaff}
+        .chat-suggestion small{font-size:11px;overflow-wrap:anywhere}
+        .chat-tag-person{color:#4133b5}.chat-tag-client{color:#007d79;font-weight:650}
+        .chat-hint{font-size:12px;margin:5px 0 13px}
+        @media(max-width:700px){.chat-layout{grid-template-columns:minmax(0,1fr)}
+          .chat-room-list{max-height:170px;overflow-y:auto}
+          .chat-sidebar{max-height:310px}.chat-feed{max-height:420px}}
 </style></head><body>' . ($user ? '<header>'.$menu.'</header>' : '') . '<main>' . $body . '</main><script nonce="' . adc_h($adcJsNonce) . '">
 (function(){
   "use strict";
@@ -434,20 +463,21 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var badge=document.querySelector("[data-chat-badge]");
     if(!badge)return;
     var feed=document.querySelector("[data-last]");
+    var thread=feed?Number(feed.getAttribute("data-thread")||0):0;
     var soundButton=document.querySelector("[data-chat-sound]");
     var audible=false,activated=false,lastOther=null,busy=false;
     try{audible=localStorage.getItem("adc-chat-sound")==="on";}catch(e){}
     function beep(){
       if(!audible||!activated)return;
       try{
-        var context=new (window.AudioContext||window.webkitAudioContext)();
-        var oscillator=context.createOscillator(),gain=context.createGain();
-        oscillator.type="sine";oscillator.frequency.value=810;
-        gain.gain.setValueAtTime(0.065,context.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001,context.currentTime+0.16);
-        oscillator.connect(gain);gain.connect(context.destination);
-        oscillator.start();oscillator.stop(context.currentTime+0.17);
-        oscillator.onended=function(){context.close();};
+        var ctx=new (window.AudioContext||window.webkitAudioContext)();
+        var osc=ctx.createOscillator(),gain=ctx.createGain();
+        osc.type="sine";osc.frequency.value=810;
+        gain.gain.setValueAtTime(0.065,ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.16);
+        osc.connect(gain);gain.connect(ctx.destination);
+        osc.start();osc.stop(ctx.currentTime+0.17);
+        osc.onended=function(){ctx.close();};
       }catch(e){}
     }
     function soundLabel(){
@@ -468,15 +498,27 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       var form=new FormData();
       form.set("action","chat_read");
       form.set("csrf",document.querySelector("[data-chat-compose] [name=csrf]").value);
-      form.set("last_id",String(id));
+      form.set("last_id",String(id));form.set("thread",String(thread));
       fetch("/",{method:"POST",credentials:"same-origin",body:form})
-      .then(function(r){return r.ok?r.json():null;})
-      .then(function(r){if(r&&r.ok)badge.hidden=true;}).catch(function(){});
+        .then(function(r){return r.ok?r.json():null;})
+        .then(function(r){if(r&&r.ok)poll();}).catch(function(){});
+    }
+    function showRooms(unread){
+      if(!feed||!unread)return;
+      document.querySelectorAll("[data-room]").forEach(function(link){
+        var id=link.getAttribute("data-room");
+        var count=Number(unread[id]||0);
+        var span=link.querySelector(".chat-room-count");
+        if(count){
+          if(!span){span=document.createElement("span");span.className="chat-room-count";link.appendChild(span);}
+          span.textContent=String(Math.min(99,count))+(count>99?"+":"");
+        }else if(span)span.remove();
+      });
     }
     function poll(){
       if(busy)return;busy=true;
       var after=feed?Number(feed.getAttribute("data-last")||0):0;
-      fetch("/?chat_poll=1&status="+(feed?"0":"1")+"&after="+after,
+      fetch("/?chat_poll=1&status="+(feed?"0":"1")+"&thread="+thread+"&after="+after,
         {credentials:"same-origin",cache:"no-store"})
       .then(function(r){if(!r.ok)throw Error("poll failed");return r.json();})
       .then(function(r){
@@ -486,29 +528,104 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         badge.textContent=count?(mentions?"@"+Math.min(99,mentions):
           String(Math.min(99,count))+(count>99?"+":"")):"";
         badge.title=mentions?mentions+" упоминаний":count+" непрочитанных";
-        var last=Number(r.newest_other_id)||0;
-        if(lastOther!==null&&last>lastOther)beep();
-        lastOther=last;
+        showRooms(r.room_unread);
+        var newest=Number(r.newest_other_id)||0;
+        if(lastOther!==null&&newest>lastOther)beep();
+        lastOther=newest;
         if(!feed||!Array.isArray(r.messages)||!r.messages.length)return;
-        var nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<110;
+        var wasNearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<110;
         var empty=feed.querySelector("[data-empty]");if(empty)empty.remove();
-        var lastId=after;
+        var maxId=after;
         r.messages.forEach(function(m){
-          var id=Number(m.id)||0;if(id<=lastId)return;
-          var t=document.createElement("template");t.innerHTML=m.html;
-          if(t.content.firstElementChild)feed.appendChild(t.content.firstElementChild);
-          lastId=id;
+          var id=Number(m.id)||0;if(id<=maxId)return;
+          var template=document.createElement("template");template.innerHTML=m.html;
+          if(template.content.firstElementChild)feed.appendChild(template.content.firstElementChild);
+          maxId=id;
         });
-        feed.setAttribute("data-last",String(lastId));
+        feed.setAttribute("data-last",String(maxId));
         while(feed.querySelectorAll(".chat-msg").length>120)
           feed.querySelector(".chat-msg").remove();
-        if(nearBottom)feed.scrollTop=feed.scrollHeight;
-        markRead(lastId);
+        if(wasNearBottom)feed.scrollTop=feed.scrollHeight;
+        markRead(maxId);
       }).catch(function(){}).finally(function(){busy=false;});
     }
     if(feed){feed.scrollTop=feed.scrollHeight;markRead(Number(feed.getAttribute("data-last")||0));}
     poll();window.setInterval(poll,12000);
     document.addEventListener("visibilitychange",function(){if(!document.hidden)poll();});
+
+    // Telegram-like composer: type @ or #, choose a match, insert a stable tag.
+    // Suggestions are loaded only for authenticated staff and do not write data.
+    var textarea=document.getElementById("chat-text");
+    var popup=document.querySelector("[data-chat-suggestions]");
+    if(!textarea||!popup)return;
+    var suggestions=[],position=-1,range=null,seq=0,debounce=null;
+    function hide(){
+      popup.hidden=true;popup.textContent="";suggestions=[];position=-1;range=null;
+      textarea.setAttribute("aria-expanded","false");
+    }
+    function findToken(){
+      var caret=textarea.selectionStart;
+      if(caret!==textarea.selectionEnd)return null;
+      var before=textarea.value.slice(0,caret);
+      var m=before.match(/(^|[\s([{])([@#])([\p{L}\p{N}_]{0,50})$/u);
+      return m?{start:caret-m[2].length-m[3].length,end:caret,type:m[2],query:m[3]}:null;
+    }
+    function highlight(){
+      popup.querySelectorAll("button").forEach(function(btn,i){
+        btn.classList.toggle("highlight",i===position);
+        btn.setAttribute("aria-selected",String(i===position));
+      });
+    }
+    function choose(index){
+      if(!range||!suggestions[index])return;
+      var token=suggestions[index].token;
+      var s=textarea.value.slice(0,range.start);
+      var suffix=textarea.value.slice(range.end);
+      textarea.value=(s+token+" "+suffix).slice(0,2000);
+      var caret=Math.min(2000,s.length+token.length+1);
+      textarea.focus();textarea.setSelectionRange(caret,caret);hide();
+    }
+    function render(items,activeRange){
+      suggestions=items;range=activeRange;position=-1;popup.textContent="";
+      if(!items.length){hide();return;}
+      items.forEach(function(row,i){
+        var btn=document.createElement("button");
+        btn.type="button";btn.className="chat-suggestion";btn.setAttribute("role","option");
+        var label=document.createElement("strong");label.textContent=row.name;
+        var token=document.createElement("small");token.textContent=row.token;
+        btn.appendChild(label);btn.appendChild(token);
+        btn.addEventListener("mousedown",function(e){e.preventDefault();});
+        btn.addEventListener("click",function(){choose(i);});
+        popup.appendChild(btn);
+      });
+      popup.hidden=false;textarea.setAttribute("aria-expanded","true");
+    }
+    function update(){
+      var current=findToken();seq++;
+      if(!current){hide();return;}
+      var at=seq;
+      fetch("/?chat_suggest=1&type="+encodeURIComponent(current.type)+
+         "&q="+encodeURIComponent(current.query),{credentials:"same-origin",cache:"no-store"})
+       .then(function(r){if(!r.ok)throw Error("suggest failed");return r.json();})
+       .then(function(json){if(at===seq)render(json.results||[],current);})
+       .catch(function(){if(at===seq)hide();});
+    }
+    textarea.setAttribute("aria-autocomplete","list");
+    textarea.setAttribute("aria-expanded","false");
+    textarea.addEventListener("input",function(){
+      window.clearTimeout(debounce);debounce=window.setTimeout(update,160);
+    });
+    textarea.addEventListener("click",function(){window.clearTimeout(debounce);debounce=window.setTimeout(update,160);});
+    textarea.addEventListener("keydown",function(e){
+      if(popup.hidden||!suggestions.length)return;
+      if(e.key==="ArrowDown"){e.preventDefault();position=(position+1)%suggestions.length;highlight();}
+      else if(e.key==="ArrowUp"){e.preventDefault();position=(position+suggestions.length-1)%suggestions.length;highlight();}
+      else if(e.key==="Enter"&&position>=0){e.preventDefault();choose(position);}
+      else if(e.key==="Escape"){e.preventDefault();hide();}
+    });
+    document.addEventListener("click",function(e){
+      if(!e.target.closest(".chat-input-box"))hide();
+    });
   })();
 })();
 </script></body></html>';
