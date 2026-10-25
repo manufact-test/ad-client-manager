@@ -84,4 +84,65 @@ for (const year of [2024, 2025, 2026, 2028]) {
   }
 }
 
-console.log('Calendar regression passed: first, middle and last day across 48 months.');
+
+const drawStart = source.indexOf('function draw(){');
+const drawEnd = source.indexOf('trigger.onclick=function(){', drawStart);
+assert.ok(drawStart >= 0 && drawEnd > drawStart, 'Calendar month navigation renderer must exist');
+const drawSource = source.slice(drawStart, drawEnd);
+
+function makeElement(tag) {
+  let textContent = '';
+  const element = {
+    tag,
+    children: [],
+    classList: { add() {} },
+    appendChild(child) { this.children.push(child); return child; },
+    append(...children) { this.children.push(...children); },
+  };
+  Object.defineProperty(element, 'textContent', {
+    get() { return textContent; },
+    set(value) {
+      textContent = String(value);
+      if (textContent === '') element.children = [];
+    },
+  });
+  return element;
+}
+
+function verifyNavigation(year, month, direction, expectedTitle) {
+  const picker = makeElement('div');
+  const input = {
+    value: '15.10.2026',
+    setCustomValidity() {},
+    dispatchEvent() {},
+  };
+  const context = {
+    year,
+    month,
+    monthNames: ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'],
+    Date,
+    String,
+    Number,
+    picker,
+    input,
+    document: { createElement: makeElement },
+    closeMenus() {},
+  };
+
+  vm.runInNewContext(helpers + '\n' + drawSource + '\ndraw();', context, { timeout: 1000 });
+  const header = picker.children[0];
+  assert.ok(header, 'Calendar header should render');
+  const navButton = header.children[direction === 'prev' ? 0 : 2];
+  assert.ok(navButton && typeof navButton.onclick === 'function', 'Month navigation button should be clickable');
+  let propagationStopped = false;
+  navButton.onclick({ stopPropagation() { propagationStopped = true; } });
+  assert.equal(propagationStopped, true, 'Month navigation click must not bubble to the outside-click closer');
+  assert.equal(picker.children[0].children[1].textContent, expectedTitle, 'Clicking a month arrow should render the requested month');
+}
+
+verifyNavigation(2026, 9, 'prev', 'Сентябрь 2026');
+verifyNavigation(2026, 9, 'next', 'Ноябрь 2026');
+verifyNavigation(2026, 0, 'prev', 'Декабрь 2025');
+verifyNavigation(2026, 11, 'next', 'Январь 2027');
+
+console.log('Calendar regression passed: exact day selection across 48 months and month navigation including year rollover.');

@@ -534,7 +534,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         var title=document.createElement("span");title.textContent=monthNames[month]+" "+year;
         var next=document.createElement("button");next.type="button";next.textContent="›";
         function change(n){month+=n;if(month<0){month=11;year--;}if(month>11){month=0;year++;}draw();}
-        prev.onclick=function(){change(-1);};next.onclick=function(){change(1);};
+        prev.onclick=function(e){e.stopPropagation();change(-1);};next.onclick=function(e){e.stopPropagation();change(1);};
         head.append(prev,title,next);picker.appendChild(head);
         var days=document.createElement("div");days.className="ac-days";
         ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].forEach(function(w){var l=document.createElement("small");l.textContent=w;days.appendChild(l);});
