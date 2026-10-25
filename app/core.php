@@ -86,6 +86,7 @@ function adc_schema(PDO $db, bool $chatOnly=false): void {
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(240) NOT NULL,
             platform_text VARCHAR(400) NULL,
+            client_context_text VARCHAR(500) NULL,
             legal_type ENUM("legal", "individual") NOT NULL DEFAULT "legal",
             source_kind VARCHAR(30) NULL,
             source_note VARCHAR(240) NULL,
@@ -320,6 +321,10 @@ function adc_schema(PDO $db, bool $chatOnly=false): void {
                 ADD INDEX idx_chat_reply(reply_to_id)');
         }
         return;
+    }
+    // Add the optional client-list context without rewriting existing client records.
+    if (!$db->query("SHOW COLUMNS FROM clients LIKE 'client_context_text'")->fetch()) {
+        $db->exec('ALTER TABLE clients ADD COLUMN client_context_text VARCHAR(500) NULL AFTER platform_text');
     }
     if (!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'reply_to_id'")->fetch()){
         $db->exec('ALTER TABLE team_chat_messages
