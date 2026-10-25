@@ -139,11 +139,22 @@ $ok(str_contains($page,'chat-pinned')&&str_contains($page,'Закреплено'
 // The message menu exposes deletion and multi-select only to people allowed to delete.
 $ownerHtml=adc_chat_item($answer,$b['id'],'employee');
 $directorHtml=adc_chat_item($answer,$a['id'],'director');
+$menuStart=strpos($ownerHtml,'<div class="chat-menu-panel" data-chat-menu hidden>');
+$menuEnd=$menuStart===false?false:strpos($ownerHtml,'</div>',$menuStart);
+$menuMarkup=$menuStart===false||$menuEnd===false?'':substr($ownerHtml,$menuStart,$menuEnd-$menuStart);
+$toolsStart=strpos($ownerHtml,'<div class="chat-msg-tools">');
+$replyStart=strpos($ownerHtml,'data-chat-reply=');
+$pinStart=strpos($ownerHtml,'class="chat-pin-btn chat-mini-action"');
 $ok(str_contains($ownerHtml,'data-chat-menu-toggle')&&
     str_contains($ownerHtml,'data-chat-select-message')&&
     str_contains($ownerHtml,'name="action" value="chat_delete"')&&
-    str_contains($ownerHtml,'Удалить'),
-    'Author receives message menu, selection checkbox and delete action');
+    str_contains($ownerHtml,'Удалить')&&
+    $menuStart!==false&&$menuEnd!==false&&
+    !str_contains($menuMarkup,'data-chat-reply')&&
+    !str_contains($menuMarkup,'chat-pin-btn')&&
+    $toolsStart!==false&&$replyStart!==false&&$pinStart!==false&&
+    $replyStart>$toolsStart&&$pinStart>$toolsStart,
+    'Ellipsis menu contains only select/delete; reply and pin stay in bottom hover tools');
 $ok(str_contains($directorHtml,'name="action" value="chat_delete"'),
     'Director can moderate another employee message');
 
