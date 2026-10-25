@@ -128,6 +128,32 @@ try {
 }
 check((string)adc_w_client($db,$realId)['client_context_text']==='PayPal; договоры и реквизиты',
     'Stale client form leaves the latest context untouched');
+$clientBeforeInlineEdit=adc_w_client($db,$realId);
+run_action($db,$director,'save_client_context',[
+    'client_id'=>(string)$realId,'client_context_text'=>'Инвойс № 777',
+]);
+$clientAfterInlineEdit=adc_w_client($db,$realId);
+check($clientAfterInlineEdit['client_context_text']==='Инвойс № 777' &&
+    $clientAfterInlineEdit['name']===$clientBeforeInlineEdit['name'] &&
+    $clientAfterInlineEdit['platform_text']===$clientBeforeInlineEdit['platform_text'] &&
+    $clientAfterInlineEdit['comment_text']===$clientBeforeInlineEdit['comment_text'],
+    'One-field context edit preserves all other client fields');
+$clientPanel=adc_w_client_panel($db,$director,$realId,'clients','/?view=clients');
+check(str_contains($clientPanel,'Куда / как оплачивают') &&
+    str_contains($clientPanel,'name="action" value="save_client_context"') &&
+    str_contains($clientPanel,'Инвойс № 777'),
+    'Client card displays the payment context and standalone editor');
+$savedGet=$_GET??[]; $_GET=[];
+$clientListHtml=adc_w_clients($db,$director,'clients');
+$_GET=$savedGet;
+$servicesHeader=strpos($clientListHtml,'<th>Услуги</th>');
+$contextHeader=strpos($clientListHtml,'<th>Куда / как оплачивают</th>');
+$statusHeader=strpos($clientListHtml,'<th>Статус</th>');
+check($servicesHeader!==false && $contextHeader!==false && $statusHeader!==false &&
+    $servicesHeader<$contextHeader && $contextHeader<$statusHeader &&
+    str_contains($clientListHtml,'Инвойс № 777') &&
+    str_contains($clientListHtml,'data-client-href='),
+    'Client list displays payment context after services and preserves clickable rows');
 $e=(int)$db->query("SELECT id FROM engagements WHERE client_id=$realId")->fetchColumn();
 check($e>0,'Engagement created');
 $oldEngRevision=adc_w_engagement_revision(adc_w_engagement($db,$realId,$e));
