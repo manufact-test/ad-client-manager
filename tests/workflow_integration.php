@@ -140,20 +140,27 @@ check($clientAfterInlineEdit['client_context_text']==='Инвойс № 777' &&
     'One-field context edit preserves all other client fields');
 $clientPanel=adc_w_client_panel($db,$director,$realId,'clients','/?view=clients');
 check(str_contains($clientPanel,'<small>Как оплачивают</small>') &&
+    str_contains($clientPanel,'class="client-context-heading"') &&
+    str_contains($clientPanel,'class="client-context-text"') &&
     str_contains($clientPanel,'name="action" value="save_client_context"') &&
     str_contains($clientPanel,'title="Изменить способ оплаты"') &&
     str_contains($clientPanel,'class="client-context-edit-panel"') &&
+    str_contains($clientPanel,'<path d="M12 20h9"/>') &&
+    str_contains($clientPanel,'<small>Стоимость за месяц</small>') &&
+    str_contains($clientPanel,'Оплата без документов') &&
+    !str_contains($clientPanel,'Оплата на карту (без PDF)') &&
     strpos($clientPanel,'<small>Как оплачивают</small>')>strpos($clientPanel,'<small>Откуда пришёл</small>') &&
     str_contains($clientPanel,'Инвойс № 777'),
-    'Client card shows the payment context at the end with a compact pencil editor');
+    'Client card shows a compact pencil beside the payment label and clear monthly cost label');
 $savedGet=$_GET??[]; $_GET=[];
 $clientListHtml=adc_w_clients($db,$director,'clients');
 $_GET=$savedGet;
 $servicesHeader=strpos($clientListHtml,'<th>Услуги</th>');
-$contextHeader=strpos($clientListHtml,'<th>Как оплачивают</th>');
+$contextHeader=strpos($clientListHtml,'Как оплачивают</th>');
 $statusHeader=strpos($clientListHtml,'<th>Статус</th>');
 check($servicesHeader!==false && $contextHeader!==false && $statusHeader!==false &&
     $servicesHeader<$contextHeader && $contextHeader<$statusHeader &&
+    str_contains($clientListHtml,'class="client-context-heading-cell"') &&
     str_contains($clientListHtml,'Инвойс № 777') &&
     str_contains($clientListHtml,'data-client-href='),
     'Client list displays payment context after services and preserves clickable rows');
