@@ -480,7 +480,7 @@ try:
     missingHtml=html(missing)
     missingForm=re.search(r'<form class="doc-upload-form"[^>]*>(.*?)</form>',missingHtml,re.S)
     require(status==200 and 'class="drawer customer-profile"' in missingHtml and
-            'class="doc-upload" open' in missingHtml and missingForm is not None and
+            'class="sub-action doc-upload" open' in missingHtml and missingForm is not None and
             'class="error document-upload-error" role="alert">Выберите PDF.</div>' in missingForm.group(1) and
             missingHtml.count("Выберите PDF.")==1,
             "Missing PDF error is shown beside the PDF field in the same open client drawer")
