@@ -86,6 +86,7 @@ function adc_schema(PDO $db, bool $chatOnly=false): void {
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(240) NOT NULL,
             platform_text VARCHAR(400) NULL,
+            payment_details VARCHAR(240) NULL,
             legal_type ENUM("legal", "individual") NOT NULL DEFAULT "legal",
             source_kind VARCHAR(30) NULL,
             source_note VARCHAR(240) NULL,
@@ -320,6 +321,11 @@ function adc_schema(PDO $db, bool $chatOnly=false): void {
                 ADD INDEX idx_chat_reply(reply_to_id)');
         }
         return;
+    }
+    // Existing client records get one optional free-text payment destination field.
+    // This additive migration never rewrites client or financial history.
+    if (!$db->query("SHOW COLUMNS FROM clients LIKE 'payment_details'")->fetch()) {
+        $db->exec('ALTER TABLE clients ADD COLUMN payment_details VARCHAR(240) NULL AFTER platform_text');
     }
     if (!$db->query("SHOW COLUMNS FROM team_chat_messages LIKE 'reply_to_id'")->fetch()){
         $db->exec('ALTER TABLE team_chat_messages
