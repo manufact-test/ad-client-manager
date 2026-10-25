@@ -952,7 +952,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       event.preventDefault();
       setSelectionMode(true);
       var id=chooseOne.getAttribute("data-chat-select-id");
-      var box=feed.querySelector('[data-chat-select-message][value="'+id+'"]');
+      var box=Array.from(feed.querySelectorAll("[data-chat-select-message]")).find(function(item){return item.value===id;});
       if(box)box.checked=true;
       refreshSelection();closeMenus();
       return;
