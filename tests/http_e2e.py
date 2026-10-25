@@ -175,14 +175,17 @@ try:
     real=create_client(director,"CI real ledger",False)
     status,_,listPage=request("director","/?view=clients")
     listHtml=html(listPage)
-    require(status==200 and "Куда / как оплачивают" in listHtml and
+    require(status==200 and "Как оплачивают" in listHtml and
             "PayPal; договоры" in listHtml and 'data-client-href=' in listHtml and
             'tabindex="0"' in listHtml and ">Открыть</a>" not in listHtml and
-            "#fcfbff" in listHtml and "#f6f5fb" in listHtml,
+            "#fcfbff" in listHtml and "#f6f5fb" in listHtml and
+            ".client-list-table tbody td.client-context-cell{text-align:left}" in listHtml,
             "Client list displays payment context after services, uses subtle zebra rows and remains clickable")
     initialContextPanel=panel("director",real)
-    require("Куда / как оплачивают" in initialContextPanel and
+    require("Как оплачивают" in initialContextPanel and
             'name="action" value="save_client_context"' in initialContextPanel and
+            'title="Изменить способ оплаты"' in initialContextPanel and
+            'class="client-context-edit-panel"' in initialContextPanel and
             "PayPal; договоры" in initialContextPanel,
             "Client card shows payment context and a standalone editor")
     status,headers,_=post("director",director,"save_client_context",{
