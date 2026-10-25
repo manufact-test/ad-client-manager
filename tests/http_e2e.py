@@ -179,6 +179,22 @@ try:
             re.search(r'<select name="currency">(?:(?!</select>).)*<option value="RUB" selected>',demoUploadForm.group(1),re.S) and
             "ранее сохранённые расчётные периоды этого клиента" in demoUploadForm.group(1),
             "New document/payment defaults to the active client's currency and explains historical period linking")
+    # Exercise the optional period selector against a saved synthetic client period.
+    engagementMatch=re.search(r'name="engagement_id" value="(\\d+)"',demoUploadPanel)
+    require(engagementMatch is not None,
+            "Active engagement is available for the synthetic period fixture")
+    status,headers,_=post("director",director,"save_period",{
+        "client_id":str(demo),"engagement_id":engagementMatch.group(1),
+        "period_start":"2026-10-21","period_end":"2026-11-21",
+        "period_note":"Synthetic historical period"})
+    require(status==303,"Create a saved synthetic period for the document form test")
+    periodPanel=panel("director",demo)
+    periodForm=re.search(r'<form class="doc-upload-form"[^>]*>(.*?)</form>',periodPanel,re.S)
+    require(periodForm is not None and
+            re.search(r'<select name="period_id">(?:(?!</select>).)*<option value="\\d+">2026-10-21</option>',
+                      periodForm.group(1),re.S) is not None and
+            'name="period_id"><option value="" selected>Без периода</option>' in periodForm.group(1),
+            "Saved client periods appear in the optional selector while Без периода remains available")
     status,_,listPage=request("director","/?view=clients")
     listHtml=html(listPage)
     require(status==200 and "Как оплачивают" in listHtml and
@@ -515,8 +531,11 @@ try:
     status,_,_=post("employee",employee,"transfer_document",{"client_id":demo,"document_id":doc})
     require(status==303,"Repeated send does not duplicate")
     page=panel("director",demo)
-    require(re.search(r'class="badge danger">Ждём оплату',page) is not None,
-            "Waiting payment status is red even before overdue")
+    require(re.search(r'class="badge danger">Ждём оплату',page) is not None and
+            '.badge.danger{background:#ffe6e6;color:#a31220}' in page and
+            '.good{background:#e4f6eb;color:#176739}' in page and
+            '.badge{font-size:12px;font-weight:650;padding:2px 7px;background:#edf0f7;border-radius:30px;color:#48556b}' in page,
+            "Waiting payment is red, completed is green and document-preparation status remains neutral gray")
     page=panel("employee",demo)
     require("Ждём оплату" in page,"Sent document moves to pending receipt")
     first=form_entry_id(page,"receive_entry")
