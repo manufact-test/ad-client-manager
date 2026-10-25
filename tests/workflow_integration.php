@@ -147,6 +147,8 @@ check(str_contains($clientPanel,'<small>Как оплачивают</small>') &&
     str_contains($clientPanel,'class="client-context-edit-panel"') &&
     str_contains($clientPanel,'<path d="M12 20h9"/>') &&
     str_contains($clientPanel,'<small>Стоимость за месяц</small>') &&
+    str_contains($clientPanel,'Оплата без документов') &&
+    !str_contains($clientPanel,'Оплата на карту (без PDF)') &&
     strpos($clientPanel,'<small>Как оплачивают</small>')>strpos($clientPanel,'<small>Откуда пришёл</small>') &&
     str_contains($clientPanel,'Инвойс № 777'),
     'Client card shows a compact pencil beside the payment label and clear monthly cost label');
