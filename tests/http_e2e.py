@@ -477,12 +477,15 @@ try:
             "script-src 'nonce-"+match.group(1)+"'" in policy.group(1),
             "CSP permits the task editor, dropdowns and calendars without unsafe inline scripts")
     require("script-src 'unsafe-inline'" not in policy.group(1),"No JavaScript unsafe-inline bypass")
-    inline_script=re.search(r'<script nonce="[A-Za-z0-9+/=]+">([\s\S]*?)</script>',page)
-    require(inline_script is not None,"Authorized browser interaction script is present")
-    js_check=subprocess.run(["node","--check"],input=inline_script.group(1),
-                            text=True,capture_output=True)
-    require(js_check.returncode==0,"Inline calendar and task JavaScript has valid syntax")
-    require("var opened=toggle?target.hidden:false;" in inline_script.group(1),
+    inline_scripts=re.findall(r'<script nonce="[A-Za-z0-9+/=]+">([\s\S]*?)</script>',page)
+    require(inline_scripts,"Authorized browser interaction scripts are present")
+    for script_source in inline_scripts:
+        js_check=subprocess.run(["node","--check"],input=script_source,
+                                text=True,capture_output=True)
+        require(js_check.returncode==0,"Inline browser interaction JavaScript has valid syntax")
+    task_script=next((source for source in inline_scripts
+                      if "var opened=toggle?target.hidden:false;" in source),None)
+    require(task_script is not None,
             "Task edit button opens previously hidden form")
     # Restore the actual accepted card from 2387ba7e8540: top CSV,
     # client overview -> ledger -> secondary actions; no invented monthly block.
