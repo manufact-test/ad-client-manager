@@ -71,6 +71,7 @@ def login(role):
 def create_client(token,name,demo):
     status,headers,_=post("director",token,"save_client",{
         "client_name":name,"platform_text":"Фиктивная реклама",
+        "client_context_text":"PayPal; договоры",
         "source_kind":"inbound","legal_type":"legal","started_on":"2026-10-21",
         "payment_mode":"prepayment","currency":"BYN",
         "quoted_amount":"0.00" if demo else "1250.00",
@@ -172,6 +173,11 @@ try:
             "Successful import clears the pending confirmation")
     demo=create_client(director,"CI demo ledger",True)
     real=create_client(director,"CI real ledger",False)
+    status,_,listPage=request("director","/?view=clients")
+    require(status==200 and "Оплата / документы" in html(listPage) and
+            "PayPal; договоры" in html(listPage) and 'data-client-href=' in html(listPage) and
+            'tabindex="0"' in html(listPage) and ">Открыть</a>" not in html(listPage),
+            "Client list displays payment/document context and opens from the whole row without a button")
     # Staging pause controls render in existing card, not a separate page.
     pausePage=panel("director",real)
     require('name="action" value="pause_client"' in pausePage,

@@ -86,6 +86,7 @@ foreach (['0','1.234','12invalid'] as $invalid) {
 }
 $default = [
     'client_name'=>'Fixture real client', 'platform_text'=>'Yandex Direct',
+    'client_context_text'=>'PayPal / договоры',
     'source_kind'=>'advertising','source_note'=>'test','legal_type'=>'legal',
     'started_on'=>'2026-09-07','billing_day'=>'7','payment_mode'=>'prepayment',
     'currency'=>'BYN','quoted_amount'=>'1000.00','comment_text'=>'fictional',
@@ -94,6 +95,39 @@ run_action($db,$director,'save_client',$default);
 $realId=(int)$db->lastInsertId(); // audit insertion follows client: retrieve by name instead
 $realId=(int)$db->query('SELECT MAX(id) FROM clients WHERE name="Fixture real client"')->fetchColumn();
 check($realId>0,'Real client created');
+$initialClient=adc_w_client($db,$realId);
+check((string)$initialClient['client_context_text']==='PayPal / договоры',
+    'Client payment/document context is saved');
+$clientForm=adc_w_client_form($db,$initialClient);
+check(str_contains($clientForm,'name="client_context_text"') &&
+    str_contains($clientForm,'PayPal / договоры'),
+    'Client payment/document context is editable in the client form');
+$staleClientRevision=adc_w_client_revision($initialClient);
+run_action($db,$director,'save_client',[
+    'client_id'=>(string)$realId,'expected_revision'=>$staleClientRevision,
+    'client_name'=>'Fixture real client','platform_text'=>'Yandex Direct',
+    'client_context_text'=>'PayPal; договоры и реквизиты',
+    'source_kind'=>'advertising','source_note'=>'test','legal_type'=>'legal',
+    'previous_client_id'=>'','previous_name_text'=>'','comment_text'=>'fictional',
+]);
+check((string)adc_w_client($db,$realId)['client_context_text']==='PayPal; договоры и реквизиты',
+    'Client payment/document context can be updated');
+try {
+    run_action($db,$director,'save_client',[
+        'client_id'=>(string)$realId,'expected_revision'=>$staleClientRevision,
+        'client_name'=>'Fixture real client','platform_text'=>'Yandex Direct',
+        'client_context_text'=>'stale overwrite','source_kind'=>'advertising',
+        'source_note'=>'test','legal_type'=>'legal','previous_client_id'=>'',
+        'previous_name_text'=>'','comment_text'=>'fictional',
+    ]);
+    throw new RuntimeException('Stale client context overwrite accepted');
+} catch (RuntimeException $expected) {
+    check(str_contains($expected->getMessage(),'изменена в другой вкладке'),
+        'Stale client edit cannot overwrite the payment/document context');
+    if ($db->inTransaction()) $db->rollBack();
+}
+check((string)adc_w_client($db,$realId)['client_context_text']==='PayPal; договоры и реквизиты',
+    'Stale client form leaves the latest context untouched');
 $e=(int)$db->query("SELECT id FROM engagements WHERE client_id=$realId")->fetchColumn();
 check($e>0,'Engagement created');
 $oldEngRevision=adc_w_engagement_revision(adc_w_engagement($db,$realId,$e));

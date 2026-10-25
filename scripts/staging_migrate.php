@@ -98,6 +98,11 @@ try {
             echo ($ok?'[PASS] ':'[PENDING] ')."team_chat_messages: client threads\n";
             if (!$ok)$ready=false;
         }
+        $clientContext=$db->query("SHOW COLUMNS FROM clients LIKE 'client_context_text'")->fetch();
+        $contextOk=$clientContext && strtolower((string)$clientContext['Type'])==='varchar(500)'
+            && $clientContext['Null']==='YES';
+        echo ($contextOk ? '[PASS] ' : '[PENDING] ')."clients: optional client-list context text\n";
+        if (!$contextOk) $ready=false;
         if (in_array('engagement_terms',$present,true)) {
             $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
             $ok=$price && strtolower((string)$price['Type'])==='decimal(16,2)'
