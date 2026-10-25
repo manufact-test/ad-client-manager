@@ -227,7 +227,7 @@ try:
         "csrf":director,"action":"save_client_context","client_id":str(real),
         "client_context_text":invalidContext})
     contextErrorHtml=html(contextError)
-    contextErrorDrawer=re.search(r'<aside class="drawer customer-profile"[\\s\\S]*?</aside>',contextErrorHtml)
+    contextErrorDrawer=re.search(r'<aside class="drawer customer-profile"[\s\S]*?</aside>',contextErrorHtml)
     require(status==200 and contextErrorDrawer is not None and
             'data-client-card-error="1"' in contextErrorDrawer.group(0) and
             "Текст об оплате и документах должен быть не длиннее 500 символов." in contextErrorHtml and
@@ -734,7 +734,7 @@ try:
         "entry_id":str(entry),"amount":"88.123","currency":"BYN",
         "category":"advertising","note":"Corrected after undo"})
     invalidAmountHtml=html(invalidAmount)
-    invalidAmountDrawer=re.search(r'<aside class="drawer customer-profile"[\\s\\S]*?</aside>',invalidAmountHtml)
+    invalidAmountDrawer=re.search(r'<aside class="drawer customer-profile"[\s\S]*?</aside>',invalidAmountHtml)
     require(status==200 and invalidAmountDrawer is not None and
             'data-client-card-error="1"' in invalidAmountDrawer.group(0) and
             "Сумма должна иметь не более двух знаков после запятой." in invalidAmountHtml and
