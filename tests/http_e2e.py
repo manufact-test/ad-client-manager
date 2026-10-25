@@ -176,8 +176,9 @@ try:
     demoUploadPanel=panel("director",demo)
     demoUploadForm=re.search(r'<form class="doc-upload-form"[^>]*>(.*?)</form>',demoUploadPanel,re.S)
     require(demoUploadForm is not None and
-            re.search(r'<select name="currency">(?:(?!</select>).)*<option value="RUB" selected>',demoUploadForm.group(1),re.S),
-            "New document/payment defaults to the active client's contract currency")
+            re.search(r'<select name="currency">(?:(?!</select>).)*<option value="RUB" selected>',demoUploadForm.group(1),re.S) and
+            "ранее сохранённые расчётные периоды этого клиента" in demoUploadForm.group(1),
+            "New document/payment defaults to the active client's currency and explains historical period linking")
     status,_,listPage=request("director","/?view=clients")
     listHtml=html(listPage)
     require(status==200 and "Как оплачивают" in listHtml and
@@ -513,6 +514,9 @@ try:
     require(status==303,"Employee marks document sent")
     status,_,_=post("employee",employee,"transfer_document",{"client_id":demo,"document_id":doc})
     require(status==303,"Repeated send does not duplicate")
+    page=panel("director",demo)
+    require(re.search(r'class="badge danger">Ждём оплату',page) is not None,
+            "Waiting payment status is red even before overdue")
     page=panel("employee",demo)
     require("Ждём оплату" in page,"Sent document moves to pending receipt")
     first=form_entry_id(page,"receive_entry")
