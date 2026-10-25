@@ -107,7 +107,7 @@ try:
             "Creating a personal task stays in My Tasks")
     status,_,taskPage=request("director","/?view=tasks")
     taskMatch=re.search(r'<div class="task-title"><strong>'+re.escape(taskTitle)+
-        r'</strong>[\\s\\S]*?name="action" value="delete_task"[\\s\\S]*?name="task_id" value="(\\d+)"',
+        r'</strong>[\s\S]*?name="action" value="delete_task"[\s\S]*?name="task_id" value="(\d+)"',
         html(taskPage))
     require(status==200 and taskMatch,"New personal task exposes its own delete action")
     status,headers,_=post("director",director,"delete_task",{
@@ -787,11 +787,11 @@ try:
         require(status==303 and location(headers)=="/?view=chat",
                 "Chat message send returns to the current room")
     status,_,general=request("director","/?view=chat")
-    articles=re.findall(r'<article\\b[^>]*>.*?</article>',html(general),re.S)
+    articles=re.findall(r'<article\b[^>]*>.*?</article>',html(general),re.S)
     bulkIds=[]
     for article in articles:
         if any(message in article for message in bulkBodies):
-            match=re.search(r'data-mid="(\\d+)"',article)
+            match=re.search(r'data-mid="(\d+)"',article)
             if match:bulkIds.append(match.group(1))
     require(status==200 and len(bulkIds)==2,
             "Two chat messages are available for HTTP bulk deletion")
