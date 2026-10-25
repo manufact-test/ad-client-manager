@@ -212,6 +212,9 @@ function adc_chat_item(array $m,int $uid,string $role='employee'):string {
     $created=new DateTimeImmutable((string)$m['created_at'],new DateTimeZone('UTC'));
     $time=$created->setTimezone(new DateTimeZone('Europe/Minsk'))->format('d.m.Y H:i');
     $id=(int)$m['id'];
+    $messagePreview=mb_substr(trim((string)$m['body']),0,120);
+    if($messagePreview==='')$messagePreview='Вложение';
+    $thread=(int)($m['thread_client_id']??0);
     $out='<article id="chat-msg-'.$id.'" class="chat-msg'.$class.
         '" data-mid="'.$id.'" data-chat-deletable="'.($canDelete?'1':'0').'" tabindex="0">'.
         '<div class="chat-meta">';
@@ -221,15 +224,30 @@ function adc_chat_item(array $m,int $uid,string $role='employee'):string {
             '<span class="chat-select-sr">Выбрать сообщение</span></label>';
     }
     $out.='<strong>'.adc_h((string)$m['author']).'</strong>'.
-        '<time>'.adc_h($time).'</time></div>';
-    $thread=(int)($m['thread_client_id']??0);
+        '<time>'.adc_h($time).'</time>';
+    if($canDelete){
+        $out.='<div class="chat-message-menu">'.
+            '<button type="button" class="chat-menu-toggle chat-mini-action" data-chat-menu-toggle '.
+            'aria-expanded="false" aria-haspopup="true" title="Действия с сообщением" aria-label="Действия с сообщением">⋯</button>'.
+            '<div class="chat-menu-panel" data-chat-menu hidden>'.
+            '<button type="button" class="chat-menu-item chat-mini-action" data-chat-select-one '.
+            'data-chat-select-id="'.$id.'">☑ Выбрать сообщение</button>'.
+            '<form method="post"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
+            '<input type="hidden" name="action" value="chat_delete">'.
+            '<input type="hidden" name="thread" value="'.$thread.'">'.
+            '<input type="hidden" name="message_ids[]" value="'.$id.'">'.
+            '<button type="submit" class="chat-menu-item chat-mini-action" '.
+            'data-confirm="Удалить это сообщение?">🗑 Удалить</button></form>'.
+            '</div></div>';
+    }
+    $out.='</div>';
     if(($m['reply_to_id']??null)!==null){
         $replyId=(int)$m['reply_to_id'];
-        $preview=mb_substr(trim((string)($m['reply_body']??'Сообщение недоступно')),0,130);
-        if($preview==='')$preview='Вложение';
+        $replyPreview=mb_substr(trim((string)($m['reply_body']??'Сообщение недоступно')),0,130);
+        if($replyPreview==='')$replyPreview='Вложение';
         $out.='<a class="chat-replied" href="/?view=chat&amp;thread='.$thread.
             '&amp;focus='.$replyId.'#chat-msg-'.$replyId.'">↪ '.
-            adc_h((string)($m['reply_author']??'Сотрудник')).': '.adc_h($preview).'</a>';
+            adc_h((string)($m['reply_author']??'Сотрудник')).': '.adc_h($replyPreview).'</a>';
     }
     $out.='<div>'.adc_chat_safe_text((string)$m['body'],
         $m['client_id']===null?null:(int)$m['client_id']).'</div>';
@@ -248,32 +266,17 @@ function adc_chat_item(array $m,int $uid,string $role='employee'):string {
             $out.='<a class="chat-file" href="'.$url.'">📄 '.$name.' · Скачать PDF</a>';
         }
     }
-    $preview=mb_substr(trim((string)$m['body']),0,120);
-    if($preview==='')$preview='Вложение';
-    $out.='<div class="chat-msg-tools"><div class="chat-message-menu">'.
-        '<button type="button" class="chat-menu-toggle chat-mini-action" data-chat-menu-toggle '.
-        'aria-expanded="false" aria-haspopup="true" title="Действия с сообщением" aria-label="Действия с сообщением">⋯</button>'.
-        '<div class="chat-menu-panel" data-chat-menu hidden>'.
-        '<button type="button" class="chat-menu-item chat-reply-btn chat-mini-action" '.
+    $out.='<div class="chat-msg-tools">'.
+        '<button type="button" class="chat-reply-btn chat-mini-action" title="Ответить на сообщение" '.
         'data-chat-reply="'.$id.'" data-reply-preview="'.
-        adc_h((string)$m['author'].': '.$preview).'">↩ Ответить</button>'.
+        adc_h((string)$m['author'].': '.$messagePreview).'">↩ Ответить</button>'.
         '<form method="post"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
         '<input type="hidden" name="action" value="chat_toggle_pin">'.
         '<input type="hidden" name="thread" value="'.$thread.'">'.
         '<input type="hidden" name="message_id" value="'.$id.'">'.
-        '<button class="chat-menu-item chat-pin-btn chat-mini-action" type="submit" title="Закрепить сообщение">📌 Закрепить</button>'.
-        '</form>';
-    if($canDelete){
-        $out.='<button type="button" class="chat-menu-item chat-mini-action" data-chat-select-one '.
-            'data-chat-select-id="'.$id.'">☑ Выбрать сообщение</button>'.
-            '<form method="post"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
-            '<input type="hidden" name="action" value="chat_delete">'.
-            '<input type="hidden" name="thread" value="'.$thread.'">'.
-            '<input type="hidden" name="message_ids[]" value="'.$id.'">'.
-            '<button type="submit" class="chat-menu-item chat-mini-action" '.
-            'data-confirm="Удалить это сообщение?">🗑 Удалить</button></form>';
-    }
-    return $out.'</div></div></div></article>';
+        '<button class="chat-pin-btn chat-mini-action" type="submit" title="Закрепить сообщение">📌 Закрепить</button>'.
+        '</form></div>';
+    return $out.'</article>';
 }
 
 function adc_chat_html(PDO $db,array $user):string {

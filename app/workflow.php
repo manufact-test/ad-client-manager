@@ -844,7 +844,7 @@ function adc_w_client_form(PDO $db, ?array $client): string {
     $html .= '<div class="grid">' .
         adc_w_field('Название', 'client_name', (string)($client['name'] ?? ''), 'text', 'required maxlength="240"') .
         adc_w_field('Что делаем для клиента', 'platform_text', (string)($client['platform_text'] ?? ''), 'text', 'maxlength="400"') .
-        '<label class="field">Как оплачивают<textarea name="client_context_text" rows="2" maxlength="500" placeholder="Например: PayPal, карта, инвойс">' .
+        '<label class="field">Как оплачивают<textarea name="client_context_text" rows="1" maxlength="500" placeholder="Например: PayPal, карта, инвойс">' .
             adc_h((string)($client['client_context_text'] ?? '')) . '</textarea></label>' .
         adc_w_select('Тип клиента', 'legal_type', ['legal'=>'Юридическое лицо','individual'=>'Физическое лицо'], (string)($client['legal_type'] ?? 'legal')) .
         '<div class="source-choice">'.adc_w_select('Откуда пришёл клиент','source_kind',
@@ -959,18 +959,18 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
                 (string)$client['previous_name_text'] : 'Повторный клиент').'</strong></div>';
     }
     $contextText=trim((string)($client['client_context_text']??''));
-    $html .= '<div class="client-context-fact"><div class="client-context-heading"><small>Как оплачивают</small></div>'.
-        '<div class="client-context-value-row">'.
-        '<strong class="client-context-text">'.($contextText!=='' ? nl2br(adc_h($contextText)) : 'Не указано').'</strong>'.
+    $html .= '<div class="client-context-fact"><div class="client-context-heading"><small>Как оплачивают</small>'.
         '<div class="client-context-editor">'.
         '<button type="button" class="client-context-edit-button" data-client-context-toggle aria-expanded="false" title="Изменить способ оплаты" aria-label="Изменить способ оплаты">'.
         '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'.
         '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg></button>'.
         '<div class="client-context-edit-panel" hidden>'.
         adc_w_form_start('save_client_context').adc_w_hidden('client_id',$id).
-        '<label class="field">Как оплачивают<textarea name="client_context_text" rows="2" maxlength="500" placeholder="Например: PayPal, карта, инвойс">'.
+        '<label class="field">Как оплачивают<textarea name="client_context_text" rows="1" maxlength="500" placeholder="Например: PayPal, карта, инвойс">'.
         adc_h((string)($client['client_context_text']??'')).'</textarea></label>'.
-        '<div class="client-context-edit-actions"><button type="submit">Сохранить</button></div></form></div></div></div></div>';
+        '<div class="client-context-edit-actions"><button type="submit">Сохранить</button></div></form></div></div></div>'.
+        '<div class="client-context-value-row"><strong class="client-context-text">'.
+        ($contextText!=='' ? nl2br(adc_h($contextText)) : 'Не указано').'</strong></div></div>';
     $html .= '</div>';
     if (trim((string)$client['comment_text'])!=='') {
         $html .= '<p class="client-note">'.nl2br(adc_h((string)$client['comment_text'])).'</p>';

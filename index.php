@@ -259,20 +259,22 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .client-list-table .client-context-cell{min-width:180px;max-width:260px;white-space:pre-line;font-size:13px;overflow-wrap:anywhere}
         .client-list-table tbody td.client-context-cell{text-align:left}
         .client-context-fact{position:relative;z-index:1;min-width:0}
-        .client-context-heading{display:flex;align-items:center;gap:5px;min-height:20px;margin:0 0 2px}
+        .client-context-heading{position:relative;display:flex;align-items:center;gap:6px;min-height:20px;margin:0 0 5px}
         .client-context-heading>small{margin:0}
-        .client-context-value-row{display:flex;align-items:flex-start;gap:5px;min-width:0}
+        .client-context-value-row{display:flex;align-items:flex-start;min-width:0}
         .client-context-text{display:block;flex:1 1 auto;min-width:0;overflow-wrap:anywhere;line-height:1.45;margin:0}
-        .client-context-editor{position:relative;display:inline-flex;align-items:flex-start;flex:0 0 auto;line-height:0}
+        .client-context-editor{position:static;display:inline-flex;align-items:center;flex:0 0 auto;line-height:0}
         .client-context-edit-button{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:0 0 18px;padding:1px;border:0!important;border-radius:0!important;background:transparent!important;color:#5144bd;cursor:pointer;line-height:0;box-shadow:none!important}
         .client-context-edit-button:hover{color:#3021a4;text-decoration:none}
         .client-context-edit-button:focus-visible{outline:2px solid #5144bd;outline-offset:2px}
         .client-context-edit-button svg{display:block;width:15px;height:15px;flex:0 0 auto}
-        .client-context-edit-panel{position:absolute;top:calc(100% + 7px);right:0;left:auto;z-index:40;width:min(360px,calc(100vw - 48px));padding:14px;background:#fff;border:1px solid #e1def5;border-radius:10px;box-shadow:0 12px 28px #25204426}
+        .client-context-edit-panel{position:absolute;top:calc(100% + 8px);left:0;right:auto;z-index:40;width:min(360px,calc(100vw - 32px));max-width:calc(100vw - 32px);box-sizing:border-box;padding:14px;background:#fff;border:1px solid #e1def5;border-radius:10px;box-shadow:0 12px 28px #25204426}
         .client-context-edit-panel[hidden]{display:none}
         .client-context-edit-panel form{min-width:0;max-width:none;margin:0}
-        .client-context-edit-panel .field{margin:0 0 10px}
-        .client-context-edit-panel textarea{box-sizing:border-box;width:100%;min-height:76px;resize:vertical}
+        .client-context-edit-panel .field{display:grid;gap:8px;margin:0 0 12px}
+        .client-context-edit-panel textarea{box-sizing:border-box;width:100%;height:45px;min-height:45px;max-height:45px;padding:10px 11px;resize:none;overflow-y:auto}
+        .client-context-edit-panel textarea:focus{outline-offset:0;box-shadow:0 0 0 2px #ebe8ff}
+        .customer-edit .grid>.field textarea[name="client_context_text"]{box-sizing:border-box;height:45px;min-height:45px;max-height:45px;padding:10px 11px;resize:none;overflow-y:auto}
         .client-context-edit-actions{display:flex;justify-content:flex-end;gap:8px;margin:0}
         .client-context-edit-actions button{font-size:13px;padding:7px 12px}
         .client-list-table tbody td:first-child{border-radius:11px 0 0 11px}
@@ -288,7 +290,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .ac-days button.is-selected{border-radius:9px}
         .task-actions [data-task-toggle][aria-expanded=true]{background:#eeebff;color:#3326a4;border-color:#9d93e7}
         @media(max-width:700px){.client-list-table tbody td{padding:12px 14px}.client-list-table .status-cell{padding:12px 16px}}
-        @media(max-width:550px){.client-context-fact:nth-child(even) .client-context-edit-panel{left:auto;right:0}}
+        @media(max-width:550px){.client-context-edit-panel{left:0;right:auto;width:min(360px,calc(100vw - 24px));max-width:calc(100vw - 24px)}}
 
         .chat-badge{display:inline-flex;min-width:18px;height:18px;justify-content:center;align-items:center;
           background:#cf3959;color:#fff;border-radius:20px;font-size:11px;padding:0 5px}
@@ -305,6 +307,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-select-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
         .chat-feed.is-selecting .chat-select-box{display:inline-flex}
         .chat-feed.is-selecting .chat-msg-tools{display:none!important}
+        .chat-feed.is-selecting .chat-message-menu{display:none!important}
         .chat-feed-actions{display:flex;justify-content:flex-end;margin:8px 0}
         .chat-feed-actions [hidden]{display:none!important}
         .chat-feed-actions button,.chat-selection-toolbar button{font-size:12px;padding:7px 10px}
@@ -313,9 +316,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-selection-toolbar form{display:inline-flex;margin:0}
         .chat-selection-toolbar [data-chat-selected-inputs]{display:none}
         .chat-selection-toolbar button:disabled{opacity:.45;cursor:not-allowed}
-        .chat-message-menu{position:relative;margin-left:auto}
-        .chat-menu-toggle{font-size:19px!important;line-height:1!important;padding:1px 5px!important;letter-spacing:1px}
-        .chat-menu-panel{position:absolute;right:0;top:calc(100% + 5px);z-index:50;min-width:180px;padding:5px;background:#fff;border:1px solid #ded9f4;border-radius:9px;box-shadow:0 10px 28px #28204b29}
+        .chat-message-menu{position:absolute;top:5px;right:6px;z-index:8;opacity:0;pointer-events:none}
+        .chat-msg:is(:hover,:focus-within) .chat-message-menu{opacity:1;pointer-events:auto}
+        .chat-menu-toggle{display:inline-flex;align-items:center;justify-content:center;width:24px;height:22px;min-width:24px;padding:0!important;border:0!important;border-radius:5px!important;background:transparent!important;color:#777e92!important;font-size:18px!important;line-height:1!important;letter-spacing:1px;box-shadow:none!important}
+        .chat-menu-toggle:hover,.chat-message-menu:focus-within .chat-menu-toggle{background:#f1efff!important;color:#5144bd!important}
+        .chat-menu-panel{position:absolute;right:0;top:calc(100% + 4px);z-index:50;min-width:180px;padding:5px;background:#fff;border:1px solid #ded9f4;border-radius:9px;box-shadow:0 10px 28px #28204b29}
         .chat-menu-panel[hidden]{display:none}
         .chat-menu-panel form{display:block!important;margin:0!important}
         .chat-menu-item{display:block;width:100%;text-align:left;white-space:nowrap;padding:8px 10px!important;border:0!important;border-radius:6px!important;background:transparent!important;color:#514b70!important;font-size:12px!important;line-height:1.4!important;box-shadow:none!important;text-decoration:none!important}
@@ -323,7 +328,8 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-menu-item:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
         .chat-msg.mine{align-self:flex-end;background:#eeeaff;border-color:#d8d2fa}
         .chat-msg.ping{background:#faf1ff;border-color:#bea8df}
-        .chat-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:#59647b;margin-bottom:5px}
+        .chat-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:#59647b;margin-bottom:5px;padding-right:27px}
+        .chat-meta>time{margin-left:auto;flex:0 0 auto}
         .chat-meta time{font-size:11px;color:#737d91}
         .chat-ping{font-size:13px;font-weight:700;color:#4a35b2}
         .chat-link{display:block;margin-top:7px;font-size:13px;color:#4535b6}
@@ -419,16 +425,17 @@ function adc_page(string $title, string $body, ?array $user = null): never {
             padding:7px 10px;line-height:1.3;white-space:nowrap}
         @media(max-width:650px){.chat-pinned{flex-wrap:wrap}
           .chat-pinned-actions{width:100%}}
-        /* Action tools do not reserve empty height OR width in a resting bubble.
-           Hover/focus expands the message only when the buttons are needed. */
-        .chat-msg-tools{display:none;justify-content:flex-end;align-items:center;margin:6px 0 0}
+        /* Reply and pin remain at the bottom on hover. The ellipsis is absolute
+           and does not reserve empty width or height in the message bubble. */
+        .chat-msg-tools{display:none;justify-content:flex-start;gap:9px;align-items:center;flex-wrap:wrap;margin:6px 0 0}
         .chat-msg:is(:hover,:focus-within) .chat-msg-tools{display:flex}
+        .chat-msg-tools form{display:inline-flex;margin:0}
         .chat-msg:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
         button.chat-mini-action{font-family:inherit;font-size:11px;font-weight:500;line-height:1.3;padding:4px 1px;
             background:transparent;border:0;color:#625d91;border-radius:3px;box-shadow:none}
         button.chat-mini-action:hover{background:transparent;color:var(--accent-dark);text-decoration:underline}
         button.chat-mini-action:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-        @media(hover:none),(pointer:coarse){.chat-msg-tools{display:flex}}
+        @media(hover:none),(pointer:coarse){.chat-message-menu{opacity:1;pointer-events:auto}.chat-msg-tools{display:flex}}
         .account .logout-btn{display:inline-flex;align-items:center;justify-content:center;
             background:#fff;border:1px solid #c5c9dd;border-radius:8px;color:var(--accent-dark);
             padding:7px 12px;min-height:35px;line-height:1.2;font-weight:600;font-size:12px;
@@ -977,7 +984,44 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     if(ids.length>50){event.preventDefault();window.alert("За один раз можно удалить не более 50 сообщений.");}
   });
   refreshSelection();
-})(); 
+})();
+(function(){
+  "use strict";
+  var key="adc-scroll-restore-v1";
+  var currentUrl=window.location.pathname+window.location.search;
+  var raw=null;
+  try{raw=window.sessionStorage.getItem(key);window.sessionStorage.removeItem(key);}catch(e){}
+  if(raw){
+    try{
+      var saved=JSON.parse(raw);
+      if(saved&&saved.url===currentUrl){
+        window.requestAnimationFrame(function(){
+          var y=Number(saved.windowY);
+          if(Number.isFinite(y)&&y>=0)window.scrollTo(0,y);
+          var drawer=document.querySelector(".drawer");
+          var feed=document.getElementById("chat-feed");
+          if(drawer&&Number.isFinite(Number(saved.drawerY)))drawer.scrollTop=Number(saved.drawerY);
+          if(feed&&Number.isFinite(Number(saved.feedY)))feed.scrollTop=Number(saved.feedY);
+        });
+      }
+    }catch(e){}
+  }
+  document.addEventListener("submit",function(event){
+    var form=event.target;
+    if(!form||!form.tagName||form.tagName.toLowerCase()!=="form"||
+       (form.method||"get").toLowerCase()!=="post"||
+       form.hasAttribute("data-skip-scroll-restore"))return;
+    var drawer=document.querySelector(".drawer");
+    var feed=document.getElementById("chat-feed");
+    var state={
+      url:currentUrl,
+      windowY:window.scrollY,
+      drawerY:drawer?drawer.scrollTop:null,
+      feedY:feed?feed.scrollTop:null
+    };
+    try{window.sessionStorage.setItem(key,JSON.stringify(state));}catch(e){}
+  },true);
+})();
 </script></body></html>';
     exit;
 }
