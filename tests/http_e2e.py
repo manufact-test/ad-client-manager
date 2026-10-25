@@ -190,8 +190,10 @@ try:
     require(status==303 and "client="+str(real) in location(headers),
             "Standalone context edit returns to the same client card")
     editedContextPanel=panel("director",real)
-    require("Инвойс № 777" in editedContextPanel and "PayPal; договоры" not in editedContextPanel and
-            "CI real ledger" in editedContextPanel and "Фиктивная реклама" in editedContextPanel,
+    editedDrawer=re.search(r'<aside class="drawer customer-profile"[\\s\\S]*?</aside>',editedContextPanel)
+    require(editedDrawer is not None and "Инвойс № 777" in editedDrawer.group(0) and
+            "PayPal; договоры" not in editedDrawer.group(0) and
+            "CI real ledger" in editedDrawer.group(0) and "Фиктивная реклама" in editedDrawer.group(0),
             "Inline context edit changes only payment details and preserves client fields")
     status,_,listAfterEdit=request("director","/?view=clients")
     require(status==200 and "Инвойс № 777" in html(listAfterEdit),
