@@ -305,9 +305,11 @@ function adc_doc_panel(PDO $db, array $user, int $clientId): string {
         }
         $html.='</div></div>';
     }
-    // The upload action is the empty state: no repetitive technical message.
+    // Keep an invalid upload form open inside the same client drawer.
     if ($user['role']==='director') {
-        $html.='<details class="doc-upload"><summary>Загрузить документ</summary>'.
+        $uploadError=$GLOBALS['adc_document_upload_error']??null;
+        $openUpload=is_array($uploadError) && (int)($uploadError['client_id']??0)===$clientId;
+        $html.='<details class="doc-upload"'.($openUpload?' open':'').'><summary>Загрузить документ</summary>'.
             adc_doc_upload_form($db,$clientId).'</details>';
     }
     return $html.'</section>';
@@ -321,26 +323,75 @@ function adc_doc_upload_form(PDO $db,int $clientId,?int $replaceId=null): string
         $q=$db->prepare('SELECT * FROM client_entries WHERE document_id=? AND is_void=0');
         $q->execute([$replaceId]);$current=$q->fetch()?:null;
     }
+
+    $uploadError=$GLOBALS['adc_document_upload_error']??null;
+    $preserveUpload=$replaceId===null && is_array($uploadError) &&
+        (int)($uploadError['client_id']??0)===$clientId;
+    $posted=$preserveUpload?$_POST:[];
+
+    // New payments/documents should inherit the client's current contract currency.
+    $clientCurrency='BYN';
+    $q=$db->prepare('SELECT * FROM engagements WHERE client_id=? AND status="active" ORDER BY id DESC LIMIT 1');
+    $q->execute([$clientId]);$engagement=$q->fetch();
+    if($engagement){
+        try {
+            $terms=adc_w_effective_terms($db,$engagement,(new DateTimeImmutable('today'))->format('Y-m-d'));
+            $clientCurrency=(string)($terms['currency']??$engagement['currency']??'BYN');
+        } catch(Throwable $ignored) {
+            $clientCurrency=(string)($engagement['currency']??'BYN');
+        }
+    }
+    $validCurrencies=['BYN','RUB','EUR','USD','KZT'];
+    if(!in_array($clientCurrency,$validCurrencies,true))$clientCurrency='BYN';
+
     $periods=[''=>'Без периода'];
     $q=$db->prepare('SELECT p.id,p.period_start FROM billing_periods p
         JOIN engagements e ON e.id=p.engagement_id WHERE e.client_id=? ORDER BY p.period_start DESC LIMIT 100');
     $q->execute([$clientId]);foreach($q as $r)$periods[$r['id']]=$r['period_start'];
+
+    $moneyEntry=$current?:['currency'=>$clientCurrency];
+    if($preserveUpload){
+        $postedCurrency=(string)($posted['currency']??$clientCurrency);
+        if(!in_array($postedCurrency,$validCurrencies,true))$postedCurrency=$clientCurrency;
+        $postedCategory=(string)($posted['category']??'advertising');
+        if(!in_array($postedCategory,['advertising','development','other'],true))$postedCategory='advertising';
+        $moneyEntry=[
+            'amount'=>(string)($posted['amount']??''),
+            'currency'=>$postedCurrency,
+            'category'=>$postedCategory
+        ];
+    }
+
     $h='<form class="doc-upload-form" method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
       adc_w_hidden('action',$replaceId?'edit_document':'upload_document').adc_w_hidden('client_id',$clientId);
     if($replaceId!==null)$h.=adc_w_hidden('document_id',$replaceId);
     if ($replaceId===null) $h.='<div class="card-payment-switch">'.adc_w_check('is_card','Оплата без документов',false).'</div>';
+
+    $uploadMessage=$preserveUpload?(string)($uploadError['message']??''):'';
+    $pdfError=$uploadMessage==='Выберите PDF.'?$uploadMessage:'';
+    $formError=$uploadMessage!=='' && $pdfError===''?$uploadMessage:'';
+    if($formError!=='')$h.='<div class="error document-upload-error" role="alert">'.adc_h($formError).'</div>';
+
     $h.='<div class="document-only"><label class="field">PDF'.($replaceId!==null?' (можно не менять)':'').
-      '<input type="file" name="document" accept=".pdf,application/pdf"></label></div>'.
-      '<div class="document-only">'.adc_w_check('needs_contract','Договор',(bool)($existing['needs_contract']??false)).
-      adc_w_check('needs_spec','Спецификация',(bool)($existing['needs_spec']??false)).
-      adc_w_check('needs_invoice','Счёт',(bool)($existing['needs_invoice']??false)).
-      adc_w_check('needs_act','Акт',(bool)($existing['needs_act']??false)).'</div>'.
-      '<div class="ledger-money-toggle">'.adc_w_check('has_amount','Указать сумму к оплате',($current['amount']??null)!==null).
-      '<div class="ledger-money-fields">'.str_replace(' required','',adc_ledger_form_money($current?:[])).'</div></div>'.
-      adc_w_field('Комментарий','note',(string)($current['note']??''),'text','maxlength="500"').
-      adc_w_field('Передать до (необязательно)','transfer_due_on',(string)($existing['transfer_due_on']??''),'date').
-      '<details><summary>Привязать к старому периоду (необязательно)</summary>'.
-      adc_w_select('Расчётный период','period_id',$periods,(string)($existing['period_id']??'')).'</details>'.
+      '<input type="file" name="document" accept=".pdf,application/pdf"></label>';
+    if($pdfError!=='')$h.='<div class="error document-upload-error" role="alert">'.adc_h($pdfError).'</div>';
+    $h.='</div>'.
+      '<div class="document-only">'.
+      adc_w_check('needs_contract','Договор',$preserveUpload?isset($posted['needs_contract']):(bool)($existing['needs_contract']??false)).
+      adc_w_check('needs_spec','Спецификация',$preserveUpload?isset($posted['needs_spec']):(bool)($existing['needs_spec']??false)).
+      adc_w_check('needs_invoice','Счёт',$preserveUpload?isset($posted['needs_invoice']):(bool)($existing['needs_invoice']??false)).
+      adc_w_check('needs_act','Акт',$preserveUpload?isset($posted['needs_act']):(bool)($existing['needs_act']??false)).'</div>'.
+      '<div class="ledger-money-toggle">'.adc_w_check('has_amount','Указать сумму к оплате',$preserveUpload?isset($posted['has_amount']):(($current['amount']??null)!==null)).
+      '<div class="ledger-money-fields">'.str_replace(' required','',adc_ledger_form_money($moneyEntry)).'</div></div>'.
+      adc_w_field('Комментарий','note',$preserveUpload?(string)($posted['note']??''):(string)($current['note']??''),'text','maxlength="500"').
+      adc_w_field('Передать до (необязательно)','transfer_due_on',$preserveUpload?(string)($posted['transfer_due_on']??''):(string)($existing['transfer_due_on']??''),'date');
+
+    $periodSelection=(string)($preserveUpload?($posted['period_id']??''):($existing['period_id']??''));
+    if(!array_key_exists($periodSelection,$periods))$periodSelection='';
+    $h.='<details><summary>Привязать к старому периоду (необязательно)</summary>'.
+      '<p class="muted period-link-help">Здесь отображаются только ранее сохранённые расчётные периоды этого клиента. Если периодов нет, оставьте «Без периода».</p>'.
+      adc_w_select('Расчётный период','period_id',$periods,$periodSelection).'</details>'.
       '<button type="submit">'.($replaceId?'Сохранить изменения':'Загрузить документ').'</button></form>';
     return $h;
 }
+
