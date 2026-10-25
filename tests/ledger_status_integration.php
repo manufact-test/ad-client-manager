@@ -44,14 +44,14 @@ try {
     $stmt->execute([$client,'2026-10-15 10:00:00','2026-10-15 12:00:00']);
     $entry=(int)$db->lastInsertId();
     $early=adc_ledger_client_status($db,$client,'2026-10-20');
-    status_check(str_contains($early[0],'Ждём оплату')&&!str_contains($early[0],'просрочка'),
-        'October 20 is not overdue for October 25 even though sent October 15');
+    status_check(str_contains($early[0],'Ждём оплату')&&!str_contains($early[0],'просрочка')&&$early[1]==='danger',
+        'Waiting payment is red before the due date too');
     $preparationWindow=adc_ledger_client_status($db,$client,'2026-10-22');
-    status_check(str_contains($preparationWindow[0],'Ждём оплату'),
-        'Document sent ten days early must suppress duplicate preparation reminder');
+    status_check(str_contains($preparationWindow[0],'Ждём оплату')&&$preparationWindow[1]==='danger',
+        'Document sent ten days early suppresses duplicate preparation reminder while payment stays red');
     $withinGrace=adc_ledger_client_status($db,$client,'2026-10-28');
-    status_check(str_contains($withinGrace[0],'Ждём оплату')&&!str_contains($withinGrace[0],'просрочка'),
-        'October 28 is within agreed three-day tolerance');
+    status_check(str_contains($withinGrace[0],'Ждём оплату')&&!str_contains($withinGrace[0],'просрочка')&&$withinGrace[1]==='danger',
+        'Payment remains red during the three-day grace period');
     $late=adc_ledger_client_status($db,$client,'2026-10-29');
     status_check(str_contains($late[0],'просрочка')&&$late[1]==='danger',
         'October 29 is overdue');
@@ -64,8 +64,8 @@ try {
     $db->prepare('INSERT INTO client_entries(client_id,entry_kind,amount,currency,category,
         created_at) VALUES (?,"document","200.00","BYN","advertising","2026-10-29 08:00:00")')->execute([$client]);
     $priority=adc_ledger_client_status($db,$client,'2026-10-29');
-    status_check(str_contains($priority[0],'Отправить документы'),
-        'Unsent second month document outranks past-due payment');
+    status_check(str_contains($priority[0],'Отправить документы')&&$priority[1]==='warning',
+        'Document preparation remains gray and outranks past-due payment');
 
     $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
         VALUES (?,"2026-11-01","2026-11-01",5,"prepayment","BYN")')->execute([$eng]);
