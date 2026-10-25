@@ -2,17 +2,18 @@
 
 ## Состояние 25.10.2026 — UI hotfix отправлен в deploy
 
-- main: ba899146f5d1fa16c6cf75d0d511c4c9d55f1578; PR [#20](https://github.com/manufact-test/ad-client-manager/pull/20) merged.
-- Полный CI PR [#40227797985 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227797985); полный CI main [#40227901025 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227901025).
-- deploy: 18d08769ff80cf963cf0e2c8457a87ebdb95d42d. Все разрешённые runtime-файлы (index.php, .htaccess, favicon.ico, app/**) сверены с main и совпадают.
-- Продвинуты только index.php, app/chat.php и app/workflow.php: восстановлены нижние hover-действия чата, меню ⋯ вынесено вверх без резервирования пространства, оба поля «Как оплачивают» уменьшены до 45 px, карандаш перенесён к заголовку, добавлено восстановление scroll position после POST.
-- Это было разовое прямое продвижение deploy после явного поручения владельца и полного CI. В main push-run штатный job deploy был SKIPPED; workflow_dispatch не запускался. Не искажать статус CI и для будущих релизов соблюдать стандартный release gate.
+- Проверенный кодовый checkpoint main после PR #21: 78b281199c5fe7fc0ceb76e82bcc8a95976fd48a. PR #20 и PR #21 merged.
+- Полный CI PR #20 [#40227797985 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227797985); main CI [#40227901025 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227901025).
+- Полный CI PR #21 [#40228481774 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40228481774); main CI [#40228596583 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40228596583).
+- deploy: 286b11333719c423b7c3d0a74483936147959717. Все разрешённые runtime-файлы (index.php, .htaccess, favicon.ico, app/**) сверены с проверенным кодом main и совпадают.
+- Исправлены: нижние hover-действия чата и компактное меню ⋯ сверху; высота двух полей «Как оплачивают» 45 px; карандаш рядом с заголовком; popup-отступы и выравнивание для мобильной второй колонки; восстановление scroll position после POST.
+- Это было разовое прямое продвижение deploy после явного поручения владельца и полного CI. В main push-run штатный job deploy был SKIPPED; workflow_dispatch не запускался. Не искажать статус CI; будущие релизы должны соблюдать стандартный release gate.
 - Схема и production-данные не менялись; DDL/migrations не запускались. GitHub остаётся PUBLIC.
-- Фактическую версию Hostinger из инструментов открыть не удалось (Cache miss / URL not accessible). Ветка deploy обновлена, но визуальный результат на сайте не подтверждён. Нужна ручная проверка владельца после Ctrl+F5.
+- Фактическую версию Hostinger инструментами проверить не удалось (DNS не разрешается / URL not accessible). Нужна ручная проверка владельца после Ctrl+F5.
 
 ### Следующее действие
 
-Только ручная приёмка владельца по [актуальному handoff](NEXT-CHAT-2026-10-25.md): чат на desktop/mobile, меню ⋯, кнопки снизу, высота обоих полей, положение карандаша и popup, сохранение прокрутки при ошибке в «Документы и оплата». До результатов не добавлять новых изменений. Не создавать реальные финансовые записи и не удалять важные сообщения.
+Только ручная приёмка владельца по [актуальному handoff](NEXT-CHAT-2026-10-25.md): чат desktop/mobile, меню ⋯, кнопки снизу, высота обоих полей, положение карандаша и popup, сохранение прокрутки при ошибке в «Документы и оплата». До результатов не добавлять новых изменений. Не создавать реальные финансовые записи и не удалять важные сообщения.
 
 ---
 

@@ -4,17 +4,20 @@
 
 ## Проверенное состояние
 
-- main: ba899146f5d1fa16c6cf75d0d511c4c9d55f1578; PR [#20](https://github.com/manufact-test/ad-client-manager/pull/20) объединён.
-- Полный CI PR: [#40227797985 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227797985). Полный CI main: [#40227901025 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227901025).
-- deploy: 18d08769ff80cf963cf0e2c8457a87ebdb95d42d. На deploy перенесены только index.php, app/chat.php и app/workflow.php. Все разрешённые runtime-файлы index.php, .htaccess, favicon.ico и app/** сверены с main и совпадают.
-- По явному поручению владельца после успешного CI этот hotfix был разово продвинут в deploy напрямую. В main push-run штатный job deploy был SKIPPED; не утверждать, что workflow_dispatch запускался. Для будущих выпусков сохранять обычный release gate.
+- Проверенный кодовый checkpoint main после PR #21: 78b281199c5fe7fc0ceb76e82bcc8a95976fd48a. PR [#20](https://github.com/manufact-test/ad-client-manager/pull/20) и [#21](https://github.com/manufact-test/ad-client-manager/pull/21) объединены.
+- Полный CI PR #20: [#40227797985 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227797985). Main CI после PR #20: [#40227901025 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227901025).
+- CI мобильной поправки PR #21: [#40228481774 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40228481774). Main CI после PR #21: [#40228596583 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40228596583).
+- deploy: 286b11333719c423b7c3d0a74483936147959717. На deploy продвинут только index.php в последнем hotfix; app/chat.php и app/workflow.php были синхронизированы предыдущим deploy-коммитом. Все разрешённые runtime-файлы index.php, .htaccess, favicon.ico и app/** сверены с проверенным кодом main и совпадают.
+- По явному поручению владельца hotfix разово продвинут в deploy напрямую после успешного полного CI. В main push-run штатный job deploy был SKIPPED; workflow_dispatch не запускался. Не утверждать, что workflow_dispatch выполнялся; для будущих выпусков сохранять стандартный release gate.
 - База данных, схема, реальные клиенты, документы, оплаты, периоды и переписки не менялись.
-- Фактический HTML Hostinger недоступен инструментам проверки (Cache miss / URL not accessible). Синхронизация ветки подтверждена, но визуальный результат на сайте должен проверить владелец в браузере после Ctrl+F5.
+- Фактический HTML Hostinger недоступен инструментам проверки: DNS не разрешается / URL not accessible. Синхронизация ветки подтверждена, но визуальный результат должен проверить владелец в браузере после Ctrl+F5.
 - GitHub остаётся PUBLIC. Не менять видимость без отдельного прямого разрешения владельца.
+- Этот handoff может попасть в следующий документационный коммит, поэтому перед любым действием следующий чат должен проверить актуальный HEAD main и deploy через GitHub.
 
 ## Следующее действие
 
-Не продолжать разработку и не вносить новые правки до ручной приёмки владельца. В следующем чате провести только проверку пунктов из актуального handoff: меню чата, размеры двух полей «Как оплачивают», расположение карандаша/редактора и сохранение позиции прокрутки после ошибки формы. Если что-то не совпадёт, фиксировать точный дефект и исправлять только его.
+Не продолжать разработку до ручной приёмки владельца. Проверить только чат, два поля «Как оплачивают», карандаш/всплывающий редактор на desktop/mobile и сохранение прокрутки после ошибки формы. Если что-то не совпадёт, зафиксировать точный дефект и исправлять только его.
+
 
 ---
 
