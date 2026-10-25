@@ -290,7 +290,7 @@ function adc_w_engagement_revision(array $row): string {
 
 function adc_w_action(PDO $db, array $user, string $action): bool {
     $supported = [
-        'pause_client','resume_paused_client','add_engagement_terms', 'save_client', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
+        'pause_client','resume_paused_client','add_engagement_terms', 'save_client', 'save_client_context', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
         'save_charge', 'void_charge', 'add_payment', 'edit_task',
     ];
     if (!in_array($action, $supported, true)) {
@@ -402,6 +402,26 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $db->commit();
         adc_flash('Карточка клиента сохранена.');
         adc_redirect(adc_w_client_location($db,$id));
+    }
+
+    if ($action === 'save_client_context') {
+        $clientId=adc_w_id('client_id');
+        $contextText=adc_input('client_context_text');
+        if (mb_strlen($contextText)>500) {
+            throw new InvalidArgumentException('Текст об оплате и документах должен быть не длиннее 500 символов.');
+        }
+        $db->beginTransaction();
+        $existing=adc_w_client($db,$clientId,true);
+        $oldContext=(string)($existing['client_context_text']??'');
+        if ($oldContext!==$contextText) {
+            $db->prepare('UPDATE clients SET client_context_text=? WHERE id=?')
+                ->execute([$contextText===''?null:$contextText,$clientId]);
+            adc_audit($db,$actor,'edit_client_context','client',$clientId,
+                ['is_set'=>$contextText!=='']);
+        }
+        $db->commit();
+        adc_flash('Информация об оплате обновлена.');
+        adc_redirect(adc_w_client_location($db,$clientId));
     }
 
     $clientId = adc_w_id('client_id');
@@ -824,7 +844,7 @@ function adc_w_client_form(PDO $db, ?array $client): string {
     $html .= '<div class="grid">' .
         adc_w_field('Название', 'client_name', (string)($client['name'] ?? ''), 'text', 'required maxlength="240"') .
         adc_w_field('Что делаем для клиента', 'platform_text', (string)($client['platform_text'] ?? ''), 'text', 'maxlength="400"') .
-        '<label class="field">Оплата / документы<textarea name="client_context_text" rows="2" maxlength="500" placeholder="Например: оплата на PayPal, договоры, реквизиты">' .
+        '<label class="field">Куда / как оплачивают<textarea name="client_context_text" rows="2" maxlength="500" placeholder="Например: PayPal, карта, договор № 123, инвойс">' .
             adc_h((string)($client['client_context_text'] ?? '')) . '</textarea></label>' .
         adc_w_select('Тип клиента', 'legal_type', ['legal'=>'Юридическое лицо','individual'=>'Физическое лицо'], (string)($client['legal_type'] ?? 'legal')) .
         '<div class="source-choice">'.adc_w_select('Откуда пришёл клиент','source_kind',
@@ -918,6 +938,14 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         '</h2><a class="btn secondary" href="'.adc_h($returnUrl).'">Закрыть ✕</a></div>'.
         '<section class="card customer-identity"><div class="client-summary-header"><h3>О клиенте</h3><div class="actions"><a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Выгрузить историю в CSV</a><a class="btn secondary" href="/?view=chat&amp;thread='.$id.'">Чат клиента</a></div></div><div class="profile-facts">'.
         '<div><small>Услуги</small><strong>'.adc_h((string)$client['platform_text'] ?: 'Не указаны').'</strong></div>'.
+        '<div class="client-context-fact"><small>Куда / как оплачивают</small><strong>'.
+            (trim((string)($client['client_context_text']??''))!=='' ?
+                nl2br(adc_h((string)$client['client_context_text'])) : 'Не указано').
+            '</strong><details class="client-context-editor"><summary>Изменить</summary>'.
+            adc_w_form_start('save_client_context').adc_w_hidden('client_id',$id).
+            '<label class="field">Куда / как оплачивают<textarea name="client_context_text" rows="2" maxlength="500" placeholder="Например: PayPal, карта, договор № 123, инвойс">'.
+                adc_h((string)($client['client_context_text']??'')).'</textarea></label>'.
+            '<button type="submit">Сохранить</button></form></details></div>'.
         '<div><small>Тип</small><strong>'.((string)$client['legal_type']==='legal'?'Юридическое лицо':'Физическое лицо').'</strong></div>'.
         '<div><small>Откуда пришёл</small><strong>'.adc_h($source).'</strong></div>';
     if ($current) {
@@ -1119,7 +1147,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '<div class="table-scroll client-table-scroll" tabindex="0" role="region" '.
         'aria-label="Список клиентов: таблицу можно прокручивать по горизонтали">'.
         '<table class="client-list-table"><thead><tr>'.
-        '<th>Клиент</th><th>Услуги</th><th>Оплата / документы</th><th>Статус</th>'.
+        '<th>Клиент</th><th>Услуги</th><th>Куда / как оплачивают</th><th>Статус</th>'.
         '</tr></thead><tbody>';
     $today=date('Y-m-d');
     foreach ($clients as $client) {

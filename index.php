@@ -241,14 +241,17 @@ function adc_page(string $title, string $body, ?array $user = null): never {
 
         /* Final client list: round entire highlighted rows, with breathing room. */
         .client-table-scroll{border-radius:12px;overflow-x:auto}
-        .client-list-table{border-collapse:separate;border-spacing:0 5px;min-width:650px}
+        .client-list-table{border-collapse:separate;border-spacing:0 5px;min-width:760px}
         .client-list-table thead th{padding:12px 18px;border-bottom:1px solid #e5e6f2}
-        .client-list-table tbody td{padding:15px 18px;vertical-align:middle;border:0;background:#fff}
-        .client-list-table tbody tr:nth-child(even) td{background:#f3f1ff}
-        .client-list-table tbody tr:hover td{background:#eae7ff}
+        .client-list-table tbody td{padding:15px 18px;vertical-align:middle;border:0;background:#fcfbff}
+        .client-list-table tbody tr:nth-child(even) td{background:#f6f5fb}
+        .client-list-table tbody tr:hover td{background:#efedfa}
         .client-list-table tbody tr[data-client-href]{cursor:pointer}
         .client-list-table tbody tr[data-client-href]:focus-visible{outline:2px solid #4d43c2;outline-offset:2px}
         .client-list-table .client-context-cell{min-width:180px;max-width:260px;white-space:pre-line;font-size:13px;overflow-wrap:anywhere}
+        .client-context-editor form{min-width:0;max-width:340px;margin-top:6px}
+        .client-context-editor .field{margin-bottom:8px}
+        .client-context-editor button{font-size:13px;padding:7px 10px}
         .client-list-table tbody td:first-child{border-radius:11px 0 0 11px}
         .client-list-table tbody td:last-child{border-radius:0 11px 11px 0}
         .client-list-table .status-cell{padding-left:20px;padding-right:20px}
