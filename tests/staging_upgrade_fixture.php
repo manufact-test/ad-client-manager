@@ -80,7 +80,8 @@ if ($mode === 'seed') {
     $db->exec('DROP TABLE IF EXISTS team_chat_mentions');
     $db->exec('DROP TABLE IF EXISTS team_chat_reads');
     $db->exec('DROP TABLE IF EXISTS team_chat_messages');
-    // Simulate the previous deployed schema: no monthly-price snapshots.
+    // Simulate the previous deployed schema: no client context or monthly-price snapshots.
+    $db->exec('ALTER TABLE clients DROP COLUMN client_context_text');
     $db->exec('ALTER TABLE engagement_terms DROP COLUMN quoted_amount');
     $db->exec('ALTER TABLE payment_events DROP INDEX uq_payment_submission, DROP COLUMN submission_key');
     $db->exec('ALTER TABLE billing_periods DROP INDEX uq_period_creation_key, DROP COLUMN creation_key');
@@ -107,6 +108,9 @@ foreach ([
         throw new RuntimeException('Required schema upgrade did not complete');
     }
 }
+$contextCol=$db->query("SHOW COLUMNS FROM clients LIKE 'client_context_text'")->fetch();
+if (!$contextCol || strtolower((string)$contextCol['Type'])!=='varchar(500)' ||
+    $contextCol['Null']!=='YES') throw new RuntimeException('Client context migration failed');
 $priceCol=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
 if (!$priceCol || strtolower((string)$priceCol['Type'])!=='decimal(16,2)' ||
     $priceCol['Null']!=='YES') throw new RuntimeException('Monthly contract price migration failed');
