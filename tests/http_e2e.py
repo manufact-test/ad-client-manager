@@ -190,7 +190,7 @@ try:
     require(status==303 and "client="+str(real) in location(headers),
             "Standalone context edit returns to the same client card")
     editedContextPanel=panel("director",real)
-    editedDrawer=re.search(r'<aside class="drawer customer-profile"[\\s\\S]*?</aside>',editedContextPanel)
+    editedDrawer=re.search(r'<aside class="drawer customer-profile"[\s\S]*?</aside>',editedContextPanel)
     require(editedDrawer is not None and "Инвойс № 777" in editedDrawer.group(0) and
             "PayPal; договоры" not in editedDrawer.group(0) and
             "CI real ledger" in editedDrawer.group(0) and "Фиктивная реклама" in editedDrawer.group(0),
