@@ -104,6 +104,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .drawer{width:min(880px,100vw);padding:22px;background:#f7f8fc}
         .drawer .card{margin-top:15px}.drawer-head{position:sticky;top:-22px;z-index:2;background:#f7f8fc;padding:12px 0;box-shadow:0 1px 0 #e2e5ef}
         .drawer .period{background:#fff}.drawer .item>div{min-width:0}.drawer .actions{flex-shrink:0}
+        .customer-profile .item>div:first-child{flex:1 1 0%;min-width:0;overflow-wrap:anywhere}
+        .customer-profile .item>.actions{flex:0 1 auto;min-width:0;max-width:58%;flex-wrap:wrap;justify-content:flex-end}
+        .customer-profile .item>.actions>details{min-width:0;max-width:100%}
+        @media(max-width:550px){.customer-profile .item{flex-direction:column;align-items:stretch}
+          .customer-profile .item>.actions{width:100%;max-width:100%;justify-content:flex-start}}
         .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
         .summary-metric{padding:15px;border:1px solid var(--line);background:#fbfbff;border-radius:11px}
         .summary-metric small{display:block;margin-bottom:5px}.summary-metric strong{font-size:20px}
@@ -238,6 +243,8 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .ac-calendar .ac-today{width:100%;margin-top:8px;padding:7px;background:#eeecff;color:#4033a7;font-size:12px}
 
 .card-payment-switch{margin-bottom:10px}.doc-upload-form:has(input[name=is_card]:checked) .document-only{display:none}.doc-upload-form:has(input[name=is_card]:checked) .ledger-money-fields{display:block!important}.doc-upload-form:has(input[name=is_card]:checked) .ledger-money-toggle>label.check{display:none}
+        .doc-upload-form .document-upload-error{margin:6px 0 12px}
+        .period-link-help{font-size:12px;line-height:1.45;margin:8px 0 12px}
 
         /* Final client list: round entire highlighted rows, with breathing room. */
         .client-table-scroll{border-radius:12px;overflow-x:auto}
@@ -1343,6 +1350,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'message'=>$errorMessage,
                 'mode'=>(string)($_POST['resume_mode']??'keep'),
                 'date'=>(string)($_POST['resume_start_on']??'')
+            ];
+            $errorMessage=null;
+        }
+        // Upload validation belongs to the same client drawer, not the page-wide alert.
+        // Keep posted values for rerendering; the browser will require the PDF to be reselected.
+        if (($action??'')==='upload_document' && !isset($_POST['is_card']) &&
+            isset($current) && is_array($current) && ($current['role']??'')==='director' &&
+            ctype_digit((string)($_POST['client_id']??'')) && !($error instanceof PDOException)) {
+            $GLOBALS['adc_document_upload_error']=[
+                'client_id'=>(int)$_POST['client_id'],
+                'message'=>$errorMessage
             ];
             $errorMessage=null;
         }
