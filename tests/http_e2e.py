@@ -494,7 +494,11 @@ try:
     c=page.find('class="card customer-more"')
     require(a>=0 and a<b<c and 'class="client-summary-header"' in page,
             "Accepted original client-card overview / ledger / actions")
-    require(page.count("PayPal, карта, договор № 1, invoice")==2 and
+    add_status,_,add_page_raw=request("director","/?view=clients")
+    add_page=html(add_page_raw)
+    require(add_status==200 and "PayPal, карта, договор № 1, invoice" in add_page and
+            "PayPal, карта, договор № 1, invoice" in page and
+            "Например: PayPal, карта, договор № 123, инвойс" not in add_page and
             "Например: PayPal, карта, договор № 123, инвойс" not in page,
             "Payment method placeholder is short and consistent in add/edit forms")
     require("Выгрузить историю в CSV" in page and "Чат клиента" in page and
