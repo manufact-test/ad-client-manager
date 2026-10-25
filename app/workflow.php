@@ -931,12 +931,17 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
     $active = array_values(array_filter($engagements, fn($e) => $e['status'] === 'active'));
     $current = $active[0] ?? ($engagements[0] ?? null);
     $pause=adc_w_active_pause($db,$id);
-    $html = '<aside class="drawer customer-profile" id="client" role="region" aria-labelledby="client-heading">'.
+    $html = '<aside class="drawer customer-profile" id="client" data-client-id="'.$id.'" role="region" aria-labelledby="client-heading">'.
         '<div class="drawer-head"><h2 id="client-heading">'.adc_h((string)$client['name']).
         ((int)$client['is_demo'] === 1 ? ' <span class="badge demo">Демо</span>' : '').
         ($pause?' <span class="badge warning">Пауза</span>':'').
-        '</h2><a class="btn secondary" href="'.adc_h($returnUrl).'">Закрыть ✕</a></div>'.
-        '<section class="card customer-identity"><div class="client-summary-header"><h3>О клиенте</h3><div class="actions"><a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Выгрузить историю в CSV</a><a class="btn secondary" href="/?view=chat&amp;thread='.$id.'">Чат клиента</a></div></div><div class="profile-facts">'.
+        '</h2><a class="btn secondary" href="'.adc_h($returnUrl).'">Закрыть ✕</a></div>';
+    $cardError=$GLOBALS['adc_client_card_error']??null;
+    if (is_array($cardError) && (int)($cardError['client_id']??0)===$id) {
+        $html.='<div class="error client-card-action-error" data-client-card-error="1" role="alert">'.
+            adc_h((string)($cardError['message']??'Не удалось сохранить изменения.')).'</div>';
+    }
+    $html.='<section class="card customer-identity"><div class="client-summary-header"><h3>О клиенте</h3><div class="actions"><a class="btn secondary" href="/?export=client&amp;client_id='.$id.'">Выгрузить историю в CSV</a><a class="btn secondary" href="/?view=chat&amp;thread='.$id.'">Чат клиента</a></div></div><div class="profile-facts">'.
         '<div><small>Услуги</small><strong>'.adc_h((string)$client['platform_text'] ?: 'Не указаны').'</strong></div>'.
 
         '<div><small>Тип</small><strong>'.((string)$client['legal_type']==='legal'?'Юридическое лицо':'Физическое лицо').'</strong></div>'.
@@ -1400,6 +1405,127 @@ function adc_w_team(PDO $db, array $user): string {
     return $html;
 }
 
+function adc_w_client_card_feedback_script(): string {
+    $state=$GLOBALS['adc_client_card_error']??null;
+    $payload=null;
+    if (is_array($state)) {
+        $payload=[
+            'clientId'=>(int)($state['client_id']??0),
+            'action'=>(string)($state['action']??''),
+            'field'=>is_string($state['field']??null)?$state['field']:'',
+            'fields'=>is_array($state['fields']??null)?$state['fields']:[],
+            'identifiers'=>is_array($state['identifiers']??null)?$state['identifiers']:[]
+        ];
+    }
+    $json=json_encode($payload,
+        JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT|
+        JSON_INVALID_UTF8_SUBSTITUTE|JSON_THROW_ON_ERROR);
+    $nonce=adc_h((string)($GLOBALS['adcJsNonce']??''));
+    $script='(()=>{const state='.$json.';' . <<<'JS'
+    const moneySelector='input[type="number"][name="amount"], input[type="number"][name="quoted_amount"]';
+    const isMoneyField=(el)=>el instanceof HTMLInputElement &&
+        el.matches(moneySelector) && !!el.closest('.customer-profile');
+    const validateMoney=(el)=>{
+        if(!isMoneyField(el))return;
+        if(el.validity.badInput)el.setCustomValidity('Введите корректную сумму.');
+        else if(el.value!=='' && el.validity.stepMismatch)
+            el.setCustomValidity('Сумма должна иметь не более двух знаков после запятой.');
+        else el.setCustomValidity('');
+    };
+    document.querySelectorAll('.customer-profile '+moneySelector).forEach(validateMoney);
+    document.addEventListener('input',(event)=>{
+        const el=event.target;
+        if(!isMoneyField(el))return;
+        validateMoney(el);
+        if(!el.validity.badInput && !el.validity.stepMismatch){
+            const field=el.closest('.field');
+            const error=field && field.querySelector('.client-card-action-error');
+            if(error)error.remove();
+        }
+    });
+    document.addEventListener('change',(event)=>{
+        if(isMoneyField(event.target))validateMoney(event.target);
+    });
+    if(!state || typeof state!=='object' || !state.clientId || !state.action)return;
+    const root=Array.from(document.querySelectorAll('.customer-profile')).find(
+        (el)=>el.getAttribute('data-client-id')===String(state.clientId));
+    if(!root)return;
+    const error=root.querySelector('[data-client-card-error="1"]');
+    if(!error)return;
+    const candidates=Array.from(root.querySelectorAll('form')).filter((form)=>{
+        const action=Array.from(form.elements).find((el)=>el.name==='action');
+        const client=Array.from(form.elements).find((el)=>el.name==='client_id');
+        return action && action.value===state.action && client &&
+            String(client.value)===String(state.clientId);
+    });
+    const form=candidates.find((candidate)=>{
+        return Object.entries(state.identifiers||{}).every(([name,value])=>{
+            const control=Array.from(candidate.elements).find((el)=>el.name===name);
+            return !control || String(control.value)===String(value);
+        });
+    }) || (candidates.length===1 ? candidates[0] : null);
+    if(!form){
+        error.scrollIntoView({block:'nearest',behavior:'auto'});
+        return;
+    }
+    for(let node=form;node && node!==root;node=node.parentElement){
+        if(node.tagName==='DETAILS')node.open=true;
+        if(node.hasAttribute('hidden'))node.hidden=false;
+    }
+    const fields=state.fields||{};
+    const excluded=new Set(['csrf','action','client_id','expected_revision','expected_tail','submission_key']);
+    for(const el of Array.from(form.elements)){
+        if(!el.name || excluded.has(el.name) || el.type==='file')continue;
+        const hasValue=Object.prototype.hasOwnProperty.call(fields,el.name);
+        const value=fields[el.name];
+        if(el.type==='checkbox'){
+            el.checked=Array.isArray(value)?value.map(String).includes(String(el.value)):hasValue;
+            continue;
+        }
+        if(el.type==='radio'){
+            el.checked=hasValue && !Array.isArray(value) && String(value)===String(el.value);
+            continue;
+        }
+        if(!hasValue)continue;
+        if(Array.isArray(value)){
+            if(el.tagName==='SELECT' && el.multiple){
+                Array.from(el.options).forEach((option)=>option.selected=value.map(String).includes(option.value));
+            }else{
+                el.value=String(value[0]??'');
+            }
+        }else{
+            const text=String(value);
+            el.value=el.type==='number'?text.replace(',','.'):text;
+        }
+    }
+    const fieldName=state.field||'';
+    const target=fieldName?Array.from(form.elements).find((el)=>el.name===fieldName && el.type!=='hidden'):null;
+    let placed=false;
+    if(target){
+        const label=target.closest('label.field');
+        const wrapper=target.closest('.field');
+        if(label){label.insertBefore(error,target);placed=true;}
+        else if(wrapper){wrapper.insertBefore(error,wrapper.firstChild);placed=true;}
+    }
+    if(!placed){
+        const first=Array.from(form.elements).find((el)=>el.type!=='hidden' &&
+            el.type!=='submit' && el.type!=='button' && el.type!=='file');
+        const label=first && (first.closest('label.field')||first.closest('.field'));
+        if(label){label.insertBefore(error,label.firstChild);}
+        else{form.insertBefore(error,form.firstChild);}
+    }
+    const focusTarget=target || Array.from(form.elements).find((el)=>el.type!=='hidden' &&
+        el.type!=='submit' && el.type!=='button' && el.type!=='file');
+    if(focusTarget){
+        if(isMoneyField(focusTarget))validateMoney(focusTarget);
+        try{focusTarget.focus({preventScroll:true});}catch(e){}
+    }
+    error.scrollIntoView({block:'nearest',behavior:'auto'});
+})();
+JS;
+    return '<script nonce="'.$nonce.'">'.$script.'</script>';
+}
+
 function adc_w_page(PDO $db, array $user, string $alert): never {
     $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
     // Payments and control are represented by the overview and client cards.
@@ -1419,5 +1545,8 @@ function adc_w_page(PDO $db, array $user, string $alert): never {
         'chat' => adc_chat_html($db,$user),
         default => adc_w_team($db, $user),
     };
+    if (in_array($view,['clients','archive'],true)) {
+        $body .= adc_w_client_card_feedback_script();
+    }
     adc_page('Ad Client Manager', $body, $user);
 }
