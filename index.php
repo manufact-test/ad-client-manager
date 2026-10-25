@@ -243,6 +243,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .client-table-scroll{border-radius:12px;overflow-x:auto}
         .client-list-table{border-collapse:separate;border-spacing:0 5px;min-width:760px}
         .client-list-table thead th{padding:12px 18px;border-bottom:1px solid #e5e6f2}
+        .client-list-table thead th.client-context-heading-cell{text-align:left}
         .client-list-table tbody td{padding:15px 18px;vertical-align:middle;border:0;background:#fcfbff}
         .client-list-table tbody tr:nth-child(even) td{background:#f6f5fb}
         .client-list-table tbody tr:hover td{background:#efedfa}
@@ -250,14 +251,18 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .client-list-table tbody tr[data-client-href]:focus-visible{outline:2px solid #4d43c2;outline-offset:2px}
         .client-list-table .client-context-cell{min-width:180px;max-width:260px;white-space:pre-line;font-size:13px;overflow-wrap:anywhere}
         .client-list-table tbody td.client-context-cell{text-align:left}
-        .client-context-fact{position:relative;z-index:1}
-        .client-context-value{display:flex;align-items:center;gap:6px;min-width:0}
-        .client-context-value>strong{min-width:0;overflow-wrap:anywhere}
-        .client-context-editor{display:inline-flex;align-items:center;flex:0 0 auto}
-        .client-context-editor>summary{list-style:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:4px;border:1px solid transparent;border-radius:7px;color:#5144bd;cursor:pointer}
+        .client-context-fact{position:relative;z-index:1;min-width:0}
+        .client-context-heading{display:flex;align-items:center;gap:5px;min-height:20px;margin:0 0 2px}
+        .client-context-heading>small{margin:0}
+        .client-context-text{display:block;min-width:0;overflow-wrap:anywhere;line-height:1.45}
+        .client-context-editor{display:inline-flex;align-items:center;flex:0 0 auto;line-height:0}
+        .client-context-editor>summary{appearance:none;list-style:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:4px;border:1px solid transparent;border-radius:7px;color:#5144bd;cursor:pointer;line-height:0}
         .client-context-editor>summary::-webkit-details-marker{display:none}
+        .client-context-editor>summary::marker{content:"";display:none}
+        .client-context-editor>summary::after{content:none!important;display:none!important}
         .client-context-editor>summary:hover,.client-context-editor[open]>summary{background:#efedff;border-color:#d9d4fa}
-        .client-context-editor>summary svg{display:block;width:15px;height:15px}
+        .client-context-editor>summary:focus-visible{outline:2px solid #5144bd;outline-offset:2px}
+        .client-context-editor>summary svg{display:block;width:15px;height:15px;flex:0 0 auto}
         .client-context-edit-panel{position:absolute;top:calc(100% + 7px);left:0;z-index:40;width:min(360px,calc(100vw - 76px));padding:12px;background:#fff;border:1px solid #e1def5;border-radius:10px;box-shadow:0 12px 28px #25204426}
         .client-context-edit-panel form{min-width:0;max-width:none;margin:0}
         .client-context-edit-panel .field{margin:0 0 10px}
