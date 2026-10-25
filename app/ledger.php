@@ -233,7 +233,7 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
     if ((int)$s['unpaid']>0) {
         $late=adc_ledger_has_overdue($db,$clientId,$today);
         return [$late?'Ждём оплату · '.$s['unpaid'].' (просрочка)':'Ждём оплату · '.$s['unpaid'],
-            $late?'danger':'warning'];
+            'danger'];
     }
     if ((int)$s['paid']>0) return ['Оплачено','good'];
     return ['Выполнено','good'];
