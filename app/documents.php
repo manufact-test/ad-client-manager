@@ -328,7 +328,7 @@ function adc_doc_upload_form(PDO $db,int $clientId,?int $replaceId=null): string
     $h='<form class="doc-upload-form" method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
       adc_w_hidden('action',$replaceId?'edit_document':'upload_document').adc_w_hidden('client_id',$clientId);
     if($replaceId!==null)$h.=adc_w_hidden('document_id',$replaceId);
-    if ($replaceId===null) $h.='<div class="card-payment-switch">'.adc_w_check('is_card','Оплата на карту (без PDF)',false).'</div>';
+    if ($replaceId===null) $h.='<div class="card-payment-switch">'.adc_w_check('is_card','Оплата без документов',false).'</div>';
     $h.='<div class="document-only"><label class="field">PDF'.($replaceId!==null?' (можно не менять)':'').
       '<input type="file" name="document" accept=".pdf,application/pdf"></label></div>'.
       '<div class="document-only">'.adc_w_check('needs_contract','Договор',(bool)($existing['needs_contract']??false)).
