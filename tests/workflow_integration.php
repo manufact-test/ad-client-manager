@@ -89,11 +89,45 @@ $default = [
     'source_kind'=>'advertising','source_note'=>'test','legal_type'=>'legal',
     'started_on'=>'2026-09-07','billing_day'=>'7','payment_mode'=>'prepayment',
     'currency'=>'BYN','quoted_amount'=>'1000.00','comment_text'=>'fictional',
+    'payment_details'=>'PayPal / договор № 123',
 ];
 run_action($db,$director,'save_client',$default);
 $realId=(int)$db->lastInsertId(); // audit insertion follows client: retrieve by name instead
 $realId=(int)$db->query('SELECT MAX(id) FROM clients WHERE name="Fixture real client"')->fetchColumn();
 check($realId>0,'Real client created');
+$storedPaymentDetails=$db->query("SELECT payment_details FROM clients WHERE id=$realId")->fetchColumn();
+check($storedPaymentDetails==='PayPal / договор № 123','Client creation saves free-text payment destination');
+$createClientForm=adc_w_client_form($db,null);
+check(str_contains($createClientForm,'name="payment_details"') &&
+    str_contains($createClientForm,'Куда / как оплачивают'),
+    'Client creation form exposes the payment destination field');
+$clientBeforePaymentEdit=adc_w_client($db,$realId);
+$revisionBeforePaymentEdit=adc_w_client_revision($clientBeforePaymentEdit);
+run_action($db,$director,'save_payment_details',[
+    'client_id'=>(string)$realId,'payment_details'=>'PayPal',
+]);
+$clientAfterPaymentEdit=adc_w_client($db,$realId);
+check($clientAfterPaymentEdit['payment_details']==='PayPal' &&
+    $clientAfterPaymentEdit['name']===$clientBeforePaymentEdit['name'] &&
+    $clientAfterPaymentEdit['platform_text']===$clientBeforePaymentEdit['platform_text'] &&
+    $clientAfterPaymentEdit['comment_text']===$clientBeforePaymentEdit['comment_text'],
+    'Inline payment edit changes only payment details and preserves client data');
+check(adc_w_client_revision($clientAfterPaymentEdit)!==$revisionBeforePaymentEdit,
+    'Payment destination participates in stale client form protection');
+$clientPanel=adc_w_client_panel($db,$director,$realId,'clients','/?view=clients');
+check(str_contains($clientPanel,'Куда / как оплачивают') &&
+    str_contains($clientPanel,'name="action" value="save_payment_details"') &&
+    str_contains($clientPanel,'value="PayPal"'),
+    'Client card displays payment destination and one-field editor');
+$previousGet=$_GET??[]; $_GET=[];
+$clientListHtml=adc_w_clients($db,$director,'clients');
+$_GET=$previousGet;
+$servicesHeader=strpos($clientListHtml,'<th>Услуги</th>');
+$paymentHeader=strpos($clientListHtml,'<th>Куда / как оплачивают</th>');
+$openHeader=strpos($clientListHtml,'<th aria-label="Открыть"></th>');
+check($servicesHeader!==false && $paymentHeader!==false && $openHeader!==false &&
+    $servicesHeader<$paymentHeader && $paymentHeader<$openHeader && str_contains($clientListHtml,'PayPal'),
+    'Client list shows payment destination after services and before Open');
 $e=(int)$db->query("SELECT id FROM engagements WHERE client_id=$realId")->fetchColumn();
 check($e>0,'Engagement created');
 $oldEngRevision=adc_w_engagement_revision(adc_w_engagement($db,$realId,$e));
