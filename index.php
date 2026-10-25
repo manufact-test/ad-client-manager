@@ -241,11 +241,15 @@ function adc_page(string $title, string $body, ?array $user = null): never {
 
         /* Final client list: round entire highlighted rows, with breathing room. */
         .client-table-scroll{border-radius:12px;overflow-x:auto}
-        .client-list-table{border-collapse:separate;border-spacing:0 5px;min-width:650px}
+         .client-list-table{border-collapse:separate;border-spacing:0 5px;min-width:820px}
         .client-list-table thead th{padding:12px 18px;border-bottom:1px solid #e5e6f2}
-        .client-list-table tbody td{padding:15px 18px;vertical-align:middle;border:0;background:#fff}
-        .client-list-table tbody tr:nth-child(even) td{background:#f3f1ff}
-        .client-list-table tbody tr:hover td{background:#eae7ff}
+        .client-list-table tbody td{padding:15px 18px;vertical-align:middle;border:0;background:#fcfbff}
+        .client-list-table tbody tr:nth-child(even) td{background:#f6f5fb}
+        .client-list-table tbody tr:hover td{background:#efedfa}
+        .client-list-table .payment-details-cell{min-width:170px;max-width:250px;font-size:13px;color:#4d5870;overflow-wrap:anywhere}
+        .payment-details-edit form{min-width:0;max-width:340px;margin-top:6px}
+        .payment-details-edit .field{margin-bottom:8px}
+        .payment-details-edit button{font-size:13px;padding:7px 10px}
         .client-list-table tbody td:first-child{border-radius:11px 0 0 11px}
         .client-list-table tbody td:last-child{border-radius:0 11px 11px 0}
         .client-list-table .status-cell{padding-left:20px;padding-right:20px}
@@ -883,6 +887,9 @@ function adc_staging_schema_upgrade_needed(PDO $db): bool {
     foreach (['client_entries','engagement_terms'] as $table) {
         if (!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()) return true;
     }
+    $paymentDetails=$db->query("SHOW COLUMNS FROM clients LIKE 'payment_details'")->fetch();
+    if (!$paymentDetails || strtolower((string)$paymentDetails['Type'])!=='varchar(240)' ||
+        $paymentDetails['Null']!=='YES') return true;
     $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
     if (!$price || strtolower((string)$price['Type'])!=='decimal(16,2)' ||
         $price['Null']!=='YES') return true;
@@ -921,6 +928,9 @@ function adc_staging_schema_upgrade_eligible(PDO $db): bool {
     if ($directorCount < 1) {
         return false;
     }
+    $paymentDetails=$db->query("SHOW COLUMNS FROM clients LIKE 'payment_details'")->fetch();
+    if ($paymentDetails && (strtolower((string)$paymentDetails['Type'])!=='varchar(240)' ||
+        $paymentDetails['Null']!=='YES')) return false;
     if (in_array('engagement_terms',$tables,true)) {
         $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
         if ($price && (strtolower((string)$price['Type'])!=='decimal(16,2)' ||
@@ -1409,10 +1419,10 @@ if ($schemaUpgradeRequired && $dedicatedStagingHost &&
 if ($schemaUpgradeRequired) {
     if ($user['role'] === 'director' && $dedicatedStagingHost) {
         $eligible = adc_staging_schema_upgrade_eligible($db);
-        $body = '<section class="card narrow"><h1>Обновление тестовой базы</h1>'
+        $body = '<section class="card narrow"><h1>Обновление базы</h1>'
             . $alert
-            . '<p>Новая версия добавляет историю договорных сумм и таблицы командного чата без пересчёта прежних оплат. '
-            . 'Директор, сотрудники, клиенты, задачи и существующие документы сохраняются. Новые записи учитываются отдельно от старых.</p>'
+            . '<p>Новая версия добавляет поле способа оплаты клиента и поддерживает историю договорных сумм и командный чат. '
+            . 'Директор, сотрудники, клиенты, задачи, документы и финансовая история сохраняются без пересчёта.</p>'
             . '<p><strong>Сейчас в тестовой базе:</strong> '
             . adc_h(implode('; ', adc_staging_existing_record_counts($db))) . '.</p>'
             . '<p>Подготовка данных не завершена автоматически. '
