@@ -232,15 +232,21 @@ try:
     require("Как оплачивают" in initialContextPanel and
             'name="action" value="save_client_context"' in initialContextPanel and
             'title="Изменить способ оплаты"' in initialContextPanel and
-            'class="client-context-value-row"' in initialContextPanel and
+            '<div class="client-context-heading"><small>Как оплачивают</small><div class="client-context-editor">' in initialContextPanel and
+            '<div class="client-context-value-row"><strong class="client-context-text">' in initialContextPanel and
             'data-client-context-toggle' in initialContextPanel and
             'class="client-context-edit-panel" hidden' in initialContextPanel and
             'details class="client-context-editor"' not in initialContextPanel and
+            'rows="1" maxlength="500"' in initialContextPanel and
+            '.customer-edit .grid>.field textarea[name="client_context_text"]{box-sizing:border-box;height:45px' in initialContextPanel and
+            '.client-context-edit-panel textarea{box-sizing:border-box;width:100%;height:45px' in initialContextPanel and
+            'min-height:76px' not in initialContextPanel and
+            "adc-scroll-restore-v1" in initialContextPanel and
             "Например: PayPal, карта, инвойс" in initialContextPanel and
             "Оплата без документов" in initialContextPanel and
             "Оплата на карту (без PDF)" not in initialContextPanel and
             "PayPal; договоры" in initialContextPanel,
-            "Client card shows payment context and a standalone editor")
+            "Payment context editor is compact, pencil sits beside its label, and postback scroll is preserved")
     status,headers,_=post("director",director,"save_client_context",{
         "client_id":str(real),"client_context_text":"Инвойс № 777"})
     require(status==303 and "client="+str(real) in location(headers),
@@ -377,8 +383,12 @@ try:
             "data-chat-menu-toggle" in html(initial) and
             "data-chat-menu" in html(initial) and
             "data-chat-selection-toolbar" in html(initial) and
-            "data-chat-select-message" in html(initial),
-            "Message menu, single-message actions and bulk selection controls rendered")
+            "data-chat-select-message" in html(initial) and
+            'class="chat-menu-item chat-reply-btn' not in html(initial) and
+            'class="chat-menu-item chat-pin-btn' not in html(initial) and
+            ".chat-message-menu{position:absolute" in html(initial) and
+            ".chat-msg:is(:hover,:focus-within) .chat-msg-tools{display:flex}" in html(initial),
+            "Ellipsis stays discreet at the top; reply and pin are separate bottom hover actions")
     status,headers,_=post("employee",employee,"chat_send",{
         "thread":str(real),"message":"This is an answer",
         "reply_to_id":messageid})
