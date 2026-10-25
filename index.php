@@ -545,7 +545,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         for(var d=1;d<=count;d++){
           let day=d;
           var b=document.createElement("button");b.type="button";b.textContent=String(day);
-          var value=iso(year,month+1,day);
+          let value=iso(year,month+1,day);
           if(value===dateIso(input.value))b.classList.add("is-selected");
           if(value===iso(today.getFullYear(),today.getMonth()+1,today.getDate()))b.classList.add("is-today");
           b.onclick=function(){input.value=showDate(value);input.setCustomValidity("");input.dispatchEvent(new Event("change",{bubbles:true}));closeMenus();};
