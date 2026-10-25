@@ -1,5 +1,14 @@
 # MANUFACT Ad Client Manager — релиз перед загрузкой документов
 
+## Client payment destination (2026-10-25)
+
+- Client creation form includes an optional free-text `payment_details` field (up to 240 characters), e.g. PayPal, card, invoice or contract number.
+- The client card shows the value and provides a dedicated one-field editor; saving it does not overwrite the name, services, notes, engagement terms or financial history.
+- Client list adds a `Куда / как оплачивают` column immediately after `Услуги`.
+- Client list rows now use two subtly different near-neutral backgrounds instead of a strong purple stripe; hover remains understated.
+- Existing databases receive one nullable `clients.payment_details` column through the existing guarded additive schema migration. Existing clients and all financial/document records are preserved. The field is informational only and does not affect billing or analytics.
+- Automated coverage checks migration preservation, create/edit/list/card rendering and the standalone edit action.
+
 **Актуально: 24.10.2026. Функционал принят владельцем.**
 Никаких новых функций и косметических переделок. GitHub PRIVATE **осознанно отложен владельцем** до проверки реальной загрузки документов. Важнее не нарушить текущий рабочий сайт, входы, документы и историю.
 
