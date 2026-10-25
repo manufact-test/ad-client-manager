@@ -49,6 +49,9 @@ jobs:
       - name: Enforce release trigger and file promotion policy
         run: python3 tests/release_policy.py
 
+      - name: Test shared calendar day selection
+        run: node tests/calendar_regression.js
+
       - name: Check PHP version
         run: |
           php -v
