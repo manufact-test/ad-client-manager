@@ -136,5 +136,54 @@ $ok(str_contains($page,'chat-feed') && str_contains($page,$clientName),
 $ok(str_contains($page,'chat-pinned')&&str_contains($page,'Закреплено') &&
     str_contains($page,'data-reply-id'),
     'Pinned client banner and reply composer rendered');
+// The message menu exposes deletion and multi-select only to people allowed to delete.
+$ownerHtml=adc_chat_item($answer,$b['id'],'employee');
+$directorHtml=adc_chat_item($answer,$a['id'],'director');
+$ok(str_contains($ownerHtml,'data-chat-menu-toggle')&&
+    str_contains($ownerHtml,'data-chat-select-message')&&
+    str_contains($ownerHtml,'name="action" value="chat_delete"')&&
+    str_contains($ownerHtml,'Удалить'),
+    'Author receives message menu, selection checkbox and delete action');
+$ok(str_contains($directorHtml,'name="action" value="chat_delete"'),
+    'Director can moderate another employee message');
+
+// An employee must not be able to delete somebody else's message.
+$_POST=['thread'=>'0','message_ids'=>[(string)$m['id']]];
+$blocked=false;
+try{adc_chat_delete($db,['id'=>$b['id'],'role'=>'employee']);}
+catch(RuntimeException $e){$blocked=true;}
+$exists=$db->prepare('SELECT id FROM team_chat_messages WHERE id=?');
+$exists->execute([(int)$m['id']]);
+$ok($blocked&&(int)$exists->fetchColumn()===(int)$m['id'],
+    'Unauthorized deletion is rejected without changing the message');
+
+// The same endpoint handles multi-select atomically.
+$bulkOne='Bulk delete fixture one '.bin2hex(random_bytes(3));
+$bulkTwo='Bulk delete fixture two '.bin2hex(random_bytes(3));
+foreach([$bulkOne,$bulkTwo] as $body){
+    $_POST=['message'=>$body,'thread'=>'0'];
+    adc_chat_send($db,['id'=>$b['id'],'role'=>'employee']);
+}
+$bulkRows=adc_chat_rows($db,0,0,$a['id']);$bulkIds=[];
+foreach($bulkRows as $row){
+    if(in_array((string)$row['body'],[$bulkOne,$bulkTwo],true))$bulkIds[]=(string)$row['id'];
+}
+$ok(count($bulkIds)===2,'Two independent messages are available for bulk deletion');
+$_POST=['thread'=>'0','message_ids'=>$bulkIds];
+$deleted=adc_chat_delete($db,['id'=>$b['id'],'role'=>'employee']);
+$ok($deleted===2,'Bulk delete removes exactly the selected messages');
+$afterBulk=adc_chat_rows($db,0,0,$a['id']);
+$ok(!array_filter($afterBulk,static fn($row)=>in_array((string)$row['body'],[$bulkOne,$bulkTwo],true)),
+    'Bulk-deleted messages no longer appear in the conversation');
+
+// A director can delete another person's message, and replies no longer point at it.
+$_POST=['thread'=>'0','message_ids'=>[(string)$m['id']]];
+$deleted=adc_chat_delete($db,['id'=>$a['id'],'role'=>'director']);
+$exists->execute([(int)$m['id']]);
+$references=$db->prepare('SELECT COUNT(*) FROM team_chat_messages WHERE reply_to_id=?');
+$references->execute([(int)$m['id']]);
+$ok($deleted===1&&$exists->fetchColumn()===false&&(int)$references->fetchColumn()===0,
+    'Director deletion succeeds and removes dangling reply references');
+
 unset($_GET['thread']);
-echo "Chat integration PASS: multi mentions, inline staff/client tags, safe links, separate rooms, isolated unread, persistence\n";
+echo "Chat integration PASS: mentions, safe links, isolated rooms, pins/replies, authorized and bulk deletion\n";
