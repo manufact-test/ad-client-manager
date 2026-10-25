@@ -244,6 +244,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
 
 .card-payment-switch{margin-bottom:10px}.doc-upload-form:has(input[name=is_card]:checked) .document-only{display:none}.doc-upload-form:has(input[name=is_card]:checked) .ledger-money-fields{display:block!important}.doc-upload-form:has(input[name=is_card]:checked) .ledger-money-toggle>label.check{display:none}
         .doc-upload-form .document-upload-error{margin:6px 0 12px}
+        .client-card-action-error{margin:6px 0 10px;padding:8px 10px;font-size:13px;line-height:1.4}
         .period-link-help{font-size:12px;line-height:1.45;margin:8px 0 12px}
 
         /* Final client list: round entire highlighted rows, with breathing room. */
@@ -1361,6 +1362,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $GLOBALS['adc_document_upload_error']=[
                 'client_id'=>(int)$_POST['client_id'],
                 'message'=>$errorMessage
+            ];
+            $errorMessage=null;
+        }
+
+        // Keep every other failed mutation in the client card that submitted it.
+        // The matching form is reopened and its POST values restored by the card UI script.
+        $selectedView=is_string($_GET['view']??null)?$_GET['view']:'clients';
+        $selectedClient=(string)($_GET['client']??'');
+        $postedClient=(string)($_POST['client_id']??'');
+        if ($errorMessage!==null && $errorMessage!=='' &&
+            isset($current) && is_array($current) &&
+            in_array($selectedView,['clients','archive'],true) &&
+            ctype_digit($selectedClient) && ctype_digit($postedClient) &&
+            (int)$selectedClient===(int)$postedClient) {
+            $postedFields=[];
+            foreach ($_POST as $key=>$value) {
+                if ($key==='csrf') continue;
+                if (is_scalar($value)) {
+                    $postedFields[(string)$key]=(string)$value;
+                } elseif (is_array($value)) {
+                    $items=[];
+                    foreach ($value as $item) {
+                        if (is_scalar($item)) $items[]=(string)$item;
+                    }
+                    $postedFields[(string)$key]=$items;
+                }
+            }
+            $identityKeys=['document_id','entry_id','engagement_id','charge_id','pause_id','task_id'];
+            if (in_array($action,['save_period','save_charge','add_payment','void_charge'],true)) {
+                $identityKeys[]='period_id';
+            }
+            $identifiers=[];
+            foreach ($identityKeys as $key) {
+                if (isset($_POST[$key]) && is_scalar($_POST[$key])) {
+                    $identifiers[$key]=(string)$_POST[$key];
+                }
+            }
+            $field=null;
+            $lowerError=mb_strtolower((string)$errorMessage,'UTF-8');
+            if (str_contains($lowerError,'сумм')) {
+                if (array_key_exists('amount',$_POST)) $field='amount';
+                elseif (array_key_exists('quoted_amount',$_POST)) $field='quoted_amount';
+            } elseif (str_contains($lowerError,'комментар')) {
+                foreach (['note','reason','comment_text'] as $candidate) {
+                    if (array_key_exists($candidate,$_POST)) {$field=$candidate;break;}
+                }
+            } elseif (str_contains($lowerError,'об оплате') &&
+                array_key_exists('client_context_text',$_POST)) {
+                $field='client_context_text';
+            } elseif (str_contains($lowerError,'название клиента') &&
+                array_key_exists('client_name',$_POST)) {
+                $field='client_name';
+            } elseif (str_contains($lowerError,'название прежнего клиента') &&
+                array_key_exists('previous_name_text',$_POST)) {
+                $field='previous_name_text';
+            }
+            $GLOBALS['adc_client_card_error']=[
+                'client_id'=>(int)$postedClient,
+                'action'=>(string)$action,
+                'message'=>(string)$errorMessage,
+                'field'=>$field,
+                'fields'=>$postedFields,
+                'identifiers'=>$identifiers
             ];
             $errorMessage=null;
         }

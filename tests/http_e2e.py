@@ -203,7 +203,9 @@ try:
             "#fcfbff" in listHtml and "#f6f5fb" in listHtml and
             ".client-list-table tbody td.client-context-cell{text-align:left}" in listHtml and
             ".customer-profile .item>div:first-child{flex:1 1 0%;min-width:0;overflow-wrap:anywhere}" in listHtml and
-            ".customer-profile .item>.actions{flex:0 1 auto;min-width:0;max-width:58%;flex-wrap:wrap;justify-content:flex-end}" in listHtml,
+            ".customer-profile .item>.actions{flex:0 1 auto;min-width:0;max-width:58%;flex-wrap:wrap;justify-content:flex-end}" in listHtml and
+            "stepMismatch" in listHtml and
+            "Сумма должна иметь не более двух знаков после запятой." in listHtml,
             "Client list displays payment context after services, uses subtle zebra rows and remains clickable")
     initialContextPanel=panel("director",real)
     require("Как оплачивают" in initialContextPanel and
@@ -218,6 +220,21 @@ try:
         "client_id":str(real),"client_context_text":"Инвойс № 777"})
     require(status==303 and "client="+str(real) in location(headers),
             "Standalone context edit returns to the same client card")
+
+    # A rejected inline context edit must stay in the selected client drawer and keep typed text.
+    invalidContext="x"*501
+    status,_,contextError=request("director","/?view=clients&client="+str(real),payload={
+        "csrf":director,"action":"save_client_context","client_id":str(real),
+        "client_context_text":invalidContext})
+    contextErrorHtml=html(contextError)
+    contextErrorDrawer=re.search(r'<aside class="drawer customer-profile"[\s\S]*?</aside>',contextErrorHtml)
+    require(status==200 and contextErrorDrawer is not None and
+            'data-client-card-error="1"' in contextErrorDrawer.group(0) and
+            "Текст об оплате и документах должен быть не длиннее 500 символов." in contextErrorHtml and
+            '"client_context_text":"' + invalidContext + '"' in contextErrorHtml,
+            "Client-context validation stays inside the card and retains the rejected text")
+    require("Инвойс № 777" in panel("director",real),
+            "Rejected client-context edit leaves the previously saved value unchanged")
     editedContextPanel=panel("director",real)
     editedDrawer=re.search(r'<aside class="drawer customer-profile"[\s\S]*?</aside>',editedContextPanel)
     require(editedDrawer is not None and "Инвойс № 777" in editedDrawer.group(0) and
@@ -460,12 +477,15 @@ try:
             "script-src 'nonce-"+match.group(1)+"'" in policy.group(1),
             "CSP permits the task editor, dropdowns and calendars without unsafe inline scripts")
     require("script-src 'unsafe-inline'" not in policy.group(1),"No JavaScript unsafe-inline bypass")
-    inline_script=re.search(r'<script nonce="[A-Za-z0-9+/=]+">([\s\S]*?)</script>',page)
-    require(inline_script is not None,"Authorized browser interaction script is present")
-    js_check=subprocess.run(["node","--check"],input=inline_script.group(1),
-                            text=True,capture_output=True)
-    require(js_check.returncode==0,"Inline calendar and task JavaScript has valid syntax")
-    require("var opened=toggle?target.hidden:false;" in inline_script.group(1),
+    inline_scripts=re.findall(r'<script nonce="[A-Za-z0-9+/=]+">([\s\S]*?)</script>',page)
+    require(inline_scripts,"Authorized browser interaction scripts are present")
+    for script_source in inline_scripts:
+        js_check=subprocess.run(["node","--check"],input=script_source,
+                                text=True,capture_output=True)
+        require(js_check.returncode==0,"Inline browser interaction JavaScript has valid syntax")
+    task_script=next((source for source in inline_scripts
+                      if "var opened=toggle?target.hidden:false;" in source),None)
+    require(task_script is not None,
             "Task edit button opens previously hidden form")
     # Restore the actual accepted card from 2387ba7e8540: top CSV,
     # client overview -> ledger -> secondary actions; no invented monthly block.
@@ -474,6 +494,13 @@ try:
     c=page.find('class="card customer-more"')
     require(a>=0 and a<b<c and 'class="client-summary-header"' in page,
             "Accepted original client-card overview / ledger / actions")
+    add_status,_,add_page_raw=request("director","/?view=clients")
+    add_page=html(add_page_raw)
+    require(add_status==200 and "PayPal, карта, договор № 1, invoice" in add_page and
+            "PayPal, карта, договор № 1, invoice" in page and
+            "Например: PayPal, карта, договор № 123, инвойс" not in add_page and
+            "Например: PayPal, карта, договор № 123, инвойс" not in page,
+            "Payment method placeholder is short and consistent in add/edit forms")
     require("Выгрузить историю в CSV" in page and "Чат клиента" in page and
             page.find("Выгрузить историю в CSV")<page.find("Документы и оплаты"),
             "Top CSV button and chat next to original overview heading")
@@ -712,6 +739,20 @@ try:
             "Paid card edit cannot rewrite receipts")
     status,_,_=post("director",director,"undo_entry_receipt",{"client_id":real,"entry_id":entry})
     require(status==303,"Card receipt explicitly undone")
+    status,_,invalidAmount=request("director","/?view=clients&client="+str(real),payload={
+        "csrf":director,"action":"edit_card_entry","client_id":str(real),
+        "entry_id":str(entry),"amount":"88.123","currency":"BYN",
+        "category":"advertising","note":"Corrected after undo"})
+    invalidAmountHtml=html(invalidAmount)
+    invalidAmountDrawer=re.search(r'<aside class="drawer customer-profile"[\s\S]*?</aside>',invalidAmountHtml)
+    require(status==200 and invalidAmountDrawer is not None and
+            'data-client-card-error="1"' in invalidAmountDrawer.group(0) and
+            "Сумма должна иметь не более двух знаков после запятой." in invalidAmountHtml and
+            '"amount":"88.123"' in invalidAmountHtml and
+            'class="error" role="alert">Сумма должна' not in invalidAmountHtml,
+            "Invalid card amount stays inline, preserves typed value, and never becomes a page-wide alert")
+    require("77,00 BYN" in panel("director",real) and "88,12 BYN" not in panel("director",real),
+            "Rejected decimal amount leaves the existing financial entry untouched")
     status,_,_=post("director",director,"edit_card_entry",{
         "client_id":real,"entry_id":entry,"amount":"88.00","currency":"BYN",
         "category":"advertising","note":"Corrected after undo"})
