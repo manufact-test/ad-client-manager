@@ -844,7 +844,7 @@ function adc_w_client_form(PDO $db, ?array $client): string {
     $html .= '<div class="grid">' .
         adc_w_field('Название', 'client_name', (string)($client['name'] ?? ''), 'text', 'required maxlength="240"') .
         adc_w_field('Что делаем для клиента', 'platform_text', (string)($client['platform_text'] ?? ''), 'text', 'maxlength="400"') .
-        '<label class="field">Как оплачивают<textarea name="client_context_text" rows="2" maxlength="500" placeholder="Например: PayPal, карта, договор № 123, инвойс">' .
+        '<label class="field">Как оплачивают<textarea name="client_context_text" rows="2" maxlength="500" placeholder="PayPal, карта, договор № 1, invoice">' .
             adc_h((string)($client['client_context_text'] ?? '')) . '</textarea></label>' .
         adc_w_select('Тип клиента', 'legal_type', ['legal'=>'Юридическое лицо','individual'=>'Физическое лицо'], (string)($client['legal_type'] ?? 'legal')) .
         '<div class="source-choice">'.adc_w_select('Откуда пришёл клиент','source_kind',
@@ -971,7 +971,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>'.
         '</summary><div class="client-context-edit-panel">'.
         adc_w_form_start('save_client_context').adc_w_hidden('client_id',$id).
-        '<label class="field">Как оплачивают<textarea name="client_context_text" rows="2" maxlength="500" placeholder="Например: PayPal, карта, договор № 123, инвойс">'.
+        '<label class="field">Как оплачивают<textarea name="client_context_text" rows="2" maxlength="500" placeholder="PayPal, карта, договор № 1, invoice">'.
         adc_h((string)($client['client_context_text']??'')).'</textarea></label>'.
         '<div class="client-context-edit-actions"><button type="submit">Сохранить</button></div></form></div></details></div>'.
         '<strong class="client-context-text">'.($contextText!=='' ? nl2br(adc_h($contextText)) : 'Не указано').'</strong></div>';
