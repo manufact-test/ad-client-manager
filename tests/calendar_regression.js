@@ -32,6 +32,7 @@ function verifyMonth(year, monthIndex) {
     Date,
     String,
     Number,
+    today: new Date(),
     days: { appendChild(element) { buttons.push(element); } },
     document: {
       createElement(tag) {
