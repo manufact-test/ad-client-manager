@@ -290,7 +290,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .ac-days button.is-selected{border-radius:9px}
         .task-actions [data-task-toggle][aria-expanded=true]{background:#eeebff;color:#3326a4;border-color:#9d93e7}
         @media(max-width:700px){.client-list-table tbody td{padding:12px 14px}.client-list-table .status-cell{padding:12px 16px}}
-        @media(max-width:550px){.client-context-edit-panel{left:0;right:auto;width:min(360px,calc(100vw - 24px));max-width:calc(100vw - 24px)}}
+        @media(max-width:550px){.client-context-edit-panel{left:0;right:auto;width:min(360px,calc(100vw - 24px));max-width:calc(100vw - 24px)}.client-context-fact:nth-child(even) .client-context-edit-panel{left:auto;right:0}}
 
         .chat-badge{display:inline-flex;min-width:18px;height:18px;justify-content:center;align-items:center;
           background:#cf3959;color:#fff;border-radius:20px;font-size:11px;padding:0 5px}

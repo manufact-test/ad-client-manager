@@ -240,6 +240,7 @@ try:
             'rows="1" maxlength="500"' in initialContextPanel and
             '.customer-edit .grid>.field textarea[name="client_context_text"]{box-sizing:border-box;height:45px' in initialContextPanel and
             '.client-context-edit-panel textarea{box-sizing:border-box;width:100%;height:45px' in initialContextPanel and
+            '.client-context-fact:nth-child(even) .client-context-edit-panel{left:auto;right:0}' in initialContextPanel and
             'min-height:76px' not in initialContextPanel and
             "adc-scroll-restore-v1" in initialContextPanel and
             "Например: PayPal, карта, инвойс" in initialContextPanel and
