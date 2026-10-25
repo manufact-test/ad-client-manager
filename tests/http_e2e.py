@@ -817,6 +817,15 @@ try:
         path="/?view=team")
     require(status==303 and location(headers)=="/?view=team",
             "Saving account settings returns to Settings, not Clients")
+    # Restore the fixture password because the following auth E2E uses it.
+    status,_,settings=request("director","/?view=team")
+    require(status==200,"Settings remain accessible after password change")
+    director=csrf(html(settings))
+    status,headers,_=post("director",director,"change_password",{
+        "old_password":"CI-only-updated-password-98765","new_password":PASSWORD},
+        path="/?view=team")
+    require(status==303 and location(headers)=="/?view=team",
+            "Restoring the fixture password also stays on Settings")
     print("Unified ledger HTTP E2E passed: workflow, navigation retention, chat deletion, ledger, finance and CSV")
 finally:
     for p in WORK.glob("*"):
