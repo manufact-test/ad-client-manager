@@ -901,9 +901,8 @@ function adc_page(string $title, string $body, ?array $user = null): never {
   var deleteButton=document.querySelector("[data-chat-delete-selected]");
   var cancelButton=document.querySelector("[data-chat-selection-cancel]");
   var bulkForm=document.querySelector("[data-chat-bulk-delete]");
-  var menus=Array.from(document.querySelectorAll("[data-chat-menu]"));
   function closeMenus(){
-    menus.forEach(function(menu){
+    document.querySelectorAll("[data-chat-menu]").forEach(function(menu){
       menu.hidden=true;
       var button=menu.parentElement&&menu.parentElement.querySelector("[data-chat-menu-toggle]");
       if(button)button.setAttribute("aria-expanded","false");
