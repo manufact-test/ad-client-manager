@@ -947,7 +947,7 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         $activeFrom=$effective->fetchColumn() ?: $current['started_on'];
         $html .= '<div><small>Дата начала текущих условий</small><strong>'.adc_h($qDate((string)$activeFrom)).'</strong></div>';
         if (adc_fin_minor((string)($current['quoted_amount'] ?? '0.00'))!==0) {
-            $html.='<div><small>Исторический ориентир стоимости за месяц</small><strong>'.
+            $html.='<div><small>Стоимость за месяц</small><strong>'.
                 adc_w_money($current['quoted_amount'],(string)$current['currency']).'</strong></div>';
         }
         $html.='<div><small>Условия оплаты</small><strong>'.
@@ -959,18 +959,17 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
                 (string)$client['previous_name_text'] : 'Повторный клиент').'</strong></div>';
     }
     $contextText=trim((string)($client['client_context_text']??''));
-    $html .= '<div class="client-context-fact"><small>Как оплачивают</small>'.
-        '<div class="client-context-value"><strong>'.
-            ($contextText!=='' ? nl2br(adc_h($contextText)) : 'Не указано').
-            '</strong><details class="client-context-editor">'.
-            '<summary title="Изменить способ оплаты" aria-label="Изменить способ оплаты">'.
-            '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'.
-            '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>'.
-            '</summary><div class="client-context-edit-panel">'.
-            adc_w_form_start('save_client_context').adc_w_hidden('client_id',$id).
-            '<label class="field">Как оплачивают<textarea name="client_context_text" rows="2" maxlength="500" placeholder="Например: PayPal, карта, договор № 123, инвойс">'.
-            adc_h((string)($client['client_context_text']??'')).'</textarea></label>'.
-            '<div class="client-context-edit-actions"><button type="submit">Сохранить</button></div></form></div></details></div></div>';
+    $html .= '<div class="client-context-fact"><div class="client-context-heading"><small>Как оплачивают</small>'.
+        '<details class="client-context-editor">'.
+        '<summary title="Изменить способ оплаты" aria-label="Изменить способ оплаты">'.
+        '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'.
+        '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>'.
+        '</summary><div class="client-context-edit-panel">'.
+        adc_w_form_start('save_client_context').adc_w_hidden('client_id',$id).
+        '<label class="field">Как оплачивают<textarea name="client_context_text" rows="2" maxlength="500" placeholder="Например: PayPal, карта, договор № 123, инвойс">'.
+        adc_h((string)($client['client_context_text']??'')).'</textarea></label>'.
+        '<div class="client-context-edit-actions"><button type="submit">Сохранить</button></div></form></div></details></div>'.
+        '<strong class="client-context-text">'.($contextText!=='' ? nl2br(adc_h($contextText)) : 'Не указано').'</strong></div>';
     $html .= '</div>';
     if (trim((string)$client['comment_text'])!=='') {
         $html .= '<p class="client-note">'.nl2br(adc_h((string)$client['comment_text'])).'</p>';
@@ -1153,7 +1152,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '<div class="table-scroll client-table-scroll" tabindex="0" role="region" '.
         'aria-label="Список клиентов: таблицу можно прокручивать по горизонтали">'.
         '<table class="client-list-table"><thead><tr>'.
-        '<th>Клиент</th><th>Услуги</th><th>Как оплачивают</th><th>Статус</th>'.
+        '<th>Клиент</th><th>Услуги</th><th class="client-context-heading-cell">Как оплачивают</th><th>Статус</th>'.
         '</tr></thead><tbody>';
     $today=date('Y-m-d');
     foreach ($clients as $client) {
