@@ -76,6 +76,11 @@ try {
             echo ($ok ? '[PASS] ' : '[PENDING] ') . "$table: nullable unique $column\n";
             if (!$ok) $ready = false;
         }
+        $paymentDetails=$db->query("SHOW COLUMNS FROM clients LIKE 'payment_details'")->fetch();
+        $paymentOk=$paymentDetails && strtolower((string)$paymentDetails['Type'])==='varchar(240)' &&
+            $paymentDetails['Null']==='YES';
+        echo ($paymentOk?'[PASS] ':'[PENDING] ')."clients: optional payment destination\n";
+        if (!$paymentOk) $ready=false;
         return $ready;
     };
     $newTables=['client_entries','engagement_terms','team_chat_messages','team_chat_reads','team_chat_mentions','team_chat_thread_reads',
