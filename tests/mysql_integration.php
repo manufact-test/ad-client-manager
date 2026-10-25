@@ -18,6 +18,15 @@ adc_schema($db); // Re-running schema must be safe.
 // monthly-price column. Unknown old values must remain NULL after upgrade.
 $db->exec('INSERT INTO clients(name,is_demo) VALUES ("Fictional legacy rates",1)');
 $legacyClient=(int)$db->lastInsertId();
+// Simulate an older installation without the optional payment destination field.
+$db->exec('ALTER TABLE clients DROP COLUMN payment_details');
+adc_schema($db);
+$paymentColumn=$db->query("SHOW COLUMNS FROM clients LIKE 'payment_details'")->fetch();
+if (!$paymentColumn || strtolower((string)$paymentColumn['Type'])!=='varchar(240)' ||
+    $paymentColumn['Null']!=='YES') throw new RuntimeException('Client payment details migration failed');
+$preserved=$db->query("SELECT name,payment_details FROM clients WHERE id=$legacyClient")->fetch();
+if (!$preserved || $preserved['name']!=='Fictional legacy rates' || $preserved['payment_details']!==null)
+    throw new RuntimeException('Payment details migration changed an existing client');
 $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency,quoted_amount)
     VALUES (?,"2026-04-01",1,"prepayment","BYN","1250.00")')->execute([$legacyClient]);
 $legacyEng=(int)$db->lastInsertId();
