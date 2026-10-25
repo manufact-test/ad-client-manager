@@ -186,6 +186,8 @@ try:
             'name="action" value="save_client_context"' in initialContextPanel and
             'title="Изменить способ оплаты"' in initialContextPanel and
             'class="client-context-edit-panel"' in initialContextPanel and
+            "Оплата без документов" in initialContextPanel and
+            "Оплата на карту (без PDF)" not in initialContextPanel and
             "PayPal; договоры" in initialContextPanel,
             "Client card shows payment context and a standalone editor")
     status,headers,_=post("director",director,"save_client_context",{
