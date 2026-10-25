@@ -18,6 +18,16 @@ adc_schema($db); // Re-running schema must be safe.
 // monthly-price column. Unknown old values must remain NULL after upgrade.
 $db->exec('INSERT INTO clients(name,is_demo) VALUES ("Fictional legacy rates",1)');
 $legacyClient=(int)$db->lastInsertId();
+// Simulate a prior schema without the optional payment/document context.
+$db->exec('ALTER TABLE clients DROP COLUMN client_context_text');
+adc_schema($db);
+$contextColumn=$db->query("SHOW COLUMNS FROM clients LIKE 'client_context_text'")->fetch();
+$preservedClient=$db->query("SELECT name,client_context_text FROM clients WHERE id=$legacyClient")->fetch();
+if (!$contextColumn || strtolower((string)$contextColumn['Type'])!=='varchar(500)' ||
+    $contextColumn['Null']!=='YES' || !$preservedClient ||
+    $preservedClient['name']!=='Fictional legacy rates' || $preservedClient['client_context_text']!==null) {
+    throw new RuntimeException('Client context migration did not preserve the existing client');
+}
 $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency,quoted_amount)
     VALUES (?,"2026-04-01",1,"prepayment","BYN","1250.00")')->execute([$legacyClient]);
 $legacyEng=(int)$db->lastInsertId();
