@@ -241,11 +241,17 @@ function adc_page(string $title, string $body, ?array $user = null): never {
 
         /* Final client list: round entire highlighted rows, with breathing room. */
         .client-table-scroll{border-radius:12px;overflow-x:auto}
-        .client-list-table{border-collapse:separate;border-spacing:0 5px;min-width:650px}
+        .client-list-table{border-collapse:separate;border-spacing:0 5px;min-width:760px}
         .client-list-table thead th{padding:12px 18px;border-bottom:1px solid #e5e6f2}
-        .client-list-table tbody td{padding:15px 18px;vertical-align:middle;border:0;background:#fff}
-        .client-list-table tbody tr:nth-child(even) td{background:#f3f1ff}
-        .client-list-table tbody tr:hover td{background:#eae7ff}
+        .client-list-table tbody td{padding:15px 18px;vertical-align:middle;border:0;background:#fcfbff}
+        .client-list-table tbody tr:nth-child(even) td{background:#f6f5fb}
+        .client-list-table tbody tr:hover td{background:#efedfa}
+        .client-list-table tbody tr[data-client-href]{cursor:pointer}
+        .client-list-table tbody tr[data-client-href]:focus-visible{outline:2px solid #4d43c2;outline-offset:2px}
+        .client-list-table .client-context-cell{min-width:180px;max-width:260px;white-space:pre-line;font-size:13px;overflow-wrap:anywhere}
+        .client-context-editor form{min-width:0;max-width:340px;margin-top:6px}
+        .client-context-editor .field{margin-bottom:8px}
+        .client-context-editor button{font-size:13px;padding:7px 10px}
         .client-list-table tbody td:first-child{border-radius:11px 0 0 11px}
         .client-list-table tbody td:last-child{border-radius:0 11px 11px 0}
         .client-list-table .status-cell{padding-left:20px;padding-right:20px}
@@ -416,6 +422,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
 (function(){
   "use strict";
   document.addEventListener("click",function(event){
+    var clientRow=event.target.closest("[data-client-href]");
+    if(clientRow&&!event.target.closest("a,button,input,select,textarea,label,summary")){
+      window.location.href=clientRow.getAttribute("data-client-href");
+      return;
+    }
     var danger=event.target.closest("[data-confirm]");
     if(danger&&!window.confirm(danger.getAttribute("data-confirm"))){event.preventDefault();return;}
     var toggle=event.target.closest("[data-task-toggle]");
@@ -429,6 +440,14 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var button=document.querySelector("[data-task-toggle=\""+id+"\"]");
     if(button)button.setAttribute("aria-expanded",opened?"true":"false");
     if(opened){var title=target.querySelector("input[name=\"title\"]");if(title)title.focus({preventScroll:true});}
+  });
+
+  document.addEventListener("keydown",function(event){
+    if(event.key!=="Enter"&&event.key!==" ")return;
+    var clientRow=event.target.closest("[data-client-href]");
+    if(!clientRow||event.target!==clientRow)return;
+    event.preventDefault();
+    window.location.href=clientRow.getAttribute("data-client-href");
   });
 
   document.addEventListener("DOMContentLoaded",function(){
@@ -886,6 +905,9 @@ function adc_staging_schema_upgrade_needed(PDO $db): bool {
     $price=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
     if (!$price || strtolower((string)$price['Type'])!=='decimal(16,2)' ||
         $price['Null']!=='YES') return true;
+    $clientContext=$db->query("SHOW COLUMNS FROM clients LIKE 'client_context_text'")->fetch();
+    if (!$clientContext || strtolower((string)$clientContext['Type'])!=='varchar(500)' ||
+        $clientContext['Null']!=='YES') return true;
     foreach ([
         ['payment_events', 'submission_key', 'uq_payment_submission'],
         ['billing_periods', 'creation_key', 'uq_period_creation_key'],
@@ -926,6 +948,9 @@ function adc_staging_schema_upgrade_eligible(PDO $db): bool {
         if ($price && (strtolower((string)$price['Type'])!=='decimal(16,2)' ||
             $price['Null']!=='YES')) return false;
     }
+    $clientContext=$db->query("SHOW COLUMNS FROM clients LIKE 'client_context_text'")->fetch();
+    if ($clientContext && (strtolower((string)$clientContext['Type'])!=='varchar(500)' ||
+        $clientContext['Null']!=='YES')) return false;
     foreach ([
         ['payment_events', 'submission_key', 'uq_payment_submission'],
         ['billing_periods', 'creation_key', 'uq_period_creation_key'],
