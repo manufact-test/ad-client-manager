@@ -261,20 +261,19 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .client-context-fact{position:relative;z-index:1;min-width:0}
         .client-context-heading{display:flex;align-items:center;gap:5px;min-height:20px;margin:0 0 2px}
         .client-context-heading>small{margin:0}
-        .client-context-text{display:block;min-width:0;overflow-wrap:anywhere;line-height:1.45}
-        .client-context-editor{display:inline-flex;align-items:center;flex:0 0 auto;line-height:0}
-        .client-context-editor>summary{appearance:none;list-style:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:4px;border:1px solid transparent;border-radius:7px;color:#5144bd;cursor:pointer;line-height:0}
-        .client-context-editor>summary::-webkit-details-marker{display:none}
-        .client-context-editor>summary::marker{content:"";display:none}
-        .client-context-editor>summary::after{content:none!important;display:none!important}
-        .client-context-editor>summary:hover,.client-context-editor[open]>summary{background:#efedff;border-color:#d9d4fa}
-        .client-context-editor>summary:focus-visible{outline:2px solid #5144bd;outline-offset:2px}
-        .client-context-editor>summary svg{display:block;width:15px;height:15px;flex:0 0 auto}
-        .client-context-edit-panel{position:absolute;top:calc(100% + 7px);left:0;z-index:40;width:min(360px,calc(100vw - 76px));padding:12px;background:#fff;border:1px solid #e1def5;border-radius:10px;box-shadow:0 12px 28px #25204426}
+        .client-context-value-row{display:flex;align-items:flex-start;gap:5px;min-width:0}
+        .client-context-text{display:block;flex:1 1 auto;min-width:0;overflow-wrap:anywhere;line-height:1.45;margin:0}
+        .client-context-editor{position:relative;display:inline-flex;align-items:flex-start;flex:0 0 auto;line-height:0}
+        .client-context-edit-button{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:0 0 18px;padding:1px;border:0!important;border-radius:0!important;background:transparent!important;color:#5144bd;cursor:pointer;line-height:0;box-shadow:none!important}
+        .client-context-edit-button:hover{color:#3021a4;text-decoration:none}
+        .client-context-edit-button:focus-visible{outline:2px solid #5144bd;outline-offset:2px}
+        .client-context-edit-button svg{display:block;width:15px;height:15px;flex:0 0 auto}
+        .client-context-edit-panel{position:absolute;top:calc(100% + 7px);right:0;left:auto;z-index:40;width:min(360px,calc(100vw - 48px));padding:14px;background:#fff;border:1px solid #e1def5;border-radius:10px;box-shadow:0 12px 28px #25204426}
+        .client-context-edit-panel[hidden]{display:none}
         .client-context-edit-panel form{min-width:0;max-width:none;margin:0}
         .client-context-edit-panel .field{margin:0 0 10px}
-        .client-context-edit-panel textarea{box-sizing:border-box;width:100%;min-height:76px}
-        .client-context-edit-actions{display:flex;justify-content:flex-end;gap:8px}
+        .client-context-edit-panel textarea{box-sizing:border-box;width:100%;min-height:76px;resize:vertical}
+        .client-context-edit-actions{display:flex;justify-content:flex-end;gap:8px;margin:0}
         .client-context-edit-actions button{font-size:13px;padding:7px 12px}
         .client-list-table tbody td:first-child{border-radius:11px 0 0 11px}
         .client-list-table tbody td:last-child{border-radius:0 11px 11px 0}
@@ -296,8 +295,32 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-badge[hidden]{display:none}
         .chat-feed{min-height:230px;max-height:480px;overflow-y:auto;margin:16px 0;border:1px solid #e4e6ed;
           background:#f8f9fc;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:11px}
-        .chat-msg{align-self:flex-start;max-width:88%;overflow-wrap:anywhere;background:#fff;
+        .chat-msg{position:relative;align-self:flex-start;max-width:88%;overflow-wrap:anywhere;background:#fff;
           border:1px solid #e0e3ed;padding:10px 13px;border-radius:12px}
+        .chat-meta{display:flex;align-items:center;gap:8px;min-width:0}
+        .chat-meta>strong{min-width:0;overflow-wrap:anywhere}
+        .chat-meta>time{margin-left:auto;flex:0 0 auto}
+        .chat-select-box{display:none;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:18px;margin:0;cursor:pointer}
+        .chat-select-box input{width:15px;height:15px;margin:0;accent-color:#5144bd}
+        .chat-select-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+        .chat-feed.is-selecting .chat-select-box{display:inline-flex}
+        .chat-feed.is-selecting .chat-msg-tools{display:none!important}
+        .chat-feed-actions{display:flex;justify-content:flex-end;margin:8px 0}
+        .chat-feed-actions [hidden]{display:none!important}
+        .chat-feed-actions button,.chat-selection-toolbar button{font-size:12px;padding:7px 10px}
+        .chat-selection-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;margin:8px 0;background:#f4f2ff;border:1px solid #ded9fa;border-radius:10px;font-size:13px}
+        .chat-selection-toolbar[hidden]{display:none}
+        .chat-selection-toolbar form{display:inline-flex;margin:0}
+        .chat-selection-toolbar [data-chat-selected-inputs]{display:none}
+        .chat-selection-toolbar button:disabled{opacity:.45;cursor:not-allowed}
+        .chat-message-menu{position:relative;margin-left:auto}
+        .chat-menu-toggle{font-size:19px!important;line-height:1!important;padding:1px 5px!important;letter-spacing:1px}
+        .chat-menu-panel{position:absolute;right:0;top:calc(100% + 5px);z-index:50;min-width:180px;padding:5px;background:#fff;border:1px solid #ded9f4;border-radius:9px;box-shadow:0 10px 28px #28204b29}
+        .chat-menu-panel[hidden]{display:none}
+        .chat-menu-panel form{display:block!important;margin:0!important}
+        .chat-menu-item{display:block;width:100%;text-align:left;white-space:nowrap;padding:8px 10px!important;border:0!important;border-radius:6px!important;background:transparent!important;color:#514b70!important;font-size:12px!important;line-height:1.4!important;box-shadow:none!important;text-decoration:none!important}
+        .chat-menu-item:hover,.chat-menu-item:focus-visible{background:#f0edff!important;color:#2e247b!important}
+        .chat-menu-item:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
         .chat-msg.mine{align-self:flex-end;background:#eeeaff;border-color:#d8d2fa}
         .chat-msg.ping{background:#faf1ff;border-color:#bea8df}
         .chat-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:#59647b;margin-bottom:5px}
@@ -398,15 +421,12 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           .chat-pinned-actions{width:100%}}
         /* Action tools do not reserve empty height OR width in a resting bubble.
            Hover/focus expands the message only when the buttons are needed. */
-        .chat-msg-tools{display:none;gap:9px;align-items:center;flex-wrap:wrap;
-            margin:6px 0 0}
+        .chat-msg-tools{display:none;justify-content:flex-end;align-items:center;margin:6px 0 0}
         .chat-msg:is(:hover,:focus-within) .chat-msg-tools{display:flex}
         .chat-msg:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-        .chat-msg-tools form{display:inline-flex;margin:0}
         button.chat-mini-action{font-family:inherit;font-size:11px;font-weight:500;line-height:1.3;padding:4px 1px;
             background:transparent;border:0;color:#625d91;border-radius:3px;box-shadow:none}
-        button.chat-mini-action:hover{background:transparent;color:var(--accent-dark);
-            text-decoration:underline}
+        button.chat-mini-action:hover{background:transparent;color:var(--accent-dark);text-decoration:underline}
         button.chat-mini-action:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
         @media(hover:none),(pointer:coarse){.chat-msg-tools{display:flex}}
         .account .logout-btn{display:inline-flex;align-items:center;justify-content:center;
@@ -691,21 +711,36 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         var newest=Number(r.newest_other_id)||0;
         if(lastOther!==null&&newest>lastOther)beep();
         lastOther=newest;
-        if(!feed||focused||!Array.isArray(r.messages)||!r.messages.length)return;
+        if(!feed||focused)return;
+        var messages=Array.isArray(r.messages)?r.messages:[];
         var wasNearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<110;
-        var empty=feed.querySelector("[data-empty]");if(empty)empty.remove();
+        var empty=feed.querySelector("[data-empty]");
+        if(messages.length&&empty)empty.remove();
         var maxId=after;
-        r.messages.forEach(function(m){
+        messages.forEach(function(m){
           var id=Number(m.id)||0;if(id<=maxId)return;
           var template=document.createElement("template");template.innerHTML=m.html;
           if(template.content.firstElementChild)feed.appendChild(template.content.firstElementChild);
           maxId=id;
         });
-        feed.setAttribute("data-last",String(maxId));
+        if(messages.length)feed.setAttribute("data-last",String(maxId));
+        // A deleted message may be older than the polling cursor. Reconcile
+        // the rendered latest 120 IDs so deletion propagates to open chats.
+        if(Array.isArray(r.visible_ids)){
+          var liveIds={};r.visible_ids.forEach(function(id){liveIds[String(id)]=true;});
+          feed.querySelectorAll(".chat-msg").forEach(function(node){
+            if(!liveIds[node.getAttribute("data-mid")])node.remove();
+          });
+        }
+        if(!feed.querySelector(".chat-msg")&&!feed.querySelector("[data-empty]")){
+          var emptyState=document.createElement("p");emptyState.className="muted";
+          emptyState.setAttribute("data-empty","");emptyState.textContent="Пока нет сообщений. Начните обсуждение.";
+          feed.appendChild(emptyState);
+        }
         while(feed.querySelectorAll(".chat-msg").length>120)
           feed.querySelector(".chat-msg").remove();
         if(wasNearBottom)feed.scrollTop=feed.scrollHeight;
-        markRead(maxId);
+        if(messages.length)markRead(maxId);
       }).catch(function(){}).finally(function(){busy=false;});
     }
     if(feed){
@@ -825,12 +860,168 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     });
   })();
 })();
+(function(){
+  "use strict";
+  function closeContextEditors(except){
+    document.querySelectorAll(".client-context-editor").forEach(function(editor){
+      if(except&&editor===except)return;
+      var panel=editor.querySelector(".client-context-edit-panel");
+      var button=editor.querySelector("[data-client-context-toggle]");
+      if(panel)panel.hidden=true;
+      if(button)button.setAttribute("aria-expanded","false");
+    });
+  }
+  document.addEventListener("click",function(event){
+    var contextButton=event.target.closest("[data-client-context-toggle]");
+    if(contextButton){
+      var editor=contextButton.closest(".client-context-editor");
+      var panel=editor&&editor.querySelector(".client-context-edit-panel");
+      if(!panel)return;
+      var opening=panel.hidden;
+      closeContextEditors(editor);
+      panel.hidden=!opening;
+      contextButton.setAttribute("aria-expanded",String(opening));
+      if(opening){
+        var field=panel.querySelector("textarea");
+        if(field)field.focus();
+      }
+      return;
+    }
+    if(!event.target.closest(".client-context-editor"))closeContextEditors(null);
+  });
+  document.addEventListener("keydown",function(event){
+    if(event.key==="Escape")closeContextEditors(null);
+  });
+
+  var feed=document.querySelector("[data-chat-select-mode]")&&document.getElementById("chat-feed");
+  if(!feed)return;
+  var startButton=document.querySelector("[data-chat-select-mode]");
+  var toolbar=document.querySelector("[data-chat-selection-toolbar]");
+  var countLabel=document.querySelector("[data-chat-selection-count]");
+  var selectedInputs=document.querySelector("[data-chat-selected-inputs]");
+  var deleteButton=document.querySelector("[data-chat-delete-selected]");
+  var cancelButton=document.querySelector("[data-chat-selection-cancel]");
+  var bulkForm=document.querySelector("[data-chat-bulk-delete]");
+  function closeMenus(){
+    document.querySelectorAll("[data-chat-menu]").forEach(function(menu){
+      menu.hidden=true;
+      var button=menu.parentElement&&menu.parentElement.querySelector("[data-chat-menu-toggle]");
+      if(button)button.setAttribute("aria-expanded","false");
+    });
+  }
+  function selectedBoxes(){
+    return Array.from(feed.querySelectorAll("[data-chat-select-message]:checked"));
+  }
+  function refreshSelection(){
+    var boxes=selectedBoxes();
+    var ids=boxes.map(function(box){return box.value;});
+    if(countLabel)countLabel.textContent="Выбрано: "+ids.length;
+    if(deleteButton){
+      deleteButton.disabled=ids.length===0;
+      deleteButton.textContent="Удалить выбранные ("+ids.length+")";
+    }
+    if(selectedInputs){
+      selectedInputs.textContent="";
+      ids.forEach(function(id){
+        var input=document.createElement("input");
+        input.type="hidden";input.name="message_ids[]";input.value=id;
+        selectedInputs.appendChild(input);
+      });
+    }
+  }
+  function setSelectionMode(enabled){
+    feed.classList.toggle("is-selecting",enabled);
+    if(startButton)startButton.hidden=enabled;
+    if(toolbar)toolbar.hidden=!enabled;
+    if(!enabled)feed.querySelectorAll("[data-chat-select-message]").forEach(function(box){box.checked=false;});
+    closeMenus();refreshSelection();
+  }
+  document.addEventListener("click",function(event){
+    var menuToggle=event.target.closest("[data-chat-menu-toggle]");
+    if(menuToggle){
+      var menu=menuToggle.parentElement.querySelector("[data-chat-menu]");
+      if(!menu)return;
+      var opening=menu.hidden;
+      closeMenus();
+      menu.hidden=!opening;
+      menuToggle.setAttribute("aria-expanded",String(opening));
+      return;
+    }
+    var chooseOne=event.target.closest("[data-chat-select-one]");
+    if(chooseOne){
+      event.preventDefault();
+      setSelectionMode(true);
+      var id=chooseOne.getAttribute("data-chat-select-id");
+      var box=Array.from(feed.querySelectorAll("[data-chat-select-message]")).find(function(item){return item.value===id;});
+      if(box)box.checked=true;
+      refreshSelection();closeMenus();
+      return;
+    }
+    if(event.target.closest("[data-chat-menu]")){
+      if(!event.target.closest("[data-chat-menu-toggle]")&&
+          !event.target.closest("[data-chat-select-one]"))closeMenus();
+    }else closeMenus();
+    if(event.target.closest("[data-chat-select-mode]")){
+      setSelectionMode(true);return;
+    }
+    if(event.target.closest("[data-chat-selection-cancel]")){
+      setSelectionMode(false);return;
+    }
+  });
+  feed.addEventListener("change",function(event){
+    if(event.target.matches("[data-chat-select-message]"))refreshSelection();
+  });
+  if(bulkForm)bulkForm.addEventListener("submit",function(event){
+    if(!selectedBoxes().length){event.preventDefault();return;}
+    var ids=selectedBoxes().map(function(box){return box.value;});
+    if(ids.length>50){event.preventDefault();window.alert("За один раз можно удалить не более 50 сообщений.");}
+  });
+  refreshSelection();
+})(); 
 </script></body></html>';
     exit;
 }
 
 function adc_redirect(string $fragment = ''): never {
-    header('Location: /' . $fragment, true, 303);
+    // An omitted destination means "return to the current section", not
+    // "open the default Clients page". Forms normally POST to their current
+    // URL, so preserve its local route/query; use a validated same-host
+    // Referer only when a form explicitly POSTed to the root endpoint.
+    $location='/' . $fragment;
+    if($fragment===''){
+        $candidates=[];
+        $posted=$_POST['return_to']??null;
+        if(is_string($posted))$candidates[]=$posted;
+        $requestUri=$_SERVER['REQUEST_URI']??null;
+        if(is_string($requestUri))$candidates[]=$requestUri;
+        $target='';
+        foreach($candidates as $candidate){
+            if(!str_starts_with($candidate,'/')||str_starts_with($candidate,'//')||
+                preg_match('/[\\r\\n]/',$candidate))continue;
+            $parts=parse_url($candidate);
+            if(!is_array($parts)||isset($parts['scheme'])||isset($parts['host'])||
+                !in_array($parts['path']??'', ['/','/index.php'],true)||
+                trim((string)($parts['query']??''))==='')continue;
+            $target=$candidate;
+            break;
+        }
+        if($target===''){
+            $referer=$_SERVER['HTTP_REFERER']??null;
+            $host=strtolower((string)($_SERVER['HTTP_HOST']??''));
+            if(is_string($referer)&&$referer!==''&&$host!==''){
+                $parts=parse_url($referer);
+                $refererHost=is_array($parts)?strtolower((string)($parts['host']??'')):'';
+                $localHost=strtolower((string)(preg_replace('/:\\d+$/','',$host)??$host));
+                if(is_array($parts)&&$refererHost!==''&&$refererHost===$localHost&&
+                    in_array($parts['path']??'', ['/','/index.php'],true)&&
+                    trim((string)($parts['query']??''))!==''){
+                    $target=($parts['path']??'/').'?'.$parts['query'];
+                }
+            }
+        }
+        if($target!=='')$location=$target;
+    }
+    header('Location: ' . $location, true, 303);
     exit;
 }
 
@@ -1165,6 +1356,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if ($action==='chat_toggle_pin') {
             adc_chat_toggle_pin($db,$current);
+            $chatThread=adc_chat_thread($db,adc_chat_post('thread'));
+            adc_redirect('?view=chat'.($chatThread?'&thread='.$chatThread:''));
+        }
+        if ($action==='chat_delete') {
+            $deletedCount=adc_chat_delete($db,$current);
+            adc_flash($deletedCount===1?'Сообщение удалено.':'Удалено сообщений: '.$deletedCount.'.');
             $chatThread=adc_chat_thread($db,adc_chat_post('thread'));
             adc_redirect('?view=chat'.($chatThread?'&thread='.$chatThread:''));
         }
