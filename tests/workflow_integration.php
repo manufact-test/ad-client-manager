@@ -156,7 +156,7 @@ $savedGet=$_GET??[]; $_GET=[];
 $clientListHtml=adc_w_clients($db,$director,'clients');
 $_GET=$savedGet;
 $servicesHeader=strpos($clientListHtml,'<th>Услуги</th>');
-$contextHeader=strpos($clientListHtml,'<th>Как оплачивают</th>');
+$contextHeader=strpos($clientListHtml,'Как оплачивают</th>');
 $statusHeader=strpos($clientListHtml,'<th>Статус</th>');
 check($servicesHeader!==false && $contextHeader!==false && $statusHeader!==false &&
     $servicesHeader<$contextHeader && $contextHeader<$statusHeader &&
