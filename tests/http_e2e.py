@@ -180,7 +180,7 @@ try:
             "ранее сохранённые расчётные периоды этого клиента" in demoUploadForm.group(1),
             "New document/payment defaults to the active client's currency and explains historical period linking")
     # Exercise the optional period selector against a saved synthetic client period.
-    engagementMatch=re.search(r'name="engagement_id" value="(\\d+)"',demoUploadPanel)
+    engagementMatch=re.search(r'name="engagement_id" value="(\d+)"',demoUploadPanel)
     require(engagementMatch is not None,
             "Active engagement is available for the synthetic period fixture")
     status,headers,_=post("director",director,"save_period",{
@@ -191,7 +191,7 @@ try:
     periodPanel=panel("director",demo)
     periodForm=re.search(r'<form class="doc-upload-form"[^>]*>(.*?)</form>',periodPanel,re.S)
     require(periodForm is not None and
-            re.search(r'<select name="period_id">(?:(?!</select>).)*<option value="\\d+">2026-10-21</option>',
+            re.search(r'<select name="period_id">(?:(?!</select>).)*<option value="\d+">2026-10-21</option>',
                       periodForm.group(1),re.S) is not None and
             'name="period_id"><option value="" selected>Без периода</option>' in periodForm.group(1),
             "Saved client periods appear in the optional selector while Без периода remains available")
