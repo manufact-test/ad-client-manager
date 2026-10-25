@@ -235,7 +235,7 @@ try:
             'class="client-context-value-row"' in initialContextPanel and
             'data-client-context-toggle' in initialContextPanel and
             'class="client-context-edit-panel" hidden' in initialContextPanel and
-            "details class=\\"client-context-editor\\"" not in initialContextPanel and
+            'details class="client-context-editor"' not in initialContextPanel and
             "Например: PayPal, карта, инвойс" in initialContextPanel and
             "Оплата без документов" in initialContextPanel and
             "Оплата на карту (без PDF)" not in initialContextPanel and
