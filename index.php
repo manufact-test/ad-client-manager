@@ -306,6 +306,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-feed.is-selecting .chat-select-box{display:inline-flex}
         .chat-feed.is-selecting .chat-msg-tools{display:none!important}
         .chat-feed-actions{display:flex;justify-content:flex-end;margin:8px 0}
+        .chat-feed-actions [hidden]{display:none!important}
         .chat-feed-actions button,.chat-selection-toolbar button{font-size:12px;padding:7px 10px}
         .chat-selection-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;margin:8px 0;background:#f4f2ff;border:1px solid #ded9fa;border-radius:10px;font-size:13px}
         .chat-selection-toolbar[hidden]{display:none}
