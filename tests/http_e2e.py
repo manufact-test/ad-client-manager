@@ -25,7 +25,12 @@ def request(role,path="/",payload=None,files=None):
          "-D",str(hdr),"-o",str(out),"-w","%{http_code}"]
     if payload is not None:
         cmd+=["-X","POST"]
-        for k,v in payload.items():cmd+=["--data-urlencode",str(k)+"="+str(v)]
+        for k,v in payload.items():
+            if isinstance(v,(list,tuple)):
+                field=str(k) if str(k).endswith("[]") else str(k)+"[]"
+                for item in v:cmd+=["--data-urlencode",field+"="+str(item)]
+            else:
+                cmd+=["--data-urlencode",str(k)+"="+str(v)]
     if files is not None:
         cmd+=["-X","POST"]
         for k,v in files.items():cmd+=["-F",str(k)+"="+str(v)]
@@ -56,8 +61,8 @@ def form_entry_id(page,action):
     m=re.search(r'name="entry_id" value="(\d+)"',matches[0])
     require(m,"Target entry linked to "+action)
     return int(m.group(1))
-def post(role,token,action,values):
-    return request(role,payload={"csrf":token,"action":action,**values})
+def post(role,token,action,values,path="/"):
+    return request(role,path,payload={"csrf":token,"action":action,**values})
 def login(role):
     status,_,body=request(role)
     require(status==200 and "Вход" in html(body),"Login form "+role)
@@ -93,6 +98,24 @@ try:
     status,_,body=request("visitor","/?download=1")
     require(status==200 and "Вход" in html(body),"Private document unauthenticated access")
     director=login("director");employee=login("employee")
+    # A task deletion must return to the section that submitted the form.
+    taskTitle="CI tab-preservation task"
+    due=(date.today()+timedelta(days=5)).isoformat()
+    status,headers,_=post("director",director,"create_task",{
+        "title":taskTitle,"due_date":due},path="/?view=tasks")
+    require(status==303 and location(headers)=="/?view=tasks",
+            "Creating a personal task stays in My Tasks")
+    status,_,taskPage=request("director","/?view=tasks")
+    taskMatch=re.search(r'<div class="task-title"><strong>'+re.escape(taskTitle)+
+        r'</strong>[\s\S]*?name="action" value="delete_task"[\s\S]*?name="task_id" value="(\d+)"',
+        html(taskPage))
+    require(status==200 and taskMatch,"New personal task exposes its own delete action")
+    status,headers,_=post("director",director,"delete_task",{
+        "task_id":taskMatch.group(1)},path="/?view=tasks")
+    require(status==303 and location(headers)=="/?view=tasks",
+            "Deleting a personal task stays in My Tasks")
+    status,_,taskPage=request("director","/?view=tasks")
+    require(taskTitle not in html(taskPage),"Deleted personal task disappears from My Tasks")
     status,_,ctrl=request("employee","/?view=control")
     require(status==200 and "<h1>Обзор</h1>" in html(ctrl) and
             "Контроль клиентов" not in html(ctrl),
@@ -209,7 +232,11 @@ try:
     require("Как оплачивают" in initialContextPanel and
             'name="action" value="save_client_context"' in initialContextPanel and
             'title="Изменить способ оплаты"' in initialContextPanel and
-            'class="client-context-edit-panel"' in initialContextPanel and
+            'class="client-context-value-row"' in initialContextPanel and
+            'data-client-context-toggle' in initialContextPanel and
+            'class="client-context-edit-panel" hidden' in initialContextPanel and
+            'details class="client-context-editor"' not in initialContextPanel and
+            "Например: PayPal, карта, инвойс" in initialContextPanel and
             "Оплата без документов" in initialContextPanel and
             "Оплата на карту (без PDF)" not in initialContextPanel and
             "PayPal; договоры" in initialContextPanel,
@@ -346,8 +373,12 @@ try:
         messageid=match.group(1)
     require("📌 Закрепить" in html(initial) and
             "chat-reply-btn chat-mini-action" in html(initial) and
-            "chat-pin-btn chat-mini-action" in html(initial),
-            "Compact reply and pin tools rendered beside an actual message")
+            "chat-pin-btn chat-mini-action" in html(initial) and
+            "data-chat-menu-toggle" in html(initial) and
+            "data-chat-menu" in html(initial) and
+            "data-chat-selection-toolbar" in html(initial) and
+            "data-chat-select-message" in html(initial),
+            "Message menu, single-message actions and bulk selection controls rendered")
     status,headers,_=post("employee",employee,"chat_send",{
         "thread":str(real),"message":"This is an answer",
         "reply_to_id":messageid})
@@ -747,7 +778,55 @@ try:
             "Confirmed empty client deletion succeeds")
     require("CI empty accidental client" not in html(request("director","/?view=clients")[2]),
             "Accidental client removed from list without changing others")
-    print("Unified ledger HTTP E2E passed: upload, send, receive, undo, protected edits, empty-client cleanup, void, monthly stacking, demo exclusion, CSV")
+
+    # Verify real HTTP bulk deletion, permissions, and in-place chat refresh.
+    bulkBodies=["HTTP bulk-delete fixture one","HTTP bulk-delete fixture two"]
+    for message in bulkBodies:
+        status,headers,_=post("director",director,"chat_send",{
+            "thread":"0","message":message},path="/?view=chat")
+        require(status==303 and location(headers)=="/?view=chat",
+                "Chat message send returns to the current room")
+    status,_,general=request("director","/?view=chat")
+    articles=re.findall(r'<article\b[^>]*>.*?</article>',html(general),re.S)
+    bulkIds=[]
+    for article in articles:
+        if any(message in article for message in bulkBodies):
+            match=re.search(r'data-mid="(\d+)"',article)
+            if match:bulkIds.append(match.group(1))
+    require(status==200 and len(bulkIds)==2,
+            "Two chat messages are available for HTTP bulk deletion")
+    status,_,denied=post("employee",employee,"chat_delete",{
+        "thread":"0","message_ids":[bulkIds[0]]},path="/?view=chat")
+    require(status==200 and "Можно удалять только собственные сообщения." in html(denied),
+            "Employee cannot delete another user's chat message")
+    status,headers,_=post("director",director,"chat_delete",{
+        "thread":"0","message_ids":bulkIds},path="/?view=chat")
+    require(status==303 and location(headers)=="/?view=chat",
+            "Director bulk deletion succeeds without leaving the chat")
+    status,_,generalAfter=request("director","/?view=chat")
+    require(status==200 and all(message not in html(generalAfter) for message in bulkBodies),
+            "Bulk-deleted messages disappear after refresh")
+
+    # Changing account settings also preserves the Settings section.
+    status,_,settings=request("director","/?view=team")
+    require(status==200 and "Настройки" in html(settings) and
+            "Изменить пароль учётной записи" in html(settings),
+            "Settings page contains the account preferences form")
+    status,headers,_=post("director",director,"change_password",{
+        "old_password":PASSWORD,"new_password":"CI-only-updated-password-98765"},
+        path="/?view=team")
+    require(status==303 and location(headers)=="/?view=team",
+            "Saving account settings returns to Settings, not Clients")
+    # Restore the fixture password because the following auth E2E uses it.
+    status,_,settings=request("director","/?view=team")
+    require(status==200,"Settings remain accessible after password change")
+    director=csrf(html(settings))
+    status,headers,_=post("director",director,"change_password",{
+        "old_password":"CI-only-updated-password-98765","new_password":PASSWORD},
+        path="/?view=team")
+    require(status==303 and location(headers)=="/?view=team",
+            "Restoring the fixture password also stays on Settings")
+    print("Unified ledger HTTP E2E passed: workflow, navigation retention, chat deletion, ledger, finance and CSV")
 finally:
     for p in WORK.glob("*"):
         if p.is_file():p.unlink()
