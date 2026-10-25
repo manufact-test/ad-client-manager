@@ -68,9 +68,10 @@ def login(role):
     status,_,body=request(role,"/?view=clients")
     require(status==200,"Client list "+role)
     return csrf(html(body))
-def create_client(token,name,demo):
+def create_client(token,name,demo,payment_details=""):
     status,headers,_=post("director",token,"save_client",{
         "client_name":name,"platform_text":"Фиктивная реклама",
+        "payment_details":payment_details,
         "source_kind":"inbound","legal_type":"legal","started_on":"2026-10-21",
         "payment_mode":"prepayment","currency":"BYN",
         "quoted_amount":"0.00" if demo else "1250.00",
@@ -171,7 +172,26 @@ try:
     require(status==200 and "Готово к импорту: 2" not in html(settings),
             "Successful import clears the pending confirmation")
     demo=create_client(director,"CI demo ledger",True)
-    real=create_client(director,"CI real ledger",False)
+    real=create_client(director,"CI real ledger",False,"PayPal / договор № 123")
+    status,_,clientList=request("director","/?view=clients")
+    listHtml=html(clientList)
+    require(status==200 and 'name="payment_details"' in listHtml and
+            "PayPal / договор № 123" in listHtml and
+            listHtml.find("<th>Услуги</th>") < listHtml.find("<th>Куда / как оплачивают</th>") <
+            listHtml.find('<th aria-label="Открыть"></th>'),
+            "Client creation stores payment destination and list displays it after services")
+    initialPaymentPanel=panel("director",real)
+    require("PayPal / договор № 123" in initialPaymentPanel and
+            'name="action" value="save_payment_details"' in initialPaymentPanel,
+            "Client card shows payment destination with a separate one-field editor")
+    status,headers,_=post("director",director,"save_payment_details",{
+        "client_id":str(real),"payment_details":"Инвойс № 777"})
+    require(status==303 and "client="+str(real) in location(headers),
+            "Inline payment destination edit redirects to the same client card")
+    editedPaymentPanel=panel("director",real)
+    require("Инвойс № 777" in editedPaymentPanel and "PayPal / договор № 123" not in editedPaymentPanel and
+            "CI real ledger" in editedPaymentPanel and "Фиктивная реклама" in editedPaymentPanel,
+            "Inline payment edit updates only payment destination and preserves other client fields")
     # Staging pause controls render in existing card, not a separate page.
     pausePage=panel("director",real)
     require('name="action" value="pause_client"' in pausePage,
