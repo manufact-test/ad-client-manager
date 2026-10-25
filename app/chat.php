@@ -212,8 +212,8 @@ function adc_chat_item(array $m,int $uid,string $role='employee'):string {
     $created=new DateTimeImmutable((string)$m['created_at'],new DateTimeZone('UTC'));
     $time=$created->setTimezone(new DateTimeZone('Europe/Minsk'))->format('d.m.Y H:i');
     $id=(int)$m['id'];
-    $preview=mb_substr(trim((string)$m['body']),0,120);
-    if($preview==='')$preview='Вложение';
+    $messagePreview=mb_substr(trim((string)$m['body']),0,120);
+    if($messagePreview==='')$messagePreview='Вложение';
     $thread=(int)($m['thread_client_id']??0);
     $out='<article id="chat-msg-'.$id.'" class="chat-msg'.$class.
         '" data-mid="'.$id.'" data-chat-deletable="'.($canDelete?'1':'0').'" tabindex="0">'.
@@ -243,11 +243,11 @@ function adc_chat_item(array $m,int $uid,string $role='employee'):string {
     $out.='</div>';
     if(($m['reply_to_id']??null)!==null){
         $replyId=(int)$m['reply_to_id'];
-        $preview=mb_substr(trim((string)($m['reply_body']??'Сообщение недоступно')),0,130);
-        if($preview==='')$preview='Вложение';
+        $replyPreview=mb_substr(trim((string)($m['reply_body']??'Сообщение недоступно')),0,130);
+        if($replyPreview==='')$replyPreview='Вложение';
         $out.='<a class="chat-replied" href="/?view=chat&amp;thread='.$thread.
             '&amp;focus='.$replyId.'#chat-msg-'.$replyId.'">↪ '.
-            adc_h((string)($m['reply_author']??'Сотрудник')).': '.adc_h($preview).'</a>';
+            adc_h((string)($m['reply_author']??'Сотрудник')).': '.adc_h($replyPreview).'</a>';
     }
     $out.='<div>'.adc_chat_safe_text((string)$m['body'],
         $m['client_id']===null?null:(int)$m['client_id']).'</div>';
@@ -269,7 +269,7 @@ function adc_chat_item(array $m,int $uid,string $role='employee'):string {
     $out.='<div class="chat-msg-tools">'.
         '<button type="button" class="chat-reply-btn chat-mini-action" title="Ответить на сообщение" '.
         'data-chat-reply="'.$id.'" data-reply-preview="'.
-        adc_h((string)$m['author'].': '.$preview).'">↩ Ответить</button>'.
+        adc_h((string)$m['author'].': '.$messagePreview).'">↩ Ответить</button>'.
         '<form method="post"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
         '<input type="hidden" name="action" value="chat_toggle_pin">'.
         '<input type="hidden" name="thread" value="'.$thread.'">'.
