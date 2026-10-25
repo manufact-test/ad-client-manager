@@ -68,12 +68,12 @@ def login(role):
     status,_,body=request(role,"/?view=clients")
     require(status==200,"Client list "+role)
     return csrf(html(body))
-def create_client(token,name,demo):
+def create_client(token,name,demo,currency="BYN"):
     status,headers,_=post("director",token,"save_client",{
         "client_name":name,"platform_text":"Фиктивная реклама",
         "client_context_text":"PayPal; договоры",
         "source_kind":"inbound","legal_type":"legal","started_on":"2026-10-21",
-        "payment_mode":"prepayment","currency":"BYN",
+        "payment_mode":"prepayment","currency":currency,
         "quoted_amount":"0.00" if demo else "1250.00",
         **({"is_demo":"1"} if demo else {})})
     m=re.search(r"client=(\d+)",location(headers))
@@ -171,15 +171,22 @@ try:
     status,_,settings=request("director","/?view=team")
     require(status==200 and "Готово к импорту: 2" not in html(settings),
             "Successful import clears the pending confirmation")
-    demo=create_client(director,"CI demo ledger",True)
+    demo=create_client(director,"CI demo ledger",True,currency="RUB")
     real=create_client(director,"CI real ledger",False)
+    demoUploadPanel=panel("director",demo)
+    demoUploadForm=re.search(r'<form class="doc-upload-form"[^>]*>(.*?)</form>',demoUploadPanel,re.S)
+    require(demoUploadForm is not None and
+            re.search(r'<select name="currency">(?:(?!</select>).)*<option value="RUB" selected>',demoUploadForm.group(1),re.S),
+            "New document/payment defaults to the active client's contract currency")
     status,_,listPage=request("director","/?view=clients")
     listHtml=html(listPage)
     require(status==200 and "Как оплачивают" in listHtml and
             "PayPal; договоры" in listHtml and 'data-client-href=' in listHtml and
             'tabindex="0"' in listHtml and ">Открыть</a>" not in listHtml and
             "#fcfbff" in listHtml and "#f6f5fb" in listHtml and
-            ".client-list-table tbody td.client-context-cell{text-align:left}" in listHtml,
+            ".client-list-table tbody td.client-context-cell{text-align:left}" in listHtml and
+            ".customer-profile .item>div:first-child{flex:1 1 0%;min-width:0;overflow-wrap:anywhere}" in listHtml and
+            ".customer-profile .item>.actions{flex:0 1 auto;min-width:0;max-width:58%;flex-wrap:wrap;justify-content:flex-end}" in listHtml,
             "Client list displays payment context after services, uses subtle zebra rows and remains clickable")
     initialContextPanel=panel("director",real)
     require("Как оплачивают" in initialContextPanel and
@@ -464,13 +471,35 @@ try:
         "client_id":demo,"amount":"100.00","currency":"BYN","category":"advertising"})
     require(status==403 or status==200,"Employees cannot create payable card requests")
     pdf=WORK/"valid.pdf";pdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")
+    # Missing PDF stays inside the open client drawer and preserves all other fields.
+    status,_,missing=request("director","/?view=clients&client="+str(demo),payload={
+        "csrf":director,"action":"upload_document","client_id":str(demo),
+        "needs_invoice":"1","needs_act":"1","has_amount":"1","amount":"123.45",
+        "currency":"RUB","category":"development","note":"Keep this note",
+        "transfer_due_on":"2026-11-05","period_id":""})
+    missingHtml=html(missing)
+    missingForm=re.search(r'<form class="doc-upload-form"[^>]*>(.*?)</form>',missingHtml,re.S)
+    require(status==200 and 'class="drawer customer-profile"' in missingHtml and
+            'class="doc-upload" open' in missingHtml and missingForm is not None and
+            'class="error document-upload-error" role="alert">Выберите PDF.</div>' in missingForm.group(1) and
+            missingHtml.count("Выберите PDF.")==1,
+            "Missing PDF error is shown beside the PDF field in the same open client drawer")
+    require('name="needs_invoice" value="1" checked' in missingForm.group(1) and
+            'name="needs_act" value="1" checked' in missingForm.group(1) and
+            'name="amount" type="number" value="123.45"' in missingForm.group(1) and
+            'name="currency"><option value="BYN">BYN</option><option value="RUB" selected>RUB</option>' in missingForm.group(1) and
+            'name="note" type="text" value="Keep this note"' in missingForm.group(1) and
+            'name="transfer_due_on" type="date" value="2026-11-05"' in missingForm.group(1) and
+            'name="period_id"><option value="" selected>Без периода</option>' in missingForm.group(1),
+            "Missing PDF validation preserves document flags, amount, currency, note, due date and period selection")
     fake=WORK/"fake.pdf";fake.write_bytes(b"<html>not pdf</html>")
-    status,_,error=request("director",files={
+    status,_,error=request("director","/?view=clients&client="+str(demo),files={
         "csrf":director,"action":"upload_document","client_id":demo,
         "document":"@"+str(fake)+";filename=wrong.pdf;type=application/pdf",
         "needs_invoice":"1","has_amount":"1","amount":"100.00","currency":"BYN",
         "category":"advertising"})
-    require(status==200 and "Разрешены только PDF" in html(error),"Reject spoofed file")
+    require(status==200 and 'class="error document-upload-error" role="alert">Разрешены только PDF' in html(error),
+            "Reject spoofed file inline in the client drawer")
     status,_,_=upload(director,demo,pdf,"100.00")
     require(status==303,"Upload PDF with explicit amount, no manual billing period")
     page=panel("employee",demo)
