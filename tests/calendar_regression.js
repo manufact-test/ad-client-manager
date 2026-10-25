@@ -129,7 +129,7 @@ function verifyNavigation(year, month, direction, expectedTitle) {
     closeMenus() {},
   };
 
-  vm.runInNewContext(helpers + '\\n' + drawSource + '\\ndraw();', context, { timeout: 1000 });
+  vm.runInNewContext(helpers + '\n' + drawSource + '\ndraw();', context, { timeout: 1000 });
   const header = picker.children[0];
   assert.ok(header, 'Calendar header should render');
   const navButton = header.children[direction === 'prev' ? 0 : 2];
