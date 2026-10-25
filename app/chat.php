@@ -203,16 +203,24 @@ function adc_chat_safe_text(string $body,?int $clientId=null):string {
     }
     return nl2br($html);
 }
-function adc_chat_item(array $m,int $uid):string {
+function adc_chat_item(array $m,int $uid,string $role='employee'):string {
     $mine=(int)$m['author_user_id']===$uid;
+    $canDelete=$mine||$role==='director';
     $tagged=(int)($m['is_mentioned']??0)===1||(int)($m['mentioned_user_id']??0)===$uid;
     $class=$mine?' mine':($tagged?' ping':'');
     // The database stores UTC; show team timestamps in Minsk local time.
     $created=new DateTimeImmutable((string)$m['created_at'],new DateTimeZone('UTC'));
     $time=$created->setTimezone(new DateTimeZone('Europe/Minsk'))->format('d.m.Y H:i');
-    $out='<article id="chat-msg-'.(int)$m['id'].'" class="chat-msg'.$class.
-        '" data-mid="'.(int)$m['id'].'" tabindex="0">'.
-        '<div class="chat-meta"><strong>'.adc_h((string)$m['author']).'</strong>'.
+    $id=(int)$m['id'];
+    $out='<article id="chat-msg-'.$id.'" class="chat-msg'.$class.
+        '" data-mid="'.$id.'" data-chat-deletable="'.($canDelete?'1':'0').'" tabindex="0">'.
+        '<div class="chat-meta">';
+    if($canDelete){
+        $out.='<label class="chat-select-box" title="Выбрать сообщение">'.
+            '<input type="checkbox" data-chat-select-message value="'.$id.'">'.
+            '<span class="chat-select-sr">Выбрать сообщение</span></label>';
+    }
+    $out.='<strong>'.adc_h((string)$m['author']).'</strong>'.
         '<time>'.adc_h($time).'</time></div>';
     $thread=(int)($m['thread_client_id']??0);
     if(($m['reply_to_id']??null)!==null){
@@ -229,7 +237,7 @@ function adc_chat_item(array $m,int $uid):string {
         $out.='<a class="chat-link" href="/?view=clients&amp;client='.(int)$m['client_id'].'">↗ Карточка: '.
             adc_h((string)($m['client_name']??'Клиент')).'</a>';
     if(isset($m['attachment_id']) && $m['attachment_id']!==null){
-        $id=(int)$m['attachment_id'];$url='/?chat_attachment='.$id;
+        $attachmentId=(int)$m['attachment_id'];$url='/?chat_attachment='.$attachmentId;
         $name=adc_h((string)$m['attachment_name']);
         $kind=(string)$m['attachment_mime'];
         if(str_starts_with($kind,'image/')){
@@ -242,17 +250,32 @@ function adc_chat_item(array $m,int $uid):string {
     }
     $preview=mb_substr(trim((string)$m['body']),0,120);
     if($preview==='')$preview='Вложение';
-    $out.='<div class="chat-msg-tools"><button type="button" class="chat-reply-btn chat-mini-action" title="Ответить на сообщение"'.
-        ' data-chat-reply="'.(int)$m['id'].'" data-reply-preview="'.
+    $out.='<div class="chat-msg-tools"><div class="chat-message-menu">'.
+        '<button type="button" class="chat-menu-toggle chat-mini-action" data-chat-menu-toggle '.
+        'aria-expanded="false" aria-haspopup="true" title="Действия с сообщением" aria-label="Действия с сообщением">⋯</button>'.
+        '<div class="chat-menu-panel" data-chat-menu hidden>'.
+        '<button type="button" class="chat-menu-item chat-reply-btn chat-mini-action" '.
+        'data-chat-reply="'.$id.'" data-reply-preview="'.
         adc_h((string)$m['author'].': '.$preview).'">↩ Ответить</button>'.
         '<form method="post"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
         '<input type="hidden" name="action" value="chat_toggle_pin">'.
         '<input type="hidden" name="thread" value="'.$thread.'">'.
-        '<input type="hidden" name="message_id" value="'.(int)$m['id'].'">'.
-        '<button class="chat-pin-btn chat-mini-action" type="submit" title="Закрепить сообщение">📌 Закрепить</button>'.
-        '</form></div>';
-    return $out.'</article>';
+        '<input type="hidden" name="message_id" value="'.$id.'">'.
+        '<button class="chat-menu-item chat-pin-btn chat-mini-action" type="submit" title="Закрепить сообщение">📌 Закрепить</button>'.
+        '</form>';
+    if($canDelete){
+        $out.='<button type="button" class="chat-menu-item chat-mini-action" data-chat-select-one '.
+            'data-chat-select-id="'.$id.'">☑ Выбрать сообщение</button>'.
+            '<form method="post"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
+            '<input type="hidden" name="action" value="chat_delete">'.
+            '<input type="hidden" name="thread" value="'.$thread.'">'.
+            '<input type="hidden" name="message_ids[]" value="'.$id.'">'.
+            '<button type="submit" class="chat-menu-item chat-mini-action" '.
+            'data-confirm="Удалить это сообщение?">🗑 Удалить</button></form>';
+    }
+    return $out.'</div></div></div></article>';
 }
+
 function adc_chat_html(PDO $db,array $user):string {
     $uid=(int)$user['id'];
     $GLOBALS['adc_chat_read_stage']='thread';
@@ -346,10 +369,20 @@ function adc_chat_html(PDO $db,array $user):string {
     }
     if($focus)$out.='<p><a href="/?view=chat&amp;thread='.$thread.
         '">← Вернуться к последним сообщениям</a></p>';
+    $out.='<div class="chat-feed-actions"><button type="button" class="secondary" data-chat-select-mode>Выбрать сообщения</button></div>'.
+        '<div class="chat-selection-toolbar" data-chat-selection-toolbar hidden>'.
+        '<span data-chat-selection-count>Выбрано: 0</span>'.
+        '<form method="post" data-chat-bulk-delete><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
+        '<input type="hidden" name="action" value="chat_delete">'.
+        '<input type="hidden" name="thread" value="'.$thread.'">'.
+        '<div data-chat-selected-inputs></div>'.
+        '<button type="submit" class="secondary" data-chat-delete-selected disabled '.
+        'data-confirm="Удалить выбранные сообщения?">Удалить выбранные (0)</button></form>'.
+        '<button type="button" class="secondary" data-chat-selection-cancel>Отмена</button></div>';
     $out.='<div id="chat-feed" class="chat-feed" data-thread="'.$thread.
         '" data-last="'.$last.'" data-focused="'.($focus?'1':'0').
         '" role="log" aria-live="polite">';
-    foreach($rows as $m)$out.=adc_chat_item($m,$uid);
+    foreach($rows as $m)$out.=adc_chat_item($m,$uid,(string)($user['role']??'employee'));
     if(!$rows)$out.='<p data-empty class="muted">Пока нет сообщений. Начните обсуждение.</p>';
     $out.='</div><form method="post" enctype="multipart/form-data" class="chat-compose" data-chat-compose>'.
         '<input type="hidden" name="csrf" value="'.adc_csrf().'">'.
@@ -435,6 +468,67 @@ function adc_chat_toggle_pin(PDO $db,array $user):void {
         }
         $db->commit();
     }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
+}
+function adc_chat_remove_attachment_file(mixed $key):void {
+    if(!is_string($key)||!preg_match('/\\A[a-f0-9]{48}\\.(pdf|png|jpg|webp)\\z/D',$key))return;
+    $dir=adc_chat_attachment_dir();$path=$dir.'/'.$key;
+    if(is_link($dir)||is_link($path)||!is_file($path))return;
+    @unlink($path);
+}
+function adc_chat_delete(PDO $db,array $user):int {
+    $threadRaw=adc_chat_post('thread');
+    $thread=adc_chat_thread($db,$threadRaw);
+    if($threadRaw!==''&&$threadRaw!=='0'&&!$thread)
+        throw new RuntimeException('Переписка клиента не найдена.');
+    $raw=$_POST['message_ids']??null;
+    if(!is_array($raw)){
+        $single=adc_chat_post('message_id');
+        $raw=$single!==''?[$single]:[];
+    }
+    $unique=[];
+    foreach($raw as $value){
+        if(!is_string($value)&&!is_int($value))
+            throw new RuntimeException('Некорректный список сообщений.');
+        $value=(string)$value;
+        if(!ctype_digit($value)||(int)$value<1)
+            throw new RuntimeException('Некорректный номер сообщения.');
+        $unique[(int)$value]=true;
+        if(count($unique)>50)
+            throw new RuntimeException('За один раз можно удалить не более 50 сообщений.');
+    }
+    $ids=array_keys($unique);
+    if(!$ids)throw new RuntimeException('Выберите сообщения для удаления.');
+    $marks=implode(',',array_fill(0,count($ids),'?'));
+    $db->beginTransaction();
+    try{
+        $s=$db->prepare('SELECT m.id,m.author_user_id,att.storage_key
+            FROM team_chat_messages m LEFT JOIN team_chat_attachments att ON att.message_id=m.id
+            WHERE m.id IN ('.$marks.') AND COALESCE(m.thread_client_id,0)=? FOR UPDATE');
+        $s->execute([...$ids,$thread]);$rows=$s->fetchAll();
+        if(count($rows)!==count($ids))
+            throw new RuntimeException('Одно или несколько сообщений уже удалены или принадлежат другой переписке.');
+        $uid=(int)$user['id'];$director=($user['role']??'')==='director';
+        foreach($rows as $row){
+            if(!$director&&(int)$row['author_user_id']!==$uid)
+                throw new RuntimeException('Можно удалять только собственные сообщения.');
+        }
+        // Do not leave replies pointing at a message that no longer exists.
+        $db->prepare('UPDATE team_chat_messages SET reply_to_id=NULL
+            WHERE reply_to_id IN ('.$marks.') AND COALESCE(thread_client_id,0)=?')
+            ->execute([...$ids,$thread]);
+        $db->prepare('DELETE FROM team_chat_messages
+            WHERE id IN ('.$marks.') AND COALESCE(thread_client_id,0)=?')
+            ->execute([...$ids,$thread]);
+        foreach($rows as $row){
+            adc_audit($db,$uid,'delete_chat_message','team_chat_message',(int)$row['id']);
+        }
+        $db->commit();
+    }catch(Throwable $e){
+        if($db->inTransaction())$db->rollBack();
+        throw $e;
+    }
+    foreach($rows as $row)adc_chat_remove_attachment_file($row['storage_key']??null);
+    return count($ids);
 }
 function adc_chat_send(PDO $db,array $user):void {
     $body=adc_chat_post('message');
@@ -526,9 +620,13 @@ function adc_chat_poll(PDO $db,array $user):never {
     $thread=adc_chat_thread($db,$_GET['thread']??null);
     $payload=adc_chat_status($db,$uid);
     $rows=($_GET['status']??'')==='1'?[]:adc_chat_rows($db,$after,$thread,$uid);
+    $visible=$db->prepare('SELECT id FROM team_chat_messages
+        WHERE COALESCE(thread_client_id,0)=? ORDER BY id DESC LIMIT 120');
+    $visible->execute([$thread]);
+    $payload['visible_ids']=array_map('intval',$visible->fetchAll(PDO::FETCH_COLUMN));
     $payload['ok']=true;
     $payload['messages']=array_map(static fn(array $r):array=>
-        ['id'=>(int)$r['id'],'html'=>adc_chat_item($r,$uid)],$rows);
+        ['id'=>(int)$r['id'],'html'=>adc_chat_item($r,$uid,(string)($user['role']??'employee'))],$rows);
     header('Content-Type: application/json; charset=UTF-8');
     header('Cache-Control: no-store,private');
     echo json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_THROW_ON_ERROR);exit;
