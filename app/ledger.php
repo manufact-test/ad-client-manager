@@ -309,9 +309,10 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
         $html.='</details>';
     }
     if ($user['role']==='director') {
-        $html.='<details class="sub-action"><summary>Загрузить документ</summary>'.
+        $uploadError=$GLOBALS['adc_document_upload_error']??null;
+        $openUpload=is_array($uploadError) && (int)($uploadError['client_id']??0)===$clientId;
+        $html.='<details class="sub-action doc-upload"'.($openUpload?' open':'').'><summary>Загрузить документ</summary>'.
             adc_doc_upload_form($db,$clientId).'</details>';
- 
     }
     return $html.'</section>';
 }
