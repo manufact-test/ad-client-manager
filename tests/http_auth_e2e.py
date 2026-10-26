@@ -39,6 +39,11 @@ def csrf(html):
 def login(who,email,password):
     status,_,page=request(who)
     check(status==200 and "Вход" in page,"Login form "+who)
+    check('class="password-input-wrap"' in page and
+          'data-password-toggle' in page and
+          'aria-label="Показать пароль"' in page and
+          'data-eye-slash' in page,
+          "Login form provides accessible password visibility toggle "+who)
     status,headers,_=request(who,payload={"action":"login","csrf":csrf(page),
                                            "email":email,"password":password})
     check(status==303 and "Location: /" in headers,"Login success "+who)

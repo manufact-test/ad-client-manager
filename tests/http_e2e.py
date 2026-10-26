@@ -248,6 +248,13 @@ try:
             "Оплата на карту (без PDF)" not in initialContextPanel and
             "PayPal; договоры" in initialContextPanel,
             "Payment context editor is compact, pencil sits beside its label, and postback scroll is preserved")
+    require('.profile-facts>.client-context-fact{gap:0}' in initialContextPanel and
+            '.profile-facts>.client-context-fact>.client-context-heading{margin-bottom:4px}' in initialContextPanel and
+            '.client-context-edit-panel .field{gap:9px;margin:0 0 14px;line-height:1.4}' in initialContextPanel and
+            '.client-context-edit-actions button{min-height:38px;padding:7px 14px;border:2px solid #3b35a8;border-radius:9px;font-weight:650}' in initialContextPanel and
+            '.customer-profile .customer-identity .client-summary-header{align-items:stretch;flex-direction:column;gap:12px}' in initialContextPanel and
+            '.client-context-edit-panel{width:min(360px,calc(100vw - 48px));max-width:calc(100vw - 48px);padding:16px}' in initialContextPanel,
+            "Client profile heading and payment editor spacing are corrected for mobile and desktop")
     status,headers,_=post("director",director,"save_client_context",{
         "client_id":str(real),"client_context_text":"Инвойс № 777"})
     require(status==303 and "client="+str(real) in location(headers),
