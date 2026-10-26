@@ -1,4 +1,18 @@
-> **АКТУАЛЬНАЯ ЗАПИСЬ ВЫПУСКА — 25.10.2026, после PR #21.** Проверенный кодовый checkpoint main: 78b281199c5fe7fc0ceb76e82bcc8a95976fd48a. PR #20 CI [#40227797985 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227797985), main CI [#40227901025 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227901025). PR #21 CI [#40228481774 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40228481774), main CI [#40228596583 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40228596583). deploy commit: 286b11333719c423b7c3d0a74483936147959717; разрешённые runtime-файлы совпадают с проверенным кодом main.
+> **АКТУАЛЬНАЯ ЗАПИСЬ ВЫПУСКА — 26.10.2026, PR #22 и ручная приёмка завершены.** Проверенный кодовый checkpoint main после PR #22: `75c477ce66c5b7e857afc725e9100e799b9ed7f6`. PR [#22](https://github.com/manufact-test/ad-client-manager/pull/22) merged; CI PR [#40293178730 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40293178730), CI main [#40293361347 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40293361347).
+
+> В `deploy` опубликован только проверенный `index.php`, релизный commit `e26f38730b4d2bb5fd27197866b266dd0526926a`. После выпуска сверены все 19 разрешённых runtime-файлов; они совпадают с кодовым деревом main. Владелец вручную проверил опубликованный сайт и подтвердил все исправления.
+
+> В PR #22 исправлены мобильный заголовок карточки клиента, вертикальные отступы «Как оплачивают», внутренние отступы редактора и оформление кнопки «Сохранить», ширина popup на мобильном экране, добавлен переключатель показать/скрыть пароль на мобильном входе. Ручная приёмка из 8 пунктов закрыта; все повторные проверки после выпуска PASS. Чат, форма клиента, валидация и scroll restore ранее также приняты.
+
+> Выпуск `index.php` напрямую в `deploy` выполнен после явного разрешения владельца. Main push-run прошёл CI, но штатные release jobs были SKIPPED; workflow_dispatch не запускался. Не выдавать это за успешный штатный workflow-deploy. Будущие выпуски соблюдать стандартный release gate.
+
+> База, схема, реальные записи клиентов, оплаты, документы и PDF не менялись; DDL/migrations не запускались. GitHub остаётся PUBLIC; видимость не менять без отдельного прямого разрешения. По этому пакету исправлений открытых UI-дефектов больше нет; не добавлять новые изменения без нового запроса владельца.
+
+---
+
+---
+
+> **ИСТОРИЧЕСКАЯ ЗАПИСЬ ВЫПУСКА — 25.10.2026, после PR #21 (до PR #22).** Проверенный кодовый checkpoint main: 78b281199c5fe7fc0ceb76e82bcc8a95976fd48a. PR #20 CI [#40227797985 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227797985), main CI [#40227901025 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227901025). PR #21 CI [#40228481774 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40228481774), main CI [#40228596583 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40228596583). deploy commit: 286b11333719c423b7c3d0a74483936147959717; разрешённые runtime-файлы совпадают с проверенным кодом main.
 
 > В последнем hotfix добавлена мобильная привязка всплывашки поля «Как оплачивают» к правому краю, когда поле находится во второй колонке. Предыдущий пакет вернул нижние действия чата, вынес ⋯ наверх, уменьшил поля до 45 px, перенёс карандаш рядом с заголовком и добавил восстановление прокрутки после POST.
 
@@ -8,7 +22,8 @@
 
 ---
 
-> **АКТУАЛЬНАЯ ЗАПИСЬ ВЫПУСКА — 25.10.2026.** UI hotfix PR [#20](https://github.com/manufact-test/ad-client-manager/pull/20) merged в main (ba899146f5d1fa16c6cf75d0d511c4c9d55f1578). PR CI [#40227797985 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227797985); main CI [#40227901025 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227901025). В deploy опубликованы только index.php, app/chat.php и app/workflow.php, commit 18d08769ff80cf963cf0e2c8457a87ebdb95d42d; все разрешённые runtime-файлы совпадают с main.
+
+> **ИСТОРИЧЕСКАЯ ЗАПИСЬ ВЫПУСКА — 25.10.2026 (до PR #21).** UI hotfix PR [#20](https://github.com/manufact-test/ad-client-manager/pull/20) merged в main (ba899146f5d1fa16c6cf75d0d511c4c9d55f1578). PR CI [#40227797985 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227797985); main CI [#40227901025 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40227901025). В deploy опубликованы только index.php, app/chat.php и app/workflow.php, commit 18d08769ff80cf963cf0e2c8457a87ebdb95d42d; все разрешённые runtime-файлы совпадают с main.
 
 > Это было разовое прямое продвижение deploy после явного поручения владельца. Main workflow запускался по push, поэтому job deploy был SKIPPED; не утверждать, что workflow_dispatch выполнен. Эта запись не меняет общий release gate для будущих выпусков.
 
