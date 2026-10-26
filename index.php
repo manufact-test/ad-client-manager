@@ -292,6 +292,26 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         @media(max-width:700px){.client-list-table tbody td{padding:12px 14px}.client-list-table .status-cell{padding:12px 16px}}
         @media(max-width:550px){.client-context-edit-panel{left:0;right:auto;width:min(360px,calc(100vw - 24px));max-width:calc(100vw - 24px)}.client-context-fact:nth-child(even) .client-context-edit-panel{left:auto;right:0}}
 
+        /* Manual-acceptance follow-up: restore profile spacing and compact editor layout. */
+        .profile-facts>.client-context-fact{gap:0}
+        .profile-facts>.client-context-fact>.client-context-heading{margin-bottom:4px}
+        .client-context-edit-panel{padding:16px}
+        .client-context-edit-panel .field{gap:9px;margin:0 0 14px;line-height:1.4}
+        .client-context-edit-actions{margin-top:2px}
+        .client-context-edit-actions button{min-height:38px;padding:7px 14px;border:2px solid #3b35a8;border-radius:9px;font-weight:650}
+        .password-input-wrap{display:flex;align-items:stretch;gap:8px;min-width:0}
+        .password-input-wrap>input{flex:1 1 auto;min-width:0}
+        .password-visibility-toggle{display:inline-flex;align-items:center;justify-content:center;flex:0 0 46px;width:46px;min-height:44px;padding:8px;border:1px solid #c5c9dd;border-radius:8px;background:#fff;color:#4535b6}
+        .password-visibility-toggle:hover{background:#f4f2ff;color:#3021a4}
+        .password-visibility-toggle svg{display:block;width:20px;height:20px;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+        @media(max-width:550px){
+          .customer-profile .customer-identity .client-summary-header{align-items:stretch;flex-direction:column;gap:12px}
+          .customer-profile .customer-identity .client-summary-header>h3{width:100%;min-width:0;overflow-wrap:normal;word-break:normal}
+          .customer-profile .customer-identity .client-summary-header>.actions{width:100%;min-width:0;max-width:100%;justify-content:flex-start;flex-wrap:wrap;gap:8px}
+          .customer-profile .customer-identity .client-summary-header>.actions .btn{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+          .client-context-edit-panel{width:min(360px,calc(100vw - 48px));max-width:calc(100vw - 48px);padding:16px}
+        }
+
         .chat-badge{display:inline-flex;min-width:18px;height:18px;justify-content:center;align-items:center;
           background:#cf3959;color:#fff;border-radius:20px;font-size:11px;padding:0 5px}
         .chat-badge[hidden]{display:none}
@@ -503,6 +523,21 @@ function adc_page(string $title, string $body, ?array $user = null): never {
   });
 
   document.addEventListener("DOMContentLoaded",function(){
+     document.querySelectorAll("[data-password-toggle]").forEach(function(button){
+       var input=button.parentElement&&button.parentElement.querySelector("input");
+       if(!input)return;
+       var slash=button.querySelector("[data-eye-slash]");
+       button.addEventListener("click",function(){
+         var show=input.type==="password";
+         input.type=show?"text":"password";
+         var label=show?"Скрыть пароль":"Показать пароль";
+         button.setAttribute("aria-label",label);
+         button.setAttribute("aria-pressed",String(show));
+         button.title=label;
+         if(slash)slash.hidden=show;
+       });
+     });
+
     function closeMenus(except){
       document.querySelectorAll(".ac-menu,.ac-calendar").forEach(function(p){
         if(p!==except)p.hidden=true;
@@ -1631,8 +1666,12 @@ if (!$user) {
     $html = '<section class="card narrow"><h1>Вход</h1><p class="muted">Доступ только для сотрудников компании.</p>' . $alert
         . '<form method="post" class="stack"><input type="hidden" name="csrf" value="' . $csrf . '">'
         . '<input type="hidden" name="action" value="login">'
-        . '<div class="field"><label>Email</label><input type="email" name="email" autocomplete="username" required></div>'
-        . '<div class="field"><label>Пароль</label><input type="password" name="password" autocomplete="current-password" required></div>'
+        . '<div class="field"><label for="login-email">Email</label><input id="login-email" type="email" name="email" autocomplete="username" required></div>'
+        . '<div class="field"><label for="login-password">Пароль</label><div class="password-input-wrap">'.
+        '<input id="login-password" type="password" name="password" autocomplete="current-password" required>'.
+        '<button type="button" class="password-visibility-toggle" data-password-toggle aria-label="Показать пароль" title="Показать пароль" aria-pressed="false">'.
+        '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3"/><path data-eye-slash d="M3 3l18 18" stroke-width="2"/></svg>'.
+        '</button></div></div>'
         . '<button type="submit">Войти</button></form></section>';
     adc_page('Вход', $html);
 }
