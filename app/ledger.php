@@ -203,15 +203,23 @@ function adc_ledger_has_overdue(PDO $db,int $clientId,string $today): bool {
     return false;
 }
 
-function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
+function adc_ledger_client_status(PDO $db,int $clientId,string $today,?array $user=null): array {
     if (!adc_valid_date($today)) throw new InvalidArgumentException('Неверная дата.');
     if(adc_w_active_pause($db,$clientId))return ['Пауза','warning'];
+    // Only the director sees scheduled PDFs before their handover date.
+    // Existing payment and completed states are deliberately left unchanged.
+    $director=$user===null || ($user['role']??'')==='director';
     $q=$db->prepare('SELECT
-        SUM(CASE WHEN sent_at IS NULL THEN 1 ELSE 0 END) unsent,
-        SUM(CASE WHEN amount IS NOT NULL AND sent_at IS NOT NULL AND received_at IS NULL THEN 1 ELSE 0 END) unpaid,
-        SUM(CASE WHEN received_at IS NOT NULL THEN 1 ELSE 0 END) paid
-        FROM client_entries WHERE client_id=? AND is_void=0');
-    $q->execute([$clientId]);$s=$q->fetch();
+        SUM(CASE WHEN e.sent_at IS NULL AND
+            (?=1 OR e.entry_kind<>"document" OR d.id IS NULL OR
+             d.transferred_at IS NOT NULL OR d.transfer_due_on IS NULL OR
+             d.transfer_due_on<=?) THEN 1 ELSE 0 END) unsent,
+        SUM(CASE WHEN e.amount IS NOT NULL AND e.sent_at IS NOT NULL AND e.received_at IS NULL THEN 1 ELSE 0 END) unpaid,
+        SUM(CASE WHEN e.received_at IS NOT NULL THEN 1 ELSE 0 END) paid
+        FROM client_entries e
+        LEFT JOIN document_bundles d ON d.id=e.document_id
+        WHERE e.client_id=? AND e.is_void=0');
+    $q->execute([$director?1:0,$today,$clientId]);$s=$q->fetch();
     if ((int)$s['unsent']>0) return ['Отправить документы · '.$s['unsent'],'warning'];
     // The monthly contract only reminds staff to prepare documentation; it
     // never creates a charge or a personal task for each employee.
@@ -240,13 +248,18 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today): array {
 }
 
 function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
-    $q=$db->prepare('SELECT e.*,d.original_filename,d.needs_invoice,d.needs_spec,d.needs_act,d.needs_contract
+    $q=$db->prepare('SELECT e.*,d.original_filename,d.needs_invoice,d.needs_spec,d.needs_act,d.needs_contract,
+            d.transfer_due_on,d.transferred_at
         FROM client_entries e LEFT JOIN document_bundles d ON d.id=e.document_id
         WHERE e.client_id=? AND e.is_void=0 ORDER BY e.received_at IS NOT NULL,e.id DESC');
     $q->execute([$clientId]);$rows=$q->fetchAll();
     $html='<section class="card ledger-panel"><h3>Документы и оплаты</h3>';
     $pending=[];$done=[];
-    foreach ($rows as $r) {if ($r['received_at']===null) $pending[]=$r;else $done[]=$r;}
+    foreach ($rows as $r) {
+        if (($user['role']??'')!=='director' && $r['entry_kind']==='document' &&
+            !adc_doc_visible_to_staff($r,date('Y-m-d'))) continue;
+        if ($r['received_at']===null) $pending[]=$r;else $done[]=$r;
+    }
     $render=static function (array $r) use($db,$clientId,$user): string {
         $id=(int)$r['id'];$doc=$r['entry_kind']==='document';
         $title=$doc?(string)$r['original_filename']:'Оплата на карту';

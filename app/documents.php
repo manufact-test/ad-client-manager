@@ -135,6 +135,10 @@ function adc_doc_action(PDO $db,array $user,string $action): bool {
     $docId=null;$existing=null;
     if ($action!=='upload_document') {$docId=adc_w_id('document_id');$existing=adc_doc_record($db,$clientId,$docId,true);}
     if ($action==='transfer_document') {
+        if ($user['role']!=='director' &&
+            !adc_doc_visible_to_staff($existing,date('Y-m-d'))) {
+            throw new RuntimeException('Документ станет доступен в назначенный день передачи.');
+        }
         if ($existing['transferred_at']!==null) {
             $db->commit();adc_flash('Документ уже отправлен.');
             adc_redirect(adc_w_client_location($db,$clientId));
@@ -242,13 +246,19 @@ function adc_doc_download(PDO $db, array $user): never {
         http_response_code(400);
         exit('Некорректный документ.');
     }
-    $stmt=$db->prepare('SELECT storage_key,original_filename,content_sha256 FROM document_bundles
+    $stmt=$db->prepare('SELECT storage_key,original_filename,content_sha256,
+            transfer_due_on,transferred_at FROM document_bundles
         WHERE id=? AND is_void=0 AND storage_key IS NOT NULL');
     $stmt->execute([$docId]);
     $doc=$stmt->fetch();
     if (!$doc) {
         http_response_code(404);
         exit('Документ не найден.');
+    }
+    if ($user['role'] !== 'director' &&
+        !adc_doc_visible_to_staff($doc,date('Y-m-d'))) {
+        http_response_code(404);
+        exit('Документ пока недоступен.');
     }
     if ($user['role'] !== 'director' && adc_doc_requires_replacement($db,(int)$docId)) {
         http_response_code(409);
@@ -277,6 +287,8 @@ function adc_doc_panel(PDO $db, array $user, int $clientId): string {
     $documents=$stmt->fetchAll();
     $html='<section class="card"><h3>Документы</h3>';
     foreach ($documents as $doc) {
+        if ($user['role']!=='director' &&
+            !adc_doc_visible_to_staff($doc,date('Y-m-d'))) continue;
         $id=(int)$doc['id'];
         $stale=adc_doc_requires_replacement($db,$id);
         $types=[];

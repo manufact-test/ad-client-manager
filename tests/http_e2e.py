@@ -98,6 +98,68 @@ try:
     status,_,body=request("visitor","/?download=1")
     require(status==200 and "Вход" in html(body),"Private document unauthenticated access")
     director=login("director");employee=login("employee")
+    # Scheduled PDFs remain director-only until due; no cron or duplicate task.
+    scheduledClient=create_client(director,"CI scheduled future handover",True)
+    pdf=WORK/"scheduled-test.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")
+    future=(date.today()+timedelta(days=8)).isoformat()
+    status,headers,_=request("director",files={
+        "csrf":director,"action":"upload_document","client_id":str(scheduledClient),
+        "document":"@"+str(pdf)+";filename=scheduled-private.pdf;type=application/pdf",
+        "needs_invoice":"1","has_amount":"1","amount":"97.00",
+        "currency":"BYN","category":"advertising","transfer_due_on":future})
+    require(status==303,"Director prepares scheduled PDF")
+    directorPanel=panel("director",scheduledClient)
+    require("scheduled-private.pdf" in directorPanel and
+            'value="'+future+'"' in directorPanel and
+            "Отправить документы" in directorPanel,
+            "Director can view and change future PDF")
+    ids=re.findall(r"\?download=(\d+)",directorPanel)
+    require(len(ids)==1,"Scheduled PDF has director-only identifier")
+    scheduledDoc=int(ids[0])
+    employeePanel=panel("employee",scheduledClient)
+    require("scheduled-private.pdf" not in employeePanel and
+            "Отправить документы" not in employeePanel and
+            "97,00 BYN" not in employeePanel and
+            not re.findall(r"\?download=(\d+)",employeePanel),
+            "Employees cannot see PDF, payment queue, or send status before due")
+    status,_,body=request("employee","/?download="+str(scheduledDoc))
+    require(status==404,"Guessed PDF ID cannot bypass scheduled staff visibility")
+    status,_,body=post("employee",employee,"transfer_document",{
+        "client_id":scheduledClient,"document_id":scheduledDoc})
+    require(status==200 and "Документ станет доступен" in html(body),
+            "Employee cannot mark future PDF as sent")
+    status,_,body=request("employee","/?view=control&kind=handover&scope=upcoming&demo=all")
+    require(status==200 and "CI scheduled future handover" not in html(body),
+            "Future handover is hidden from staff Control board")
+    status,_,body=request("director","/?view=control&kind=handover&scope=upcoming&demo=all")
+    require(status==200 and "CI scheduled future handover" in html(body),
+            "Director sees future handover in Control board")
+    status,_,body=request("employee","/?export=client&client_id="+str(scheduledClient))
+    require(status==200 and "scheduled-private.pdf" not in html(body) and
+            "97.00" not in html(body),"Client CSV hides scheduled PDF from employee")
+    status,_,body=request("director","/?export=client&client_id="+str(scheduledClient))
+    require(status==200 and "scheduled-private.pdf" in html(body),
+            "Director client CSV retains prepared PDF")
+    # Moving deadline to today releases the existing PDF, no re-upload.
+    today=date.today().isoformat()
+    status,_,body=post("director",director,"edit_document",{
+        "client_id":scheduledClient,"document_id":scheduledDoc,
+        "needs_invoice":"1","has_amount":"1","amount":"97.00",
+        "currency":"BYN","category":"advertising","transfer_due_on":today})
+    require(status==303,"Director reschedules PDF without replacing its bytes")
+    employeePanel=panel("employee",scheduledClient)
+    require("scheduled-private.pdf" in employeePanel and
+            "Отправить документы" in employeePanel and
+            len(re.findall(r"\?download=(\d+)",employeePanel))==1,
+            "Staff receives the existing PDF when due")
+    status,_,body=request("employee","/?download="+str(scheduledDoc))
+    require(status==200 and body.startswith(b"%PDF-"),"Scheduled PDF downloads once due")
+    status,headers,_=post("employee",employee,"transfer_document",{
+        "client_id":scheduledClient,"document_id":scheduledDoc})
+    require(status==303 and "Ждём оплату" in panel("employee",scheduledClient),
+            "Normal handover and red payment status remain unchanged")
+
     # A task deletion must return to the section that submitted the form.
     taskTitle="CI tab-preservation task"
     due=(date.today()+timedelta(days=5)).isoformat()

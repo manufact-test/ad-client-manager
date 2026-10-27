@@ -1,6 +1,17 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Unsent PDFs with a future handover date stay in the director's queue.
+ * Staff see them on the due date (or immediately when no date was set).
+ * The check is derived on every request: no background job or database write.
+ */
+function adc_doc_visible_to_staff(array $document,string $today):bool {
+    $due=$document['transfer_due_on']??null;
+    return ($document['transferred_at']??null)!==null ||
+        $due===null || $due==='' || $due<=$today;
+}
+
 function adc_config_path(): string {
     return dirname(__DIR__, 2) . '/adclients-config.php';
 }
