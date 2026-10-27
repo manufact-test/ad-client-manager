@@ -25,4 +25,4 @@
 
 ## Техническое состояние
 
-Реализация подготовлена в PR #23. Ручная проверка владельца — после успешного полного CI, объединения и выпуска разрешённых runtime-файлов в deploy. Статус проверок/релиза фиксировать в актуальном RELEASE-CHECKPOINT и NEXT-CHAT, не считать этот документ самостоятельным подтверждением публикации.
+PR [#23](https://github.com/manufact-test/ad-client-manager/pull/23) объединён: main code checkpoint `bba23b6cb77199e0212c01dfb818c9d7757577b5`. Полный CI PR [#40520125328 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40520125328), main [#40520366088 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40520366088). Релиз выполнен в `deploy`: `2dce83e22a4d34b169c42cd7967d8c92444b6a06` (7 файлов app/**, совпадение 19 из 19 runtime-файлов). Ручная проверка на реальном Hostinger ещё не подтверждена владельцем.

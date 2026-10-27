@@ -1,4 +1,14 @@
-> **АКТУАЛЬНАЯ ЗАПИСЬ ВЫПУСКА — 26.10.2026, PR #22 и ручная приёмка завершены.** Проверенный кодовый checkpoint main после PR #22: `75c477ce66c5b7e857afc725e9100e799b9ed7f6`. PR [#22](https://github.com/manufact-test/ad-client-manager/pull/22) merged; CI PR [#40293178730 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40293178730), CI main [#40293361347 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40293361347).
+> **АКТУАЛЬНЫЙ ВЫПУСК — 27.10.2026, PR #23.** Изменена выдача подготовленного PDF сотрудницам: дата «Передать до» становится датой появления задания «Отправить документы» в списке «Клиенты». Директор видит подготовленные PDF и может изменить срок раньше даты. Сотрудницам PDF, статус, прямое скачивание и POST подтверждения отправки недоступны до назначенной даты. В назначенный день после обновления страницы доступ открыт. PDF без даты доступны сразу. Создания чат-сообщений, личных задач или фоновых cron-процессов нет.
+
+> PR [#23](https://github.com/manufact-test/ad-client-manager/pull/23) объединён, main кодовый checkpoint: `bba23b6cb77199e0212c01dfb818c9d7757577b5`. CI PR [#40520125328 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40520125328) и main [#40520366088 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40520366088).
+
+> Релизный `deploy`: `2dce83e22a4d34b169c42cd7967d8c92444b6a06`. Опубликованы только семь проверенных файлов app/**. Git-деревья всех 19 runtime-файлов main и deploy совпадают. Штатный deployment job в push-run был SKIPPED; публикация была прямым продвижением после поручения владельца и CI, а не workflow_dispatch.
+
+> Не менялись схема БД, реальные документы/оплаты/история, отправленные запросы, зелёные/красные состояния и финансовый расчёт. GitHub PUBLIC. **Новая ручная приёмка Hostinger ещё не подтверждена.** Для неё использовать существующий PDF с датой 02.11.2026, сравнить роли директора/сотрудницы без новых платежей или файлов. [Требования и чек-лист](SCHEDULED-PDF-HANDOVER-2026-10-27.md).
+
+---
+
+> **ИСТОРИЧЕСКАЯ ЗАПИСЬ ВЫПУСКА — 26.10.2026, PR #22 и ручная приёмка завершены.** Проверенный кодовый checkpoint main после PR #22: `75c477ce66c5b7e857afc725e9100e799b9ed7f6`. PR [#22](https://github.com/manufact-test/ad-client-manager/pull/22) merged; CI PR [#40293178730 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40293178730), CI main [#40293361347 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40293361347).
 
 > В `deploy` опубликован только проверенный `index.php`, релизный commit `e26f38730b4d2bb5fd27197866b266dd0526926a`. После выпуска сверены все 19 разрешённых runtime-файлов; они совпадают с кодовым деревом main. Владелец вручную проверил опубликованный сайт и подтвердил все исправления.
 
