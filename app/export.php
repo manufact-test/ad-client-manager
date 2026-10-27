@@ -103,7 +103,7 @@ function adc_export_balances(PDO $db): array {
 }
 
 /** @return array<int,array<int,string|int>> */
-function adc_export_client_ledger(PDO $db,int $clientId): array {
+function adc_export_client_ledger(PDO $db,int $clientId,?array $user=null): array {
     $client=adc_w_client($db,$clientId);
     $rows=[['Клиент ID','Клиент','Демо','Сотрудничество ID','Период ID',
         'Дата начала периода','Дата конца периода','Дата операции',
@@ -140,7 +140,7 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
             (string)$line['category'],(string)($line['label']??''),
             adc_export_decimal($amount),(string)$line['currency'],(int)$line['operation_id']];
     }
-    $entries=$db->prepare('SELECT e.*,d.original_filename,
+    $entries=$db->prepare('SELECT e.*,d.original_filename,d.transfer_due_on,d.transferred_at,
         bp.id linked_period_id,bp.period_start,bp.period_end,g.id linked_engagement_id
         FROM client_entries e
         LEFT JOIN document_bundles d ON d.id=e.document_id AND d.client_id=e.client_id
@@ -149,6 +149,9 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
         WHERE e.client_id=? ORDER BY e.created_at,e.id');
     $entries->execute([$clientId]);
     foreach($entries as $e){
+        if ($user!==null && ($user['role']??'')!=='director' &&
+            $e['entry_kind']==='document' &&
+            !adc_doc_visible_to_staff($e,date('Y-m-d'))) continue;
         $status=(int)$e['is_void']===1?'Удалено':
             ($e['received_at']!==null?'Получено':($e['sent_at']!==null?'Ждём оплату':'Отправить документ'));
         $label=$e['entry_kind']==='card'?'Оплата на карту':(string)($e['original_filename']??'PDF');
@@ -191,12 +194,14 @@ function adc_export_client_ledger(PDO $db,int $clientId): array {
 }
 
 /** CSV of the computed real-client document work plan, not invoices or payments. */
-function adc_export_control(PDO $db,string $today): array {
+function adc_export_control(PDO $db,string $today,?array $user=null): array {
     $rows=[['Клиент ID','Клиент','Дата действия','Тип','Что сделать',
         'Статус поручения','Исполнитель']];
     $assigned=adc_team_control_assignments($db);
     foreach (adc_client_reminders($db,$today) as $event) {
         if ((int)$event['is_demo']!==0) continue;
+        if ($user!==null && ($user['role']??'')!=='director' &&
+            $event['kind']==='handover' && $event['date']>$today) continue;
         $key=adc_team_control_key((int)$event['client_id'],
             (string)$event['kind'],(string)$event['date']);
         $owner=$assigned[$key]??null;
@@ -244,7 +249,7 @@ function adc_export_csv(PDO $db,array $user,string $report): never {
         $rows=adc_export_payments($db,date('Y-m-d'));
         $filename='adclients-real-open-payments.csv';
     } elseif ($report==='control') {
-        $rows=adc_export_control($db,date('Y-m-d'));
+        $rows=adc_export_control($db,date('Y-m-d'),$user);
         $filename='adclients-real-control-plan.csv';
     } elseif ($report==='client') {
         $clientId=filter_var($_GET['client_id']??null,FILTER_VALIDATE_INT);
@@ -252,7 +257,7 @@ function adc_export_csv(PDO $db,array $user,string $report): never {
             http_response_code(400);
             exit('Клиент не указан.');
         }
-        $rows=adc_export_client_ledger($db,$clientId);
+        $rows=adc_export_client_ledger($db,$clientId,$user);
         $filename='adclients-client-'.(int)$clientId.'-ledger.csv';
     } else {
         http_response_code(404);

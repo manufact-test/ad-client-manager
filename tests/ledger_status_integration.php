@@ -67,6 +67,36 @@ try {
     status_check(str_contains($priority[0],'Отправить документы')&&$priority[1]==='warning',
         'Document preparation remains gray and outranks past-due payment');
 
+    // Scheduled handovers are read-only and activate exactly on their date.
+    $db->exec('INSERT INTO clients(name,is_demo) VALUES ("CI scheduled handover",1)');
+    $scheduledClient=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO document_bundles(client_id,original_filename,storage_key,transfer_due_on)
+        VALUES (?,"future.pdf",?,"2026-11-02")')
+        ->execute([$scheduledClient,str_repeat('f',48).'.pdf']);
+    $scheduledDoc=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO client_entries(client_id,document_id,entry_kind,category)
+        VALUES (?,?,"document","advertising")')->execute([$scheduledClient,$scheduledDoc]);
+    $directorStatus=adc_ledger_client_status($db,$scheduledClient,'2026-10-27',['role'=>'director']);
+    $employeeEarly=adc_ledger_client_status($db,$scheduledClient,'2026-10-27',['role'=>'employee']);
+    $employeeBefore=adc_ledger_client_status($db,$scheduledClient,'2026-11-01',['role'=>'employee']);
+    $employeeDue=adc_ledger_client_status($db,$scheduledClient,'2026-11-02',['role'=>'employee']);
+    $employeeLate=adc_ledger_client_status($db,$scheduledClient,'2026-11-03',['role'=>'employee']);
+    status_check(str_contains($directorStatus[0],'Отправить документы') &&
+        $directorStatus[1]==='warning','Director can see unsent future PDF');
+    status_check($employeeEarly[0]==='Выполнено' && $employeeBefore[0]==='Выполнено',
+        'Staff do not see queued handover until due date');
+    status_check(str_contains($employeeDue[0],'Отправить документы') &&
+        str_contains($employeeLate[0],'Отправить документы') &&
+        $employeeDue[1]==='warning','Staff see the send badge on due date and afterwards');
+    status_check(!adc_doc_visible_to_staff(['transfer_due_on'=>'2026-11-02','transferred_at'=>null],
+        '2026-11-01') && adc_doc_visible_to_staff(
+        ['transfer_due_on'=>'2026-11-02','transferred_at'=>null],'2026-11-02') &&
+        adc_doc_visible_to_staff(['transfer_due_on'=>null,'transferred_at'=>null],'2026-10-27'),
+        'The PDF activation policy matches the send status, unscheduled PDFs remain immediate');
+    $db->prepare('UPDATE document_bundles SET transfer_due_on=NULL WHERE id=?')->execute([$scheduledDoc]);
+    status_check(str_contains(adc_ledger_client_status($db,$scheduledClient,'2026-10-27',
+        ['role'=>'employee'])[0],'Отправить документы'),'Clearing date releases PDF immediately');
+
     $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
         VALUES (?,"2026-11-01","2026-11-01",5,"prepayment","BYN")')->execute([$eng]);
     $stmt->execute([$client,'2026-11-01 10:00:00','2026-11-05 12:00:00']);
