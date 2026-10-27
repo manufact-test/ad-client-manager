@@ -117,11 +117,18 @@ try:
     ids=re.findall(r"\?download=(\d+)",directorPanel)
     require(len(ids)==1,"Scheduled PDF has director-only identifier")
     scheduledDoc=int(ids[0])
+    def scheduled_row(page):
+        match=re.search(r'<tr class="client-list-row"[^>]*aria-label="Открыть карточку клиента: CI scheduled future handover"[^>]*>.*?</tr>',
+                        page,re.S)
+        require(match is not None,"Scheduled test client appears in client list")
+        return match.group(0)
     employeePanel=panel("employee",scheduledClient)
-    require("scheduled-private.pdf" not in employeePanel and
-            "Отправить документы" not in employeePanel and
-            "97,00 BYN" not in employeePanel and
-            not re.findall(r"\?download=(\d+)",employeePanel),
+    employeeDrawer=re.search(r'<aside class="drawer customer-profile"[\s\S]*?</aside>',employeePanel)
+    require(employeeDrawer is not None and
+            "scheduled-private.pdf" not in employeeDrawer.group(0) and
+            "Отправить документы" not in scheduled_row(employeePanel) and
+            "97,00 BYN" not in employeeDrawer.group(0) and
+            not re.findall(r"\?download=(\d+)",employeeDrawer.group(0)),
             "Employees cannot see PDF, payment queue, or send status before due")
     status,_,body=request("employee","/?download="+str(scheduledDoc))
     require(status==404,"Guessed PDF ID cannot bypass scheduled staff visibility")
@@ -150,7 +157,7 @@ try:
     require(status==303,"Director reschedules PDF without replacing its bytes")
     employeePanel=panel("employee",scheduledClient)
     require("scheduled-private.pdf" in employeePanel and
-            "Отправить документы" in employeePanel and
+            "Отправить документы" in scheduled_row(employeePanel) and
             len(re.findall(r"\?download=(\d+)",employeePanel))==1,
             "Staff receives the existing PDF when due")
     status,_,body=request("employee","/?download="+str(scheduledDoc))
