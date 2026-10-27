@@ -1159,7 +1159,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     foreach ($clients as $client) {
         $status=adc_w_active_pause($db,(int)$client['id'])
             ? ['Пауза','warning']
-            : adc_ledger_client_status($db,(int)$client['id'],$today);
+            : adc_ledger_client_status($db,(int)$client['id'],$today,$user);
         $clientUrl=$url(['client'=>(int)$client['id']]);
         $context=trim((string)($client['client_context_text']??''));
         $html.='<tr class="client-list-row" data-client-href="'.adc_h($clientUrl).

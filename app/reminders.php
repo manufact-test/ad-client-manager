@@ -211,7 +211,9 @@ function adc_reminders_dashboard(PDO $db,?array $user=null): string {
     if (!isset($assignmentOptions[$assignment])) $assignment='all';
     $all=adc_client_reminders($db,$today);
     $rows=array_values(array_filter($all,static function(array $event) use
-        ($kind,$scope,$demo,$assignment,$assigned,$today):bool {
+        ($kind,$scope,$demo,$assignment,$assigned,$today,$isDirector):bool {
+        // Future handovers are director-only, even in the shared control board.
+        if (!$isDirector && $event['kind']==='handover' && $event['date']>$today) return false;
         if ($demo!=='all' && (int)$event['is_demo']!==(int)$demo) return false;
         if ($kind!=='all' && $event['kind']!==$kind) return false;
         $key=adc_team_control_key((int)$event['client_id'],

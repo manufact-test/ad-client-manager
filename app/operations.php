@@ -29,6 +29,8 @@ function adc_operations_snapshot(PDO $db,array $user,string $today): array {
     $reminders=[]; $dueCounts=['overdue'=>0,'today'=>0,'next_week'=>0,'all'=>0];
     foreach ($all as $item) {
         if ((int)$item['is_demo']!==0) continue;
+        if (($user['role']??'')!=='director' &&
+            $item['kind']==='handover' && $item['date']>$today) continue;
         $dueCounts['all']++;
         if ($item['date']<$today) $dueCounts['overdue']++;
         elseif ($item['date']===$today) $dueCounts['today']++;
