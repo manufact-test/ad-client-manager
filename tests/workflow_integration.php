@@ -771,6 +771,24 @@ $unchangedUrl=run_action($db,$employee,'save_charge',[
 check($unchangedUrl==='?view=clients&client='.$demoId,'Unchanged charge returns to active drawer');
 check((int)$db->query("SELECT COUNT(*) FROM audit_events WHERE object_type='document_bundle' AND object_id=$documentId AND action='invalidate_document'")->fetchColumn()===$auditBefore,
     'No-op charge does not invalidate unchanged invoice');
+// A future PDF is director-only until the handover date; the employee
+// cannot mark it sent by forging its identifier in a POST.
+if ('2026-10-31'>date('Y-m-d')) {
+    try {
+        run_action($db,$employee,'transfer_document',[
+            'client_id'=>(string)$demoId,'document_id'=>(string)$documentId
+        ]);
+        throw new RuntimeException('Scheduled PDF unexpectedly transferred early');
+    } catch (RuntimeException $blocked) {
+        check(str_contains($blocked->getMessage(),'назначенный день'),
+            'Employee cannot transfer a scheduled PDF ahead of its date');
+        if ($db->inTransaction()) $db->rollBack();
+    }
+}
+// Simulate the due date on the isolated fixture without changing real clocks,
+// finance entries, uploaded PDFs or production data.
+$db->prepare('UPDATE document_bundles SET transfer_due_on=? WHERE id=?')
+    ->execute([date('Y-m-d'),$documentId]);
 run_action($db,$employee,'transfer_document',[
     'client_id'=>(string)$demoId,'document_id'=>(string)$documentId
 ]);
