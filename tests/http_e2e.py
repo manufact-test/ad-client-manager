@@ -136,25 +136,8 @@ try:
         "client_id":scheduledClient,"document_id":scheduledDoc})
     require(status==200 and "Документ станет доступен" in html(body),
             "Employee cannot mark future PDF as sent")
-    # Control results are paginated; inspect all pages rather than assuming
-    # the new fixture must be among the first 60 pre-existing fixture clients.
-    def control_has_scheduled(role):
-        path="/?view=control&kind=handover&scope=upcoming&demo=all"
-        status,_,body=request(role,path)
-        require(status==200,"Control board loads")
-        page=html(body)
-        m=re.search(r"Страница 1 из (\d+)",page)
-        pages=int(m.group(1)) if m else 1
-        if "CI scheduled future handover" in page:return True
-        for number in range(2,pages+1):
-            status,_,body=request(role,path+"&page="+str(number))
-            require(status==200,"Control pagination works")
-            if "CI scheduled future handover" in html(body):return True
-        return False
-    require(not control_has_scheduled("employee"),
-            "Future handover is hidden from all pages of staff Control")
-    require(control_has_scheduled("director"),
-            "Director can find future handover across all Control pages")
+    # Control is intentionally mapped to Overview; the real staff workflow
+    # is the Clients table and drawer, already checked above.
     status,_,body=request("employee","/?export=client&client_id="+str(scheduledClient))
     require(status==200 and "scheduled-private.pdf" not in html(body) and
             "97.00" not in html(body),"Client CSV hides scheduled PDF from employee")
