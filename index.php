@@ -177,8 +177,9 @@ function adc_page(string $title, string $body, ?array $user = null): never {
 
         [hidden]{display:none!important}
         .task-month .task-day{border:0;border-radius:10px;padding:13px 14px;margin:10px 0}
-        .task-month .task-day:nth-of-type(odd){background:#f6f7fd}
-        .task-month .task-day:nth-of-type(even){background:#edecfa}
+        /* Calendar dates remain headings; individual tasks get alternating rows. */
+        .task-month .task-day:nth-of-type(odd),
+        .task-month .task-day:nth-of-type(even){background:transparent}
         .task-day>h3{font-size:14px;color:#373b62;padding:0 0 10px}
         .task-day .task-row{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:8px 2px}
         .task-day .task-row>.task-title{flex:1;line-height:1.35}
@@ -193,6 +194,12 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .task-delete button{background:#fff;color:#6c3345;border:1px solid #e1c2c9}
         .task-delete button:hover{background:#fff1f2;color:#9d2e47}
         .task-month>h2{margin-bottom:10px}
+        .task-month .task-day{border:1px solid #e7e9f2;border-radius:12px;padding:12px;margin:12px 0}
+        .task-month .task-day>h3{margin:0 0 10px;padding:2px 2px 9px;border-bottom:1px solid #e4e7f0}
+        .task-month .task-day>.task-row{margin:6px 0;min-height:56px;padding:10px 12px;border:1px solid #edf0f7;border-radius:10px;gap:12px}
+        .task-month .task-day>.task-row-tone-a{background:#fafaff}
+        .task-month .task-day>.task-row-tone-b{background:#f0eff9}
+        .task-month .task-day>.task-row:focus-within{outline:2px solid #d4cef7;outline-offset:1px}
         input[type="date"]{min-height:44px;padding-right:12px}
         input[type="date"]::-webkit-calendar-picker-indicator{opacity:1;margin:0 1px 0 0;padding:7px;border-radius:7px;background-color:#ece8ff;cursor:pointer}
         .source-choice .conditional-other{margin-top:7px}
@@ -248,12 +255,16 @@ function adc_page(string $title, string $body, ?array $user = null): never {
 
         /* Final client list: round entire highlighted rows, with breathing room. */
         .client-table-scroll{border-radius:12px;overflow-x:auto}
-        .client-list-table{border-collapse:separate;border-spacing:0 5px;min-width:760px}
+        .client-list-table{border-collapse:separate;border-spacing:0 5px;min-width:850px}
         .client-list-table thead th{padding:12px 18px;border-bottom:1px solid #e5e6f2}
         .client-list-table thead th.client-context-heading-cell{text-align:left}
         .client-list-table tbody td{padding:15px 18px;vertical-align:middle;border:0;background:#fcfbff}
         .client-list-table tbody tr:nth-child(even) td{background:#f6f5fb}
         .client-list-table tbody tr:hover td{background:#efedfa}
+        .client-list-table .client-start-date-heading,
+        .client-list-table .client-start-date-cell{width:94px;min-width:94px;white-space:nowrap}
+        .client-list-table .client-start-date-heading{font-size:12px}
+        .client-list-table .client-start-date-cell{font-size:12px;font-weight:650;color:#41456a;font-variant-numeric:tabular-nums;padding-right:4px}
         .client-list-table tbody tr[data-client-href]{cursor:pointer}
         .client-list-table tbody tr[data-client-href]:focus-visible{outline:2px solid #4d43c2;outline-offset:2px}
         .client-list-table .client-context-cell{min-width:180px;max-width:260px;white-space:pre-line;font-size:13px;overflow-wrap:anywhere}
