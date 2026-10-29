@@ -1116,7 +1116,19 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
     $page=($requested!==false && $requested!==null)
         ?min(max(1,(int)$requested),$pages):1;
     $offset=($page-1)*$perPage;
-    $list=$db->prepare('SELECT c.* FROM clients c WHERE '.$where.
+    // Match the exact current terms date shown in the client drawer:
+    // current active engagement first, latest terms version or its start date.
+    // Resolve it in one paginated query rather than one request per client.
+    $list=$db->prepare('SELECT c.*,
+        (SELECT COALESCE(
+            (SELECT t.effective_on FROM engagement_terms t
+             WHERE t.engagement_id=e.id
+             ORDER BY t.effective_on DESC,t.id DESC LIMIT 1),
+            e.started_on)
+         FROM engagements e WHERE e.client_id=c.id
+         ORDER BY (e.status="active") DESC,e.started_on DESC,e.id DESC
+         LIMIT 1) AS current_terms_started_on
+        FROM clients c WHERE '.$where.
         ' ORDER BY c.id DESC LIMIT '.$perPage.' OFFSET '.$offset);
     $list->execute($args);
     $clients=$list->fetchAll(PDO::FETCH_ASSOC);
@@ -1153,6 +1165,7 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
         '<div class="table-scroll client-table-scroll" tabindex="0" role="region" '.
         'aria-label="Список клиентов: таблицу можно прокручивать по горизонтали">'.
         '<table class="client-list-table"><thead><tr>'.
+        '<th class="client-start-date-heading" title="Дата начала текущих условий">Дата</th>'.
         '<th>Клиент</th><th>Услуги</th><th class="client-context-heading-cell">Как оплачивают</th><th>Статус</th>'.
         '</tr></thead><tbody>';
     $today=date('Y-m-d');
@@ -1162,15 +1175,21 @@ function adc_w_clients(PDO $db, array $user, string $view): string {
             : adc_ledger_client_status($db,(int)$client['id'],$today,$user);
         $clientUrl=$url(['client'=>(int)$client['id']]);
         $context=trim((string)($client['client_context_text']??''));
+        $termsStart=(string)($client['current_terms_started_on']??'');
+        $dateCell=$termsStart!=='' ?
+            '<time datetime="'.adc_h($termsStart).'">'.adc_h(date('d.m.Y',strtotime($termsStart))).'</time>' :
+            '<span class="muted" title="Дата не указана">—</span>';
         $html.='<tr class="client-list-row" data-client-href="'.adc_h($clientUrl).
-            '" tabindex="0" aria-label="Открыть карточку клиента: '.adc_h((string)$client['name']).'"><td><strong>'.adc_h((string)$client['name']).'</strong>'.
+            '" tabindex="0" aria-label="Открыть карточку клиента: '.adc_h((string)$client['name']).'">'.
+            '<td class="client-start-date-cell">'.$dateCell.'</td>'.
+            '<td><strong>'.adc_h((string)$client['name']).'</strong>'.
             ((int)$client['is_demo']===1?' <span class="badge demo">Демо</span>':'').
             '</td><td>'.adc_h((string)$client['platform_text']).'</td>'.
             '<td class="client-context-cell">'.($context!==''?nl2br(adc_h($context)):'<span class="muted">—</span>').'</td>'.
             '<td class="status-cell"><span class="badge '.adc_h($status[1]).'">'.
             adc_h((string)$status[0]).'</span></td></tr>';
     }
-    if (!$clients)$html.='<tr><td colspan="4" class="muted">Совпадений нет.</td></tr>';
+    if (!$clients)$html.='<tr><td colspan="5" class="muted">Совпадений нет.</td></tr>';
     $html.='</tbody></table></div>'.$navigation.'</section>';
     $selected=filter_var($_GET['client']??null,FILTER_VALIDATE_INT);
     if ($selected && $selected>0) {
@@ -1300,7 +1319,7 @@ function adc_w_tasks(PDO $db, array $user): string {
         adc_w_field('Когда напомнить','due_date',date('Y-m-d'),'date','required').
         '</div>'.adc_w_check('repeat_monthly','Повторять каждый месяц',false).
         '<button type="submit">Добавить задачу</button></form></section>';
-    $month = ''; $day = '';
+    $month = ''; $day = ''; $taskTone = 0;
     $today = date('Y-m-d');
     foreach ($tasks as $task) {
         $date = (string)$task['due_date'];
@@ -1314,13 +1333,14 @@ function adc_w_tasks(PDO $db, array $user): string {
         }
         if ($day!==$date) {
             if ($day!=='') $html.='</div>';
-            $day=$date;
+            $day=$date;$taskTone=0;
             $todayBadge = $date===$today ? ' <span class="badge good">Сегодня</span>'
                 : ($date<$today ? ' <span class="badge danger">Просрочено</span>' : '');
             $html.='<div class="task-day"><h3>'.adc_h(date('d.m.Y',strtotime($date))).$todayBadge.'</h3>';
         }
         $id=(int)$task['id'];
-        $html.='<div class="task-row"><div class="task-title"><strong>'.
+        $taskTone++;
+        $html.='<div class="task-row task-row-tone-'.($taskTone%2===1?'a':'b').'"><div class="task-title"><strong>'.
             adc_h((string)$task['title']).'</strong>'.
             ((int)$task['repeat_monthly']===1?' <small>↻ Каждый месяц</small>':'').
             ((int)$task['is_delegated']===1?' <small>· Поручение директора</small>':'').

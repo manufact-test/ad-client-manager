@@ -155,10 +155,18 @@ check(str_contains($clientPanel,'<small>Как оплачивают</small>') &&
 $savedGet=$_GET??[]; $_GET=[];
 $clientListHtml=adc_w_clients($db,$director,'clients');
 $_GET=$savedGet;
+$dateHeader=strpos($clientListHtml,'<th class="client-start-date-heading" title="Дата начала текущих условий">Дата</th>');
+$clientHeader=strpos($clientListHtml,'<th>Клиент</th>');
 $servicesHeader=strpos($clientListHtml,'<th>Услуги</th>');
 $contextHeader=strpos($clientListHtml,'Как оплачивают</th>');
 $statusHeader=strpos($clientListHtml,'<th>Статус</th>');
-check($servicesHeader!==false && $contextHeader!==false && $statusHeader!==false &&
+$initialTermsDate=(string)$db->query("SELECT started_on FROM engagements
+    WHERE client_id=$realId ORDER BY (status='active') DESC,started_on DESC,id DESC LIMIT 1")->fetchColumn();
+check($dateHeader!==false && $clientHeader!==false &&
+    $dateHeader<$clientHeader && $clientHeader<$servicesHeader &&
+    str_contains($clientListHtml,'class="client-start-date-cell"') &&
+    str_contains($clientListHtml,'<time datetime="'.$initialTermsDate.'">'.date('d.m.Y',strtotime($initialTermsDate)).'</time>') &&
+    $servicesHeader!==false && $contextHeader!==false && $statusHeader!==false &&
     $servicesHeader<$contextHeader && $contextHeader<$statusHeader &&
     str_contains($clientListHtml,'class="client-context-heading-cell"') &&
     str_contains($clientListHtml,'Инвойс № 777') &&
@@ -537,6 +545,14 @@ run_action($db,$director,'edit_task',[
 ]);
 check((int)$db->query("SELECT anchor_day FROM personal_tasks WHERE id=$clampedTask")->fetchColumn()===31,
     'Preserve original day 31 when editing February reminder');
+$db->prepare('INSERT INTO personal_tasks(user_id,title,due_date) VALUES (?,?,?)')
+    ->execute([$director['id'],'Same day second task','2026-02-28']);
+$styledTasks=adc_w_tasks($db,$director);
+check(str_contains($styledTasks,'class="task-row task-row-tone-a"') &&
+    str_contains($styledTasks,'class="task-row task-row-tone-b"') &&
+    str_contains($styledTasks,'Same day second task') &&
+    str_contains($styledTasks,'<div class="task-day"><h3>28.02.2026'),
+    'Tasks on one date alternate row backgrounds while the date stays a heading');
     
 // Shared team calendar is director-only. Employee tasks remain private.
 $db->prepare('INSERT INTO personal_tasks(user_id,title,due_date) VALUES (?,?,?)')
@@ -900,6 +916,13 @@ $after=adc_w_effective_terms($db,$initial,'2026-11-20');
 check((string)$before['quoted_amount']==='900.00' &&
     (string)$after['quoted_amount']==='1200.00',
     'Monthly price stays at 900 until Nov 20; 1200 starts Nov 20');
+$_GET=['q'=>'Fictional dated-rate client'];
+$datedClientList=adc_w_clients($db,$director,'clients');
+$_GET=[];
+check(str_contains($datedClientList,'<time datetime="2026-11-20">20.11.2026</time>') &&
+    str_contains(adc_w_client_panel($db,$director,$rateClient,'clients','/?view=clients'),
+        '<small>Дата начала текущих условий</small><strong>20.11.2026</strong>'),
+    'List and client drawer show identical latest terms start date');
 $terms=$db->prepare('SELECT effective_on,quoted_amount FROM engagement_terms
     WHERE engagement_id=? ORDER BY effective_on');
 $terms->execute([$rateEng]);

@@ -98,6 +98,16 @@ try:
     status,_,body=request("visitor","/?download=1")
     require(status==200 and "Вход" in html(body),"Private document unauthenticated access")
     director=login("director");employee=login("employee")
+    status,_,taskPage=request("director","/?view=tasks")
+    require(status==200 and '.task-month .task-day>.task-row-tone-a{background:#fafaff}' in html(taskPage)
+            and '.task-month .task-day>.task-row-tone-b{background:#f0eff9}' in html(taskPage),
+            "Individual task stripes are styled separately from day headings")
+    status,_,clientPage=request("director","/?view=clients")
+    require(status==200 and '<th class="client-start-date-heading"' in html(clientPage)
+            and '<th>Клиент</th>' in html(clientPage)
+            and html(clientPage).index('class="client-start-date-heading"')<
+                html(clientPage).index('<th>Клиент</th>'),
+            "Client terms start date appears before the client name")
     # Scheduled PDFs remain director-only until due; no cron or duplicate task.
     scheduledClient=create_client(director,"CI scheduled future handover",True)
     pdf=WORK/"scheduled-test.pdf"
