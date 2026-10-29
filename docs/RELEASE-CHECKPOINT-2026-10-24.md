@@ -1,6 +1,18 @@
 # MANUFACT Ad Client Manager — актуальный релизный checkpoint
 
-## Актуальное состояние 27.10.2026 — отправка PDF по дате
+## Актуальное состояние 29.10.2026 — визуальные правки PR #24
+
+- Объединён [PR #24](https://github.com/manufact-test/ad-client-manager/pull/24); main code checkpoint `b6d21269fb0b6dfc6d9d87c3287d5af3956dd9aa`. CI PR [#40846380781 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40846380781), main [#40846546510 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40846546510).
+- В `deploy` опубликованы только `index.php` и `app/workflow.php`: `c49409d3dfb1f5af8d1ce20f589054e9f7a7755a`. Деревья совпадают по всем **19 из 19** разрешённых runtime-файлов. Это прямой выпуск после CI, не запуск workflow_dispatch.
+- «Мои задачи»: отдельный заголовок даты и чередующиеся закруглённые строки каждой задачи (без сплошного фона всего дня); сохранены действия редактирования/выполнения.
+- «Клиенты» и «Архив»: первая колонка «Дата» до имени, в формате дд.мм.гггг, соответствует «Дате начала текущих условий» карточки. Для отсутствующей даты — «—». Запрос без дополнительных мутаций.
+- Статусы, платежи, отправка по дате, документы, PDF, БД, схема, миграции и реальные данные не изменялись. GitHub PUBLIC.
+- Полный CI прошёл. **Ручная приёмка визуальных изменений на Hostinger ещё PENDING**. Проверить чередование нескольких задач под одной датой (desktop/mobile), сравнить дату клиента с карточкой. Не создавать реальные оплаты или документы для теста.
+- PDF от 02.11.2026: пользователь ранее подтвердил, что предварительно работает; ожидается ручная проверка включения сотрудницам 2 ноября.
+
+---
+
+## Историческое состояние 27.10.2026 — отправка PDF по дате
 
 - PR [#23](https://github.com/manufact-test/ad-client-manager/pull/23) merged: проверенный runtime-код в main `bba23b6cb77199e0212c01dfb818c9d7757577b5`.
 - CI PR [#40520125328 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40520125328); CI main [#40520366088 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/40520366088).
