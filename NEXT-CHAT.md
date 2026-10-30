@@ -1,3 +1,7 @@
+> **АКТУАЛЬНО НА 30.10.2026:** главный handoff — [docs/NEXT-CHAT-2026-10-30.md](docs/NEXT-CHAT-2026-10-30.md). Последний функциональный PR [#26](https://github.com/manufact-test/ad-client-manager/pull/26), code checkpoint main `7f8bf6e11a5356c572bf17c7bb831f7cbd94b267`, deploy `4c1d635b4383d51061f3488b1720d56203769afb`, CI [SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/41034463192). Ручная реакция владельца: чат после правки работает; оформление задач и даты клиентов принято. **02.11.2026** проверить реальное включение отправки подготовленных PDF у сотрудниц. Ниже старые «текущие» статусы, проценты 87/95/98, PR #2 Draft и ограничения прошлого этапа — исторические, не подменяют handoff. В этот раз код, deploy, БД и файлы клиентов не меняются.
+
+---
+
 # ТЕКУЩИЙ HANDOFF — UI/UX hotfix 25.10.2026
 
 **Актуальная передача:** [docs/NEXT-CHAT-2026-10-25.md](docs/NEXT-CHAT-2026-10-25.md). **Релизный checkpoint:** [docs/RELEASE-CHECKPOINT-2026-10-24.md](docs/RELEASE-CHECKPOINT-2026-10-24.md).
