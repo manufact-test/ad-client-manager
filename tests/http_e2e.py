@@ -424,6 +424,16 @@ try:
         require(status==200 and "chat-feed" in html(roomPage) and
                 "CI real ledger" in html(roomPage),
                 "Client-specific chat HTTP page loads for "+role)
+    # If staff posting fails, the error stays near the composer rather than
+    # being lost above the chat, and their unsent draft is preserved safely.
+    draft="CI employee unsent reply "+("x"*2001)
+    status,_,failedChat=post("employee",employee,"chat_send",{
+        "thread":str(real),"message":draft},
+        "/?view=chat&thread="+str(real))
+    require(status==200 and 'data-chat-send-error role="alert"' in html(failedChat)
+            and "Напишите сообщение или прикрепите файл" in html(failedChat)
+            and draft in html(failedChat),
+            "Chat post failure is visible beside staff composer and draft survives")
     # Reply to a specific chat message, pin it and follow the pinned link.
     status,_,initial=request("director","/?view=chat&thread="+str(real))
     require(status==200 and 'data-chat-compose' in html(initial),

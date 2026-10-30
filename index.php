@@ -696,6 +696,16 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var focused=!!(feed&&feed.getAttribute("data-focused")==="1");
     var thread=feed?Number(feed.getAttribute("data-thread")||0):0;
     var soundButton=document.querySelector("[data-chat-sound]");
+    var compose=document.querySelector("[data-chat-compose]");
+    if(compose) {
+      var send=compose.querySelector('.chat-submit-row button[type="submit"]');
+      compose.addEventListener("submit",function(){
+        if(send){send.disabled=true;send.textContent="Отправляем…";}
+      });
+      window.addEventListener("pageshow",function(){
+        if(send){send.disabled=false;send.textContent="Отправить сообщение";}
+      });
+    }
     var audible=true,activated=false,lastOther=null,busy=false;
     // Sound is ON unless this browser explicitly disabled it.
     try{audible=localStorage.getItem("adc-chat-sound")!=="off";}catch(e){}
@@ -1637,6 +1647,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'message'=>$errorMessage,
                 'mode'=>(string)($_POST['resume_mode']??'keep'),
                 'date'=>(string)($_POST['resume_start_on']??'')
+            ];
+            $errorMessage=null;
+        }
+        // Chat errors belong next to the composer. A long conversation can
+        // leave page-wide alerts far above the current scroll position.
+        // Preserve the draft so a failed send never silently loses work.
+        if (($action??'')==='chat_send' && isset($current) && is_array($current) &&
+            ($current['must_change_password']??1)==0) {
+            $GLOBALS['adc_chat_send_error']=[
+                'thread'=>(string)($_POST['thread']??'0'),
+                'message'=>(string)$errorMessage,
+                'draft'=>is_string($_POST['message']??null)?$_POST['message']:''
             ];
             $errorMessage=null;
         }
