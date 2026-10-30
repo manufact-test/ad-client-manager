@@ -83,6 +83,27 @@ function adc_w_client(PDO $db, int $id, bool $lock = false): array {
 }
 
 
+/** A staff-facing label, deliberately separate from the legal client name. */
+function adc_w_client_ad_name(PDO $db,int $clientId): string {
+    // Existing production installations gain this table only on a deliberate
+    // advertising-name save; normal page loads never run schema DDL.
+    if (!$db->query("SHOW TABLES LIKE 'client_ad_names'")->fetchColumn()) return '';
+    $q=$db->prepare('SELECT ad_name FROM client_ad_names WHERE client_id=?');
+    $q->execute([$clientId]);
+    return (string)($q->fetchColumn() ?: '');
+}
+
+function adc_w_ad_name_schema(PDO $db): void {
+    $db->exec('CREATE TABLE IF NOT EXISTS client_ad_names (
+        client_id BIGINT UNSIGNED PRIMARY KEY,
+        ad_name VARCHAR(240) NOT NULL,
+        updated_by BIGINT UNSIGNED NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT fk_client_ad_name_client FOREIGN KEY(client_id)
+            REFERENCES clients(id) ON DELETE CASCADE
+    )');
+}
+
 function adc_pause_schema(PDO $db):void {
     // Additive: independent of billing/document tables, no existing rows changed.
     $db->exec('CREATE TABLE IF NOT EXISTS client_pauses (
@@ -290,7 +311,7 @@ function adc_w_engagement_revision(array $row): string {
 
 function adc_w_action(PDO $db, array $user, string $action): bool {
     $supported = [
-        'pause_client','resume_paused_client','add_engagement_terms', 'save_client', 'save_client_context', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
+        'pause_client','resume_paused_client','add_engagement_terms', 'save_client', 'save_client_context', 'save_client_ad_name', 'start_engagement', 'save_engagement', 'archive_engagement', 'save_period', 'create_next_period',
         'save_charge', 'void_charge', 'add_payment', 'edit_task',
     ];
     if (!in_array($action, $supported, true)) {
@@ -402,6 +423,36 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         $db->commit();
         adc_flash('Карточка клиента сохранена.');
         adc_redirect(adc_w_client_location($db,$id));
+    }
+
+    if ($action === 'save_client_ad_name') {
+        $clientId=adc_w_id('client_id');
+        $adName=adc_input('client_ad_name');
+        if (mb_strlen($adName)>240) {
+            throw new InvalidArgumentException('Рекламное название не должно превышать 240 символов.');
+        }
+        // A single optional row; no migration or rewrite of client, payment,
+        // document or engagement records. DDL stays outside the transaction.
+        adc_w_ad_name_schema($db);
+        $db->beginTransaction();
+        adc_w_client($db,$clientId,true);
+        $q=$db->prepare('SELECT ad_name FROM client_ad_names WHERE client_id=? FOR UPDATE');
+        $q->execute([$clientId]);
+        $old=(string)($q->fetchColumn() ?: '');
+        if ($old!==$adName) {
+            if ($adName==='') {
+                $db->prepare('DELETE FROM client_ad_names WHERE client_id=?')->execute([$clientId]);
+            } else {
+                $db->prepare('INSERT INTO client_ad_names(client_id,ad_name,updated_by)
+                    VALUES (?,?,?) ON DUPLICATE KEY UPDATE ad_name=VALUES(ad_name),
+                    updated_by=VALUES(updated_by)')
+                    ->execute([$clientId,$adName,$actor]);
+            }
+            adc_audit($db,$actor,'edit_client_ad_name','client',$clientId,['is_set'=>$adName!=='']);
+        }
+        $db->commit();
+        adc_flash('Рекламное название сохранено.');
+        adc_redirect(adc_w_client_location($db,$clientId));
     }
 
     if ($action === 'save_client_context') {
@@ -971,6 +1022,18 @@ function adc_w_client_panel(PDO $db, array $user, int $id, string $view, string 
         '<div class="client-context-edit-actions"><button type="submit">Сохранить</button></div></form></div></div></div>'.
         '<div class="client-context-value-row"><strong class="client-context-text">'.
         ($contextText!=='' ? nl2br(adc_h($contextText)) : 'Не указано').'</strong></div></div>';
+    $adName=adc_w_client_ad_name($db,$id);
+    $html .= '<div class="client-context-fact client-ad-name-fact"><div class="client-context-heading"><small>Рекламное название</small>'.
+        '<div class="client-context-editor">'.
+        '<button type="button" class="client-context-edit-button" data-client-context-toggle aria-expanded="false" title="Изменить рекламное название" aria-label="Изменить рекламное название">'.
+        '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'.
+        '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg></button>'.
+        '<div class="client-context-edit-panel" hidden>'.
+        adc_w_form_start('save_client_ad_name').adc_w_hidden('client_id',$id).
+        '<label class="field">Рекламное название<input type="text" name="client_ad_name" maxlength="240" value="'.adc_h($adName).'" placeholder="Название для сотрудников"></label>'.
+        '<div class="client-context-edit-actions"><button type="submit">Сохранить</button></div></form></div></div></div>'.
+        '<div class="client-context-value-row"><strong class="client-context-text">'.
+        ($adName!=='' ? adc_h($adName) : '<span class="muted">—</span>').'</strong></div></div>';
     $html .= '</div>';
     if (trim((string)$client['comment_text'])!=='') {
         $html .= '<p class="client-note">'.nl2br(adc_h((string)$client['comment_text'])).'</p>';
