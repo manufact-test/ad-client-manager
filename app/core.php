@@ -114,6 +114,14 @@ function adc_schema(PDO $db, bool $chatOnly=false): void {
             INDEX idx_client_previous(previous_client_id),
             INDEX idx_demo_client(is_demo)
         )',
+        'CREATE TABLE IF NOT EXISTS client_ad_names (
+            client_id BIGINT UNSIGNED PRIMARY KEY,
+            ad_name VARCHAR(240) NOT NULL,
+            updated_by BIGINT UNSIGNED NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            CONSTRAINT fk_client_ad_name_client FOREIGN KEY(client_id)
+                REFERENCES clients(id) ON DELETE CASCADE
+        )',
         'CREATE TABLE IF NOT EXISTS client_pauses (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         client_id BIGINT UNSIGNED NOT NULL,
