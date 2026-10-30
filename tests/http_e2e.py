@@ -434,6 +434,23 @@ try:
             and "Напишите сообщение или прикрепите файл" in html(failedChat)
             and draft in html(failedChat),
             "Chat post failure is visible beside staff composer and draft survives")
+    # Real HTTP retry: a successful employee form request may lose its
+    # response/redirect. Reposting the *same* token never duplicates the row.
+    status,_,composePage=request("employee","/?view=chat&thread="+str(real))
+    sendMatch=re.search(r'name="send_token" value="([a-f0-9]{32})"',html(composePage))
+    require(status==200 and sendMatch,"Employee composer exposes per-send token")
+    chatToken=sendMatch.group(1)
+    retryText="CI employee request replay "+str(real)
+    for attempt in range(2):
+        status,headers,_=post("employee",employee,"chat_send",{
+            "thread":str(real),"message":retryText,"send_token":chatToken},
+            path="/?view=chat&thread="+str(real))
+        require(status==303,"Repeated employee POST returns a successful redirect")
+    for reader in ("director","employee"):
+        status,_,chatPage=request(reader,"/?view=chat&thread="+str(real))
+        articles=re.findall(r'<article\b[^>]*>.*?</article>',html(chatPage),re.S)
+        require(status==200 and sum(retryText in item for item in articles)==1,
+                "Only one copy of replayed employee message visible to "+reader)
     # Reply to a specific chat message, pin it and follow the pinned link.
     status,_,initial=request("director","/?view=chat&thread="+str(real))
     require(status==200 and 'data-chat-compose' in html(initial),
