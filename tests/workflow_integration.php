@@ -102,6 +102,45 @@ $clientForm=adc_w_client_form($db,$initialClient);
 check(str_contains($clientForm,'name="client_context_text"') &&
     str_contains($clientForm,'PayPal / договоры'),
     'Client payment/document context is editable in the client form');
+// Staff-facing advertising names exist only in client cards and never
+// overwrite legal names or depend on new-client form submissions.
+check(adc_w_client_ad_name($db,$realId)==='','New clients have an empty advertising name');
+check(!str_contains(adc_w_client_form($db,null),'Рекламное название') &&
+    !str_contains($clientForm,'name="client_ad_name"'),
+    'Advertising name is absent from both creation and full edit forms');
+$initialAliasPanel=adc_w_client_panel($db,$director,$realId,'clients','/?view=clients');
+check(str_contains($initialAliasPanel,'<small>Рекламное название</small>') &&
+    str_contains($initialAliasPanel,'name="action" value="save_client_ad_name"') &&
+    str_contains($initialAliasPanel,'name="client_ad_name"') &&
+    str_contains($initialAliasPanel,'title="Изменить рекламное название"') &&
+    strpos($initialAliasPanel,'<small>Рекламное название</small>') >
+      strpos($initialAliasPanel,'<small>Как оплачивают</small>'),
+    'Advertising name is a separate pencil editor next to payment context');
+run_action($db,$employee,'save_client_ad_name',[
+    'client_id'=>(string)$realId,'client_ad_name'=>'Bright & Partners'
+]);
+check(adc_w_client_ad_name($db,$realId)==='Bright & Partners' &&
+    adc_w_client($db,$realId)['name']==='Fixture real client' &&
+    adc_w_client($db,$realId)['client_context_text']==='PayPal / договоры',
+    'Employee can save independent advertising name without altering legal/client payment fields');
+$aliasPanel=adc_w_client_panel($db,$employee,$realId,'clients','/?view=clients');
+check(str_contains($aliasPanel,'Bright &amp; Partners') &&
+    str_contains($aliasPanel,'name="action" value="save_client_ad_name"'),
+    'Advertising name is HTML-escaped and editable by staff in the client card');
+try {
+    run_action($db,$employee,'save_client_ad_name',[
+        'client_id'=>(string)$realId,'client_ad_name'=>str_repeat('x',241)
+    ]);
+    throw new RuntimeException('Accepted oversized advertising name');
+} catch (InvalidArgumentException $pass) {}
+check(adc_w_client_ad_name($db,$realId)==='Bright & Partners',
+    'Oversized advertising name is rejected without changes');
+run_action($db,$employee,'save_client_ad_name',[
+    'client_id'=>(string)$realId,'client_ad_name'=>''
+]);
+check(adc_w_client_ad_name($db,$realId)==='' &&
+    adc_w_client($db,$realId)['name']==='Fixture real client',
+    'Advertising name can be cleared while preserving the client');
 $staleClientRevision=adc_w_client_revision($initialClient);
 run_action($db,$director,'save_client',[
     'client_id'=>(string)$realId,'expected_revision'=>$staleClientRevision,
