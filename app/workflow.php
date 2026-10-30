@@ -433,7 +433,9 @@ function adc_w_action(PDO $db, array $user, string $action): bool {
         }
         // A single optional row; no migration or rewrite of client, payment,
         // document or engagement records. DDL stays outside the transaction.
-        adc_w_ad_name_schema($db);
+        if (!$db->query("SHOW TABLES LIKE 'client_ad_names'")->fetchColumn()) {
+            adc_w_ad_name_schema($db);
+        }
         $db->beginTransaction();
         adc_w_client($db,$clientId,true);
         $q=$db->prepare('SELECT ad_name FROM client_ad_names WHERE client_id=? FOR UPDATE');
