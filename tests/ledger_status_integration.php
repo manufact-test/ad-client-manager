@@ -76,6 +76,14 @@ try {
     $scheduledDoc=(int)$db->lastInsertId();
     $db->prepare('INSERT INTO client_entries(client_id,document_id,entry_kind,category)
         VALUES (?,?,"document","advertising")')->execute([$scheduledClient,$scheduledDoc]);
+    // Two independent PDF files can share one handover date. The badge
+    // counts unsent document entries, not finance events or calendar days.
+    $db->prepare('INSERT INTO document_bundles(client_id,original_filename,storage_key,transfer_due_on,needs_act)
+        VALUES (?,"act.pdf",?,"2026-11-02",1)')
+        ->execute([$scheduledClient,str_repeat('e',48).'.pdf']);
+    $scheduledAct=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO client_entries(client_id,document_id,entry_kind,category)
+        VALUES (?,?,"document","advertising")')->execute([$scheduledClient,$scheduledAct]);
     $directorStatus=adc_ledger_client_status($db,$scheduledClient,'2026-10-27',['role'=>'director']);
     $employeeEarly=adc_ledger_client_status($db,$scheduledClient,'2026-10-27',['role'=>'employee']);
     $employeeBefore=adc_ledger_client_status($db,$scheduledClient,'2026-11-01',['role'=>'employee']);
@@ -83,6 +91,8 @@ try {
     $employeeLate=adc_ledger_client_status($db,$scheduledClient,'2026-11-03',['role'=>'employee']);
     status_check(str_contains($directorStatus[0],'Отправить документы') &&
         $directorStatus[1]==='warning','Director can see unsent future PDF');
+    status_check($directorStatus[0]==='Отправить документы · 2',
+        'Director sees two scheduled, independently unsent PDFs on the same date');
     status_check($employeeEarly[0]==='Выполнено' && $employeeBefore[0]==='Выполнено',
         'Staff do not see queued handover until due date');
     status_check(str_contains($employeeDue[0],'Отправить документы') &&
@@ -93,6 +103,21 @@ try {
         ['transfer_due_on'=>'2026-11-02','transferred_at'=>null],'2026-11-02') &&
         adc_doc_visible_to_staff(['transfer_due_on'=>null,'transferred_at'=>null],'2026-10-27'),
         'The PDF activation policy matches the send status, unscheduled PDFs remain immediate');
+    status_check($employeeDue[0]==='Отправить документы · 2' &&
+        $employeeLate[0]==='Отправить документы · 2',
+        'Staff see both documents on and after the handover date');
+    // One PDF was already marked sent, while the other is still pending:
+    // this is precisely the screenshot scenario that correctly displays 1.
+    $db->prepare('UPDATE document_bundles SET transferred_at="2026-11-02 10:00:00" WHERE id=?')
+        ->execute([$scheduledAct]);
+    $db->prepare('UPDATE client_entries SET sent_at="2026-11-02 10:00:00" WHERE document_id=?')
+        ->execute([$scheduledAct]);
+    status_check(adc_ledger_client_status($db,$scheduledClient,'2026-10-27',
+        ['role'=>'director'])[0]==='Отправить документы · 1',
+        'Marking one PDF as sent reduces director count from 2 to 1');
+    status_check(adc_ledger_client_status($db,$scheduledClient,'2026-11-02',
+        ['role'=>'employee'])[0]==='Отправить документы · 1',
+        'Sending one PDF does not hide the separate unsent PDF from staff');
     $db->prepare('UPDATE document_bundles SET transfer_due_on=NULL WHERE id=?')->execute([$scheduledDoc]);
     status_check(str_contains(adc_ledger_client_status($db,$scheduledClient,'2026-10-27',
         ['role'=>'employee'])[0],'Отправить документы'),'Clearing date releases PDF immediately');
