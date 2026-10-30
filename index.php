@@ -698,7 +698,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var soundButton=document.querySelector("[data-chat-sound]");
     var compose=document.querySelector("[data-chat-compose]");
     if(compose) {
-      var send=compose.querySelector('.chat-submit-row button[type="submit"]');
+      var send=compose.querySelector(".chat-submit-row button[type=submit]");
       compose.addEventListener("submit",function(){
         if(send){send.disabled=true;send.textContent="Отправляем…";}
       });
