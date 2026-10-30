@@ -282,6 +282,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .client-context-edit-panel{position:absolute;top:calc(100% + 8px);left:0;right:auto;z-index:40;width:min(360px,calc(100vw - 32px));max-width:calc(100vw - 32px);box-sizing:border-box;padding:14px;background:#fff;border:1px solid #e1def5;border-radius:10px;box-shadow:0 12px 28px #25204426}
         .client-context-edit-panel[hidden]{display:none}
         .client-context-edit-panel form{min-width:0;max-width:none;margin:0}
+        /* Right-hand staff name lives opposite the payment context in every card. */
+        .profile-facts>.client-context-fact{grid-column:1}
+        .profile-facts>.client-ad-name-fact{grid-column:2}
+        .client-ad-name-fact .client-context-edit-panel{left:auto;right:0}
+        .client-ad-name-fact .client-context-edit-panel input{box-sizing:border-box;width:100%;min-height:45px}
         .client-context-edit-panel .field{display:grid;gap:8px;margin:0 0 12px}
         .client-context-edit-panel textarea{box-sizing:border-box;width:100%;height:45px;min-height:45px;max-height:45px;padding:10px 11px;resize:none;overflow-y:auto}
         .client-context-edit-panel textarea:focus{outline-offset:0;box-shadow:0 0 0 2px #ebe8ff}
@@ -945,7 +950,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       panel.hidden=!opening;
       contextButton.setAttribute("aria-expanded",String(opening));
       if(opening){
-        var field=panel.querySelector("textarea");
+        var field=panel.querySelector("textarea, input");
         if(field)field.focus();
       }
       return;
