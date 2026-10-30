@@ -387,7 +387,14 @@ function adc_chat_html(PDO $db,array $user):string {
         '" role="log" aria-live="polite">';
     foreach($rows as $m)$out.=adc_chat_item($m,$uid,(string)($user['role']??'employee'));
     if(!$rows)$out.='<p data-empty class="muted">Пока нет сообщений. Начните обсуждение.</p>';
+    $sendError=$GLOBALS['adc_chat_send_error']??null;
+    if (!is_array($sendError) ||
+        (string)($sendError['thread']??'')!==(string)$thread) $sendError=null;
+    $draft=$sendError===null?'':(string)($sendError['draft']??'');
     $out.='</div><form method="post" enctype="multipart/form-data" class="chat-compose" data-chat-compose>'.
+        ($sendError!==null?
+          '<div class="error chat-send-error" data-chat-send-error role="alert">'.
+          adc_h((string)($sendError['message']??'Не удалось отправить сообщение.')).'</div>':'').
         '<input type="hidden" name="csrf" value="'.adc_csrf().'">'.
         '<input type="hidden" name="action" value="chat_send">'.
         '<input type="hidden" name="thread" value="'.$thread.'">'.
@@ -397,7 +404,7 @@ function adc_chat_html(PDO $db,array $user):string {
         '<button type="button" class="secondary" data-reply-cancel>✕</button></div>'.
         '<label class="field" for="chat-text">Сообщение</label>'.
         '<div class="chat-input-box"><textarea name="message" id="chat-text" rows="3" maxlength="2000" '.
-        'placeholder="Вопрос команде… @сотрудник #клиент" autocomplete="off"></textarea>'.
+        'placeholder="Вопрос команде… @сотрудник #клиент" autocomplete="off">'.adc_h($draft).'</textarea>'.
         '<div class="chat-suggest" data-chat-suggestions hidden role="listbox"></div></div>'.
         '<p class="muted chat-hint">Наберите @ и выберите сотрудника или # и выберите клиента из подсказок.</p>'.
         '<label class="chat-attach">'.
