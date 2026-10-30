@@ -391,12 +391,16 @@ function adc_chat_html(PDO $db,array $user):string {
     if (!is_array($sendError) ||
         (string)($sendError['thread']??'')!==(string)$thread) $sendError=null;
     $draft=$sendError===null?'':(string)($sendError['draft']??'');
+    // One unpredictable form token per send attempt. The receipt is stored
+    // in this user's session only after the SQL transaction commits.
+    $sendToken=bin2hex(random_bytes(16));
     $out.='</div><form method="post" enctype="multipart/form-data" class="chat-compose" data-chat-compose>'.
         ($sendError!==null?
           '<div class="error chat-send-error" data-chat-send-error role="alert">'.
           adc_h((string)($sendError['message']??'Не удалось отправить сообщение.')).'</div>':'').
         '<input type="hidden" name="csrf" value="'.adc_csrf().'">'.
         '<input type="hidden" name="action" value="chat_send">'.
+        '<input type="hidden" name="send_token" value="'.$sendToken.'">'.
         '<input type="hidden" name="thread" value="'.$thread.'">'.
         '<input type="hidden" name="reply_to_id" value="0" data-reply-id>'.
         '<div class="chat-reply-preview" data-reply-preview hidden>'.
@@ -563,6 +567,23 @@ function adc_chat_send(PDO $db,array $user):void {
             throw new RuntimeException('Ответ возможен только в текущей переписке.');
         $replyId=(int)$replyRaw;
     }
+    // A retry of the *same form submission* is harmless, including when
+    // its redirect/response was lost. Do not collapse intentionally separate
+    // sends: each newly loaded compose form gets a fresh token.
+    // Older open tabs without a token keep their established behavior.
+    $sendToken=adc_chat_post('send_token');
+    $receiptSignature=hash('sha256',(int)$user['id']."\0".$thread."\0".$body."\0".($replyId??0));
+    if($sendToken!==''){
+        if(!preg_match('/\A[a-f0-9]{32}\z/D',$sendToken))
+            throw new RuntimeException('Обновите страницу чата и повторите отправку.');
+        $receipts=$_SESSION['adc_chat_sent_tokens']??[];
+        if(!is_array($receipts))$receipts=[];
+        if(array_key_exists($sendToken,$receipts)){
+            if(!hash_equals((string)$receipts[$sendToken],$receiptSignature))
+                throw new RuntimeException('Это сообщение уже отправлено. Обновите чат для нового сообщения.');
+            return;
+        }
+    }
     // Save private bytes first, then commit message and attachment metadata atomically.
     $saved=null;
     try{
@@ -586,6 +607,13 @@ function adc_chat_send(PDO $db,array $user):void {
             foreach($mentioned as $id)$s->execute([$messageId,$id]);
         }
         $db->commit();
+        // PHP serializes requests sharing a session. Record the successful
+        // receipt *after* the commit; failed sends remain retryable.
+        if($sendToken!==''){
+            $receipts[$sendToken]=$receiptSignature;
+            if(count($receipts)>80)$receipts=array_slice($receipts,-80,null,true);
+            $_SESSION['adc_chat_sent_tokens']=$receipts;
+        }
     }catch(Throwable $e){
         if($db->inTransaction())$db->rollBack();
         if($saved && is_file($saved['path'])) @unlink($saved['path']);

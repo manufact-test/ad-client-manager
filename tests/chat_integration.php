@@ -187,6 +187,37 @@ $afterBulk=adc_chat_rows($db,0,0,$a['id']);
 $ok(!array_filter($afterBulk,static fn($row)=>in_array((string)$row['body'],[$bulkOne,$bulkTwo],true)),
     'Bulk-deleted messages no longer appear in the conversation');
 
+// A lost redirect or accidental replay of one employee form must not create
+// three copies in the director's room, and both users read identical history.
+$_SESSION['adc_chat_sent_tokens']=[];
+$token=bin2hex(random_bytes(16));
+$replayBody='Chat replay fixture '.bin2hex(random_bytes(4));
+$_POST=['thread'=>(string)$client,'message'=>$replayBody,'send_token'=>$token];
+adc_chat_send($db,['id'=>$b['id'],'role'=>'employee']);
+adc_chat_send($db,['id'=>$b['id'],'role'=>'employee']);
+$countReplay=$db->prepare('SELECT COUNT(*) FROM team_chat_messages
+    WHERE author_user_id=? AND thread_client_id=? AND body=?');
+$countReplay->execute([$b['id'],$client,$replayBody]);
+$ok((int)$countReplay->fetchColumn()===1,
+    'Replaying the same employee form only persists one message');
+foreach([$a['id'],$b['id']] as $reader){
+    $visible=adc_chat_rows($db,0,$client,$reader);
+    $ok(count(array_filter($visible,static fn($m)=>$m['body']===$replayBody))===1,
+        'Director and employee see identical persisted chat message count');
+}
+// A reused token with a changed draft must never silently discard a new text.
+$_POST['message']='Changed message with reused token';
+$rejected=false;
+try{adc_chat_send($db,['id'=>$b['id'],'role'=>'employee']);}
+catch(RuntimeException $e){$rejected=str_contains($e->getMessage(),'уже отправлено');}
+$ok($rejected,'Changed draft with an already sent token is explained');
+$_POST=['thread'=>(string)$client,'message'=>$replayBody,
+    'send_token'=>bin2hex(random_bytes(16))];
+adc_chat_send($db,['id'=>$b['id'],'role'=>'employee']);
+$countReplay->execute([$b['id'],$client,$replayBody]);
+$ok((int)$countReplay->fetchColumn()===2,
+    'Deliberate new send with a fresh form token is not suppressed');
+
 // A director can delete another person's message, and replies no longer point at it.
 $_POST=['thread'=>'0','message_ids'=>[(string)$m['id']]];
 $deleted=adc_chat_delete($db,['id'=>$a['id'],'role'=>'director']);
