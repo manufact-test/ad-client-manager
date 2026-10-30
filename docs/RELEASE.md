@@ -1,4 +1,12 @@
-> **АКТУАЛЬНЫЙ ВЫПУСК — 30.10.2026, PR #25 (чат сотрудников).** Кодовый checkpoint main: `dbbc0980383156688c84e862ed3fbd428f9354d4`. CI PR [#41031998648 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/41031998648); main [#41032180452 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/41032180452).
+> **АКТУАЛЬНЫЙ ВЫПУСК — 30.10.2026, PR #26 (идемпотентная отправка чата).** После сообщения о нескольких копиях чата у директора (у сотрудницы визуально одна) реализована защита от повторной отправки одного POST: случайный токен формы и сохранение квитанции в PHP-сессии только после фиксации сообщения в SQL. Повтор той же отправки не создаёт дублирующую запись; новый токен разрешает отдельное сообщение с тем же текстом. Старые три сообщения не удалены.
+
+> PR [#26](https://github.com/manufact-test/ad-client-manager/pull/26) merged; checkpoint main `7f8bf6e11a5356c572bf17c7bb831f7cbd94b267`. CI PR [#41034290948 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/41034290948); main [#41034463192 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/41034463192). `deploy`: `4c1d635b4383d51061f3488b1720d56203769afb`, обновлён только `app/chat.php` (19/19 runtime-файлов совпадают). Прямой выпуск после CI, не workflow_dispatch; не изменялись схема БД, реальные записи, финансы или файлы.
+
+> **Ожидается ручная проверка после обновления страницы в обоих аккаунтах:** одна отправка — одно сообщение у директора и сотрудницы. Точный источник прежней рассинхронизации браузера/сети остаётся неподтверждённым; не выдавать это изменение за доказанное исправление этой отдельной проблемы.
+
+---
+
+> **ИСТОРИЧЕСКИЙ ВЫПУСК — 30.10.2026, PR #25 (чат сотрудников).** Кодовый checkpoint main: `dbbc0980383156688c84e862ed3fbd428f9354d4`. CI PR [#41031998648 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/41031998648); main [#41032180452 — SUCCESS](https://github.com/manufact-test/ad-client-manager/actions/runs/41032180452).
 >
 > В `deploy` обновлены только `index.php` и `app/chat.php`, релиз `2fead12a69f67ccb32c5fb17ad07fd8c33742cbf` (прямой выпуск после CI, не workflow_dispatch). Кнопка отправки показывает «Отправляем…»; серверные ошибки выводятся возле composer, текст черновика остаётся. База/чат-история/права доступа не изменены.
 >
