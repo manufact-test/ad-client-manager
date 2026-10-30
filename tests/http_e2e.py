@@ -578,8 +578,9 @@ try:
         "csrf":director,"action":"chat_send","thread":str(real),
         "message":"Rejected malicious file",
         "chat_attachment":"@"+str(forged)+";filename=spoof.pdf;type=application/pdf"
-    })
-    require(status==200 and ("Содержимое файла" in html(error) or
+    },path="/?view=chat&thread="+str(real))
+    require(status==200 and 'data-chat-send-error role="alert"' in html(error) and
+            ("Содержимое файла" in html(error) or
                             "Недопустимое содержимое" in html(error)),
             "PDF type spoof rejected by content validation")
     # Routine send notification is intentionally silent; initial setup remains visible.
