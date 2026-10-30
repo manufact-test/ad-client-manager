@@ -343,6 +343,27 @@ try:
     status,_,listAfterEdit=request("director","/?view=clients")
     require(status==200 and "Инвойс № 777" in html(listAfterEdit),
             "Edited payment context immediately appears in the client list")
+    # Staff can label a client without changing its legal name, contract,
+    # finance, or creation form. A blank label stays blank by default.
+    aliasBefore=panel("employee",real)
+    require("Рекламное название" in aliasBefore and
+            'name="action" value="save_client_ad_name"' in aliasBefore and
+            'title="Изменить рекламное название"' in aliasBefore and
+            '.profile-facts>.client-ad-name-fact{grid-column:2}' in aliasBefore and
+            'name="client_ad_name" maxlength="240" value=""' in aliasBefore,
+            "Advertising name is a blank, separately editable right-column card field")
+    status,headers,_=post("employee",employee,"save_client_ad_name",{
+        "client_id":str(real),"client_ad_name":"Test Ads & Search"})
+    require(status==303 and "client="+str(real) in location(headers),
+            "Employee can edit advertising name and return to client card")
+    aliasAfter=panel("employee",real)
+    require("Test Ads &amp; Search" in aliasAfter and
+            "CI real ledger" in aliasAfter and "Инвойс № 777" in aliasAfter,
+            "Advertising alias is escaped and leaves legal name and payment details intact")
+    status,_,_=post("employee",employee,"save_client_ad_name",{
+        "client_id":str(real),"client_ad_name":""})
+    require(status==303 and "Test Ads &amp; Search" not in panel("employee",real),
+            "Advertising name can be cleared without changing customer")
     # Staging pause controls render in existing card, not a separate page.
     pausePage=panel("director",real)
     require('name="action" value="pause_client"' in pausePage,
