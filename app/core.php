@@ -408,6 +408,13 @@ function adc_has_users(PDO $db): bool {
     }
 }
 
+/** A signed-in employee may return to the app for up to 30 days,
+ * with a seven-day inactivity limit rather than the old 30-minute limit.
+ * Password changes, deactivation and explicit logout still revoke access.
+ */
+const ADC_AUTH_SESSION_LIFETIME = 30 * 24 * 3600;
+const ADC_AUTH_IDLE_LIFETIME = 7 * 24 * 3600;
+
 function adc_session(): void {
     if (session_status() !== PHP_SESSION_NONE) {
         return;
@@ -415,15 +422,40 @@ function adc_session(): void {
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
     ini_set('session.cookie_httponly', '1');
+    ini_set('session.gc_maxlifetime', (string)ADC_AUTH_SESSION_LIFETIME);
+    // Dedicated private storage avoids another PHP application on a shared
+    // hosting account cleaning these sessions with a shorter GC lifetime.
+    $privateDir=dirname(__DIR__,2).'/adclients-sessions';
+    if (!is_link($privateDir) &&
+        (is_dir($privateDir) || (!file_exists($privateDir) && @mkdir($privateDir,0700))) &&
+        is_writable($privateDir)) {
+        ini_set('session.save_path',$privateDir);
+    }
     session_name('ADCLIENTSESSID');
     session_set_cookie_params([
-        'lifetime' => 0,
+        'lifetime' => ADC_AUTH_SESSION_LIFETIME,
         'path' => '/',
         'secure' => true,
         'httponly' => true,
         'samesite' => 'Strict',
     ]);
     session_start();
+}
+
+function adc_auth_session_logout(): void {
+    $_SESSION=[];
+    if (session_status()===PHP_SESSION_ACTIVE) {
+        $params=session_get_cookie_params();
+        setcookie(session_name(),'',[
+            'expires'=>time()-3600,
+            'path'=>$params['path'],
+            'domain'=>$params['domain'],
+            'secure'=>$params['secure'],
+            'httponly'=>$params['httponly'],
+            'samesite'=>$params['samesite'],
+        ]);
+        session_destroy();
+    }
 }
 
 function adc_csrf(): string {
@@ -518,7 +550,8 @@ function adc_auth_session_timely(array $session, int $now): bool {
     $last=$session['auth_last_seen_at'] ?? null;
     return is_int($issued) && is_int($last) && $issued>0 && $last>0 &&
         $issued<=$now && $last<=$now && $last>=$issued &&
-        ($now-$issued)<=12*3600 && ($now-$last)<=30*60;
+        ($now-$issued)<=ADC_AUTH_SESSION_LIFETIME &&
+        ($now-$last)<=ADC_AUTH_IDLE_LIFETIME;
 }
 
 function adc_current_user(PDO $db,bool $touchActivity=true): ?array {
