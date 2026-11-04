@@ -15,8 +15,31 @@ function adc_ledger_money_from_post(): array {
     if (!isset($_POST['has_amount'])) return [null,null];
     return [adc_w_amount(adc_input('amount')),adc_w_currency(adc_input('currency'))];
 }
+/**
+ * Card payments need an explicit human follow-up before they may be marked
+ * "waiting for payment". The latest audit event is the reversible state:
+ * existing card entries require confirmation too, without a data migration.
+ */
+function adc_ledger_contact_sql(string $alias='e'): string {
+    if (!preg_match('/^[a-z][a-z0-9_]*$/iD',$alias)) {
+        throw new InvalidArgumentException('Invalid entry alias');
+    }
+    return 'COALESCE((SELECT a.action FROM audit_events a
+        WHERE a.object_type="client_entry" AND a.object_id='.$alias.'.id
+          AND a.action IN ("contact_client","undo_client_contact")
+        ORDER BY a.id DESC LIMIT 1),"")="contact_client"';
+}
+function adc_ledger_contacted(PDO $db,int $entryId): bool {
+    $q=$db->prepare('SELECT action FROM audit_events
+        WHERE object_type="client_entry" AND object_id=?
+          AND action IN ("contact_client","undo_client_contact")
+        ORDER BY id DESC LIMIT 1');
+    $q->execute([$entryId]);
+    return $q->fetchColumn()==='contact_client';
+}
 function adc_ledger_action(PDO $db,array $user,string $action): bool {
     if (!in_array($action,['create_card_entry','edit_card_entry','delete_card_entry',
+        'contact_client','undo_client_contact',
         'receive_entry','undo_entry_receipt','undo_entry_sent'],true)) return false;
     $actor=(int)$user['id'];
     $clientId=adc_w_id('client_id');
@@ -63,9 +86,23 @@ function adc_ledger_action(PDO $db,array $user,string $action): bool {
         adc_audit($db,$actor,$action,'client_entry',$id);
     } else {
         $id=adc_w_id('entry_id');$r=adc_ledger_entry($db,$clientId,$id,true);
-        if ($action==='receive_entry') {
+        if ($action==='contact_client' || $action==='undo_client_contact') {
+            if ($r['entry_kind']!=='card' || $r['received_at']!==null) {
+                throw new RuntimeException('Контакт можно отмечать только для неоплаченной записи без документов.');
+            }
+            $contacted=adc_ledger_contacted($db,$id);
+            if (($action==='contact_client' && $contacted) ||
+                ($action==='undo_client_contact' && !$contacted)) {
+                // Double submit is harmless and does not duplicate the audit.
+                $db->commit();
+                adc_redirect(adc_w_client_location($db,$clientId));
+            }
+        } elseif ($action==='receive_entry') {
             if ($r['amount']===null || $r['sent_at']===null || $r['received_at']!==null) {
                 throw new RuntimeException('Сначала отправьте документ. Повторная оплата не записана.');
+            }
+            if ($r['entry_kind']==='card' && !adc_ledger_contacted($db,$id)) {
+                throw new RuntimeException('Сначала отметьте, что связались с клиентом.');
             }
             $db->prepare('UPDATE client_entries SET received_at=UTC_TIMESTAMP() WHERE id=? AND received_at IS NULL')->execute([$id]);
         } elseif ($action==='undo_entry_receipt') {
@@ -180,6 +217,7 @@ function adc_ledger_has_request_for_due(PDO $db,int $clientId,string $due,string
 }
 
 function adc_ledger_has_overdue(PDO $db,int $clientId,string $today): bool {
+    $contact=adc_ledger_contact_sql('e');
     $q=$db->prepare('SELECT e.sent_at,
         COALESCE(
           (SELECT t.billing_day FROM engagement_terms t
@@ -192,7 +230,8 @@ function adc_ledger_has_overdue(PDO $db,int $clientId,string $today): bool {
         ) AS billing_day
         FROM client_entries e
         WHERE e.client_id=? AND e.is_void=0 AND e.amount IS NOT NULL
-            AND e.sent_at IS NOT NULL AND e.received_at IS NULL');
+            AND e.sent_at IS NOT NULL AND e.received_at IS NULL
+            AND (e.entry_kind<>"card" OR '.$contact.')');
     $q->execute([$clientId]);
     foreach ($q as $entry) {
         if ($entry['billing_day']===null) continue;
@@ -209,18 +248,24 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today,?array $us
     // Only the director sees scheduled PDFs before their handover date.
     // Existing payment and completed states are deliberately left unchanged.
     $director=$user===null || ($user['role']??'')==='director';
+    $contact=adc_ledger_contact_sql('e');
     $q=$db->prepare('SELECT
-        SUM(CASE WHEN e.sent_at IS NULL AND
-            (?=1 OR e.entry_kind<>"document" OR d.id IS NULL OR
+        SUM(CASE WHEN e.entry_kind="document" AND e.sent_at IS NULL AND
+            (?=1 OR d.id IS NULL OR
              d.transferred_at IS NOT NULL OR d.transfer_due_on IS NULL OR
              d.transfer_due_on<=?) THEN 1 ELSE 0 END) unsent,
-        SUM(CASE WHEN e.amount IS NOT NULL AND e.sent_at IS NOT NULL AND e.received_at IS NULL THEN 1 ELSE 0 END) unpaid,
+        SUM(CASE WHEN e.entry_kind="card" AND e.received_at IS NULL AND NOT ('.$contact.')
+                 THEN 1 ELSE 0 END) uncontacted,
+        SUM(CASE WHEN e.amount IS NOT NULL AND e.sent_at IS NOT NULL AND e.received_at IS NULL
+                 AND (e.entry_kind<>"card" OR '.$contact.')
+                 THEN 1 ELSE 0 END) unpaid,
         SUM(CASE WHEN e.received_at IS NOT NULL THEN 1 ELSE 0 END) paid
         FROM client_entries e
         LEFT JOIN document_bundles d ON d.id=e.document_id
         WHERE e.client_id=? AND e.is_void=0');
     $q->execute([$director?1:0,$today,$clientId]);$s=$q->fetch();
     if ((int)$s['unsent']>0) return ['Отправить документы · '.$s['unsent'],'warning'];
+    if ((int)$s['uncontacted']>0) return ['Связаться с клиентом · '.$s['uncontacted'],'warning'];
     // The monthly contract only reminds staff to prepare documentation; it
     // never creates a charge or a personal task for each employee.
     $e=$db->prepare('SELECT id,started_on,billing_day,payment_mode,currency FROM engagements WHERE client_id=? AND status="active" ORDER BY id DESC LIMIT 1');
@@ -248,8 +293,9 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today,?array $us
 }
 
 function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
+    $contact=adc_ledger_contact_sql('e');
     $q=$db->prepare('SELECT e.*,d.original_filename,d.needs_invoice,d.needs_spec,d.needs_act,d.needs_contract,
-            d.transfer_due_on,d.transferred_at
+            d.transfer_due_on,d.transferred_at,('.$contact.') card_contacted
         FROM client_entries e LEFT JOIN document_bundles d ON d.id=e.document_id
         WHERE e.client_id=? AND e.is_void=0 ORDER BY e.received_at IS NOT NULL,e.id DESC');
     $q->execute([$clientId]);$rows=$q->fetchAll();
@@ -262,9 +308,12 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
     }
     $render=static function (array $r) use($db,$clientId,$user): string {
         $id=(int)$r['id'];$doc=$r['entry_kind']==='document';
-        $title=$doc?(string)$r['original_filename']:'Оплата на карту';
+        $contacted=(int)$r['card_contacted']===1;
+        $title=$doc?(string)$r['original_filename']:'Оплата без документов';
         $money=$r['amount']===null?'Без суммы':adc_w_money($r['amount'],$r['currency']);
-        $state=$r['received_at']!==null?'Получено':($r['sent_at']===null?'Отправить документ':'Ждём оплату');
+        $state=$r['received_at']!==null?'Получено':
+            ($doc?($r['sent_at']===null?'Отправить документ':'Ждём оплату'):
+                ($contacted?'Ждём оплату':'Связаться с клиентом'));
         if ($r['amount']===null && $r['sent_at']!==null) $state='Документ отправлен';
         $h='<div class="ledger-row"><div class="ledger-main"><strong>'.adc_h($title).'</strong>'.
             '<div class="muted">'.adc_h($state).' · '.$money.' · '.adc_ledger_category((string)$r['category']).'</div>'.
@@ -278,8 +327,15 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
                 $h.=adc_w_form_start('undo_entry_sent').adc_w_hidden('client_id',$clientId).
                     adc_w_hidden('entry_id',$id).'<button type="submit" class="secondary">Отменить отправку</button></form>';
             }
+        } elseif ($r['received_at']===null) {
+            $a=$contacted?'undo_client_contact':'contact_client';
+            $h.=adc_w_form_start($a).adc_w_hidden('client_id',$clientId).
+                adc_w_hidden('entry_id',$id).
+                '<button type="submit"'.($contacted?' class="secondary"':'').
+                '>'.($contacted?'Отменить отметку':'Связались').'</button></form>';
         }
-        if ($r['amount']!==null && $r['sent_at']!==null) {
+        if ($r['amount']!==null && $r['sent_at']!==null &&
+            ($doc || $contacted || $r['received_at']!==null)) {
             $a=$r['received_at']===null?'receive_entry':'undo_entry_receipt';
             $h.=adc_w_form_start($a).adc_w_hidden('client_id',$clientId).
                 adc_w_hidden('entry_id',$id).'<button type="submit"'.($a==='undo_entry_receipt'?' class="secondary"':'').

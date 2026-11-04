@@ -36,9 +36,20 @@ try {
     $entry->execute([$real,'50.05','2026-10-29 09:00:00','future']);
     $futureId=(int)$db->lastInsertId();
     $entry->execute([$demo,'99999.00','2026-09-15 09:00:00','demo']);
+    $beforeContact=adc_collections_open($db,'2026-10-29');
+    payments_check(!count(array_filter($beforeContact,
+        static fn($x)=>(int)$x['client_id']===$real)),
+        'Uncontacted card payments do not enter the payment collection queue');
+    adc_audit($db,null,'contact_client','client_entry',$pastId);
+    adc_audit($db,null,'contact_client','client_entry',$futureId);
     $items=adc_collections_open($db,'2026-10-29');
     $mine=array_values(array_filter($items,static fn($x)=>(int)$x['client_id']===$real));
     payments_check(count($mine)===2,'All real open entries in same client');
+    adc_audit($db,null,'undo_client_contact','client_entry',$futureId);
+    payments_check(!count(array_filter(adc_collections_open($db,'2026-10-29'),
+        static fn($x)=>(int)$x['id']===$futureId)),
+        'Undoing contact removes the entry from payment collection');
+    adc_audit($db,null,'contact_client','client_entry',$futureId);
     payments_check(count(array_filter($items,static fn($x)=>(int)$x['client_id']===$demo))===0,
         'Demo is never mixed into production payment queue');
     $past=array_values(array_filter($mine,static fn($x)=>(int)$x['id']===$pastId))[0];

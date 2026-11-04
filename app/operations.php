@@ -37,6 +37,7 @@ function adc_operations_snapshot(PDO $db,array $user,string $today): array {
         elseif ($item['date']<=$future) $dueCounts['next_week']++;
         if (count($reminders)<16 && $item['date']<=$future) $reminders[]=$item;
     }
+    $contact=adc_ledger_contact_sql('e');
     $unpaidRows=$db->query('SELECT e.client_id,c.name,c.is_demo,e.currency,
         COUNT(*) items,SUM(e.amount) total,
         EXISTS (SELECT 1 FROM engagements g
@@ -44,6 +45,7 @@ function adc_operations_snapshot(PDO $db,array $user,string $today): array {
         FROM client_entries e JOIN clients c ON c.id=e.client_id
         WHERE c.is_demo=0 AND e.is_void=0 AND e.amount IS NOT NULL
           AND e.sent_at IS NOT NULL AND e.received_at IS NULL
+          AND (e.entry_kind<>"card" OR '.$contact.')
         GROUP BY e.client_id,c.name,c.is_demo,e.currency
         ORDER BY c.name,e.client_id,e.currency')->fetchAll(PDO::FETCH_ASSOC);
     $totals=[];$unpaidCount=0;$unpaidClients=[];$unpaid=[];
@@ -86,9 +88,12 @@ function adc_operations_html(PDO $db,array $user):string {
     $data=adc_operations_snapshot($db,$user,$today);
     $own=$data['task_counts'];
     $payments=[];
+    $contact=adc_ledger_contact_sql('e');
     $entries=$db->query('SELECT e.currency,
         SUM(CASE WHEN e.received_at IS NOT NULL THEN e.amount ELSE 0 END) paid,
-        SUM(CASE WHEN e.sent_at IS NOT NULL AND e.received_at IS NULL THEN e.amount ELSE 0 END) unpaid
+        SUM(CASE WHEN e.sent_at IS NOT NULL AND e.received_at IS NULL
+          AND (e.entry_kind<>"card" OR '.$contact.')
+          THEN e.amount ELSE 0 END) unpaid
         FROM client_entries e JOIN clients c ON c.id=e.client_id
         WHERE c.is_demo=0 AND e.is_void=0 AND e.amount IS NOT NULL
         GROUP BY e.currency')->fetchAll(PDO::FETCH_ASSOC);

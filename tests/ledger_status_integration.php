@@ -43,6 +43,7 @@ try {
         sent_at,created_at) VALUES (?,"card","100.00","BYN","advertising",?,?)');
     $stmt->execute([$client,'2026-10-15 10:00:00','2026-10-15 12:00:00']);
     $entry=(int)$db->lastInsertId();
+    adc_audit($db,null,'contact_client','client_entry',$entry);
     $early=adc_ledger_client_status($db,$client,'2026-10-20');
     status_check(str_contains($early[0],'Ждём оплату')&&!str_contains($early[0],'просрочка')&&$early[1]==='danger',
         'Waiting payment is red before the due date too');
@@ -66,6 +67,38 @@ try {
     $priority=adc_ledger_client_status($db,$client,'2026-10-29');
     status_check(str_contains($priority[0],'Отправить документы')&&$priority[1]==='warning',
         'Document preparation remains gray and outranks past-due payment');
+
+    // Legacy card entries already have sent_at populated, but no one has
+    // confirmed contacting the client. They must no longer show a red badge.
+    $db->exec('INSERT INTO clients(name,is_demo) VALUES ("CI legacy no-PDF follow-up",1)');
+    $cardClient=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency)
+        VALUES (?,"2026-09-25",25,"prepayment","BYN")')->execute([$cardClient]);
+    $stmt->execute([$cardClient,'2026-10-15 10:00:00','2026-10-15 12:00:00']);
+    $cardEntry=(int)$db->lastInsertId();
+    $contactPending=adc_ledger_client_status($db,$cardClient,'2026-10-29',['role'=>'employee']);
+    status_check($contactPending===['Связаться с клиентом · 1','warning'],
+        'Existing no-document card request must be contacted before payment wait');
+    $contactPanel=adc_ledger_panel($db,['id'=>1,'role'=>'employee'],$cardClient);
+    status_check(str_contains($contactPanel,'Связались') &&
+        !str_contains($contactPanel,'name="action" value="receive_entry"'),
+        'Staff can confirm contact but cannot confirm payment prematurely');
+    adc_audit($db,null,'contact_client','client_entry',$cardEntry);
+    $contacted=adc_ledger_client_status($db,$cardClient,'2026-10-29',['role'=>'employee']);
+    status_check(str_contains($contacted[0],'Ждём оплату') &&
+        str_contains($contacted[0],'просрочка') && $contacted[1]==='danger',
+        'Confirmed contact moves the request to red payment waiting with original deadline');
+    $contactedPanel=adc_ledger_panel($db,['id'=>1,'role'=>'employee'],$cardClient);
+    status_check(str_contains($contactedPanel,'Отменить отметку') &&
+        str_contains($contactedPanel,'name="action" value="receive_entry"'),
+        'After contacting, the receipt button and reversible contact appear');
+    adc_audit($db,null,'undo_client_contact','client_entry',$cardEntry);
+    status_check(adc_ledger_client_status($db,$cardClient,'2026-10-29')[0]==='Связаться с клиентом · 1',
+        'Undoing contact restores the contact task without erasing the payment request');
+    $db->prepare('UPDATE client_entries SET received_at="2026-10-29 14:00:00" WHERE id=?')
+        ->execute([$cardEntry]);
+    status_check(adc_ledger_client_status($db,$cardClient,'2026-10-29')[0]==='Оплачено',
+        'Already-paid legacy card records remain paid, never reopened as contact tasks');
 
     // Scheduled handovers are read-only and activate exactly on their date.
     $db->exec('INSERT INTO clients(name,is_demo) VALUES ("CI scheduled handover",1)');
@@ -125,6 +158,7 @@ try {
     $db->prepare('INSERT INTO engagement_terms(engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
         VALUES (?,"2026-11-01","2026-11-01",5,"prepayment","BYN")')->execute([$eng]);
     $stmt->execute([$client,'2026-11-01 10:00:00','2026-11-05 12:00:00']);
+    adc_audit($db,null,'contact_client','client_entry',(int)$db->lastInsertId());
     $db->prepare('UPDATE client_entries SET is_void=1 WHERE sent_at="2026-10-15 10:00:00" OR sent_at IS NULL')->execute();
     $newGrace=adc_ledger_client_status($db,$client,'2026-11-08');
     status_check(!str_contains($newGrace[0],'просрочка'),'Latest terms retain grace around new 5th');
