@@ -1384,9 +1384,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($action === 'logout') {
-            $_SESSION = [];
-            session_regenerate_id(true);
-            session_destroy();
+            adc_auth_session_logout();
             adc_redirect();
         }
 

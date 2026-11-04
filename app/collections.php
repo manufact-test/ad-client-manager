@@ -8,6 +8,7 @@ declare(strict_types=1);
  */
 function adc_collections_open(PDO $db,string $today,bool $includeDemo=false): array {
     if (!adc_valid_date($today)) throw new InvalidArgumentException('Неверная дата.');
+    $contact=adc_ledger_contact_sql('e');
     $sql='SELECT e.id,e.client_id,e.document_id,e.entry_kind,e.amount,e.currency,
         e.category,e.note,e.sent_at,c.name client_name,c.is_demo,
         d.original_filename,
@@ -26,6 +27,7 @@ function adc_collections_open(PDO $db,string $today,bool $includeDemo=false): ar
         LEFT JOIN document_bundles d ON d.id=e.document_id
         WHERE e.is_void=0 AND e.amount IS NOT NULL
             AND e.sent_at IS NOT NULL AND e.received_at IS NULL
+            AND (e.entry_kind<>"card" OR '.$contact.')
             AND c.is_demo=' . ($includeDemo?'1':'0') . '
         ORDER BY e.sent_at,e.id';
     $rows=$db->query($sql)->fetchAll(PDO::FETCH_ASSOC);

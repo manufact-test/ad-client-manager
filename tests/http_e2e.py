@@ -814,7 +814,17 @@ try:
         "category":"development","note":"Оплата на карту"})
     require(status==303 and "50,00 BYN" in panel("employee",demo),"Card without PDF")
     page=panel("employee",demo)
-    require(len(forms(page,"receive_entry"))==2,"Two outstanding requests, not one combined payment")
+    require(len(forms(page,"receive_entry"))==1 and len(forms(page,"contact_client"))==1,
+            "No-document card request first requires contact, separate from sent PDF")
+    demoCard=form_entry_id(page,"contact_client")
+    status,_,blocked=post("employee",employee,"receive_entry",{
+        "client_id":demo,"entry_id":demoCard})
+    require(status==200 and "Сначала отметьте, что связались с клиентом" in html(blocked),
+            "Server rejects a premature payment receipt before contacting client")
+    status,_,_=post("employee",employee,"contact_client",{
+        "client_id":demo,"entry_id":demoCard})
+    require(status==303 and len(forms(panel("employee",demo),"receive_entry"))==2,
+            "Employee can mark contact and payment request then becomes receivable")
     # Delete mistaken second PDF, paid first one remains untouched.
     status,_,_=post("director",director,"void_document",{"client_id":demo,"document_id":second})
     require(status==303,"Delete mistaken PDF and linked request")
@@ -835,8 +845,31 @@ try:
     status,_,csv=request("director","/?export=balances")
     require(status==200 and "CI real ledger" in html(csv) and "CI demo ledger" not in html(csv),
             "Balance CSV excludes demo accounts, includes new ledger")
-    # Card entries need the same accounting protection as received PDF entries.
-    entry=form_entry_id(panel("director",real),"receive_entry")
+    # The new contact stage is required for old/new card requests and staff
+    # can finish it without director privileges.
+    page=panel("employee",real)
+    require("Связаться с клиентом" in page and
+            len(forms(page,"receive_entry"))==0,
+            "No-document payment starts with a neutral contact task, not red payment wait")
+    entry=form_entry_id(page,"contact_client")
+    status,_,unconfirmedPage=request("director","/?view=overview")
+    require(status==200 and overview_money(html(unconfirmedPage),"Не оплачено","BYN")<Decimal("77.00"),
+            "Uncontacted card amount is excluded from overview pending payments")
+    status,_,blocked=post("director",director,"receive_entry",{
+        "client_id":real,"entry_id":entry})
+    require(status==200 and "Сначала отметьте, что связались с клиентом" in html(blocked),
+            "Director also cannot skip the contact confirmation")
+    status,_,_=post("employee",employee,"contact_client",{"client_id":real,"entry_id":entry})
+    require(status==303 and re.search(r'class="badge danger">Ждём оплату',panel("employee",real)),
+            "Staff contact confirmation moves card payment to red waiting state")
+    status,_,_=post("employee",employee,"contact_client",{"client_id":real,"entry_id":entry})
+    require(status==303,"Repeated contact confirmation is idempotent")
+    status,_,_=post("employee",employee,"undo_client_contact",{"client_id":real,"entry_id":entry})
+    require(status==303 and len(forms(panel("employee",real),"receive_entry"))==0,
+            "A mistaken contact is reversible and hides the receipt button")
+    status,_,_=post("employee",employee,"contact_client",{"client_id":real,"entry_id":entry})
+    require(status==303 and len(forms(panel("employee",real),"receive_entry"))==1,
+            "Corrected contact restores the payable request")
     status,_,paymentPage=request("director","/?view=payments")
     require(status==200 and "<h1>Обзор</h1>" in html(paymentPage) and
             "Контроль оплат" not in html(paymentPage) and

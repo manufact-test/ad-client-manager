@@ -1073,10 +1073,16 @@ try {
     $db->prepare('INSERT INTO client_entries
         (client_id,entry_kind,amount,currency,category,sent_at)
         VALUES (?,"card","19.50","CHF","advertising",NOW())')->execute([$operational]);
+    $pendingContactId=(int)$db->lastInsertId();
     $db->prepare('INSERT INTO client_entries
         (client_id,entry_kind,amount,currency,category,sent_at)
         VALUES (?,"card","9999.00","CHF","advertising",NOW())')->execute([(int)$db->query(
             'SELECT id FROM clients WHERE name LIKE '.$db->quote($marker.'%').' LIMIT 1')->fetchColumn()]);
+    $beforeContact=adc_operations_snapshot($db,$director,$today);
+    check(($beforeContact['unpaid_totals']['CHF']??0)===
+        ($priorSnapshot['unpaid_totals']['CHF']??0),
+        'Uncontacted card amount is not yet reported as waiting for payment');
+    adc_audit($db,null,'contact_client','client_entry',$pendingContactId);
     $snapshot=adc_operations_snapshot($db,$director,$today);
     check($snapshot['active_clients']>=1 &&
         ($snapshot['unpaid_totals']['CHF']??0)===
