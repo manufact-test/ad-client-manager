@@ -54,19 +54,17 @@ try {
         'Demo is never mixed into production payment queue');
     $past=array_values(array_filter($mine,static fn($x)=>(int)$x['id']===$pastId))[0];
     $future=array_values(array_filter($mine,static fn($x)=>(int)$x['id']===$futureId))[0];
-    payments_check($past['due_date']==='2026-09-25' && $past['payment_state']==='overdue',
-        'Past billing anchor is overdue after three day grace');
-    payments_check($future['due_date']==='2026-11-25' &&
-        $future['payment_state']==='upcoming',
-        'Entry sent outside October grace window belongs to next anchor');
-    payments_check($past['grace_end']==='2026-09-28','Grace window is explicit');
+    payments_check($past['due_date']==='2026-09-25' && $future['due_date']==='2026-11-25',
+        'Contract dates stay available without payment-lateness classifications');
+    payments_check(!isset($past['payment_state']) && !isset($past['grace_end']),
+        'Unpaid requests have no overdue or grace state');
     $filter=adc_collections_filters(['scope'=>'overdue','currency'=>'CHF','q'=>$tag]);
-    $late=adc_collections_filter_rows($items,$filter);
-    payments_check(count($late)===1 && (int)$late[0]['id']===$pastId,
-        'Combined search, currency and overdue filters work');
+    $filtered=adc_collections_filter_rows($items,$filter);
+    payments_check($filter['scope']==='all' && count($filtered)===2,
+        'Legacy payment overdue links are normalized to all waiting payments');
     $sum=adc_collections_sums($mine);
-    payments_check($sum['total']['CHF']===15015 && $sum['overdue']['CHF']===10010,
-        'Exact cents, not binary floats, and overdue subtotal');
+    payments_check($sum['total']['CHF']===15015 && $sum['count']===2 && $sum['clients']===1,
+        'Exact cents and unpaid counts work without overdue subtotals');
     // A terms version changes subsequent deadlines without rewriting old ones.
     $db->prepare('INSERT INTO engagement_terms
         (engagement_id,effective_on,started_on,billing_day,payment_mode,currency)
@@ -83,6 +81,8 @@ try {
         'Payments export contains real clients only');
     payments_check(str_contains($csv,"'=SUM(1,2)"),
         'CSV comment with spreadsheet formula is escaped');
+    payments_check(str_contains($csv,'Ждём оплату') && !str_contains($csv,'Просрочено'),
+        'Payments CSV has only the waiting status');
     $db->prepare('UPDATE client_entries SET received_at="2026-10-29 16:00:00"
         WHERE id=?')->execute([$pastId]);
     $left=adc_collections_open($db,'2026-10-29');
@@ -95,5 +95,5 @@ try {
 } finally {
     $db->rollBack();
 }
-echo "Payments desk passed: real-only, due dates, effective terms, currency,
-    exact cents, overdue filters, receipt lifecycle and CSV safety\n";
+echo "Payments desk passed: real-only, contractual dates, effective terms, currency,
+    exact cents, neutral unpaid queue, receipt lifecycle and CSV safety\n";

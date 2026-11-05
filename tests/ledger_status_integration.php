@@ -4,6 +4,7 @@ require __DIR__.'/../app/core.php';
 require __DIR__.'/../app/finance.php';
 require __DIR__.'/../app/workflow.php';
 require __DIR__.'/../app/ledger.php';
+require __DIR__.'/../app/documents.php';
 
 function status_check(bool $ok,string $message):void {
     if(!$ok) throw new RuntimeException('Ledger due dates: '.$message);
@@ -14,6 +15,8 @@ status_check(adc_ledger_due_date('2026-10-27 10:00:00',25)==='2026-10-25',
     'Invoice sent two days after billing anchor stays in the same month');
 status_check(adc_ledger_due_date('2026-10-29 10:00:00',25)==='2026-11-25',
     'Invoice sent outside grace window belongs to next cycle');
+status_check(adc_ledger_due_date('2026-10-30 10:00:00',1)==='2026-11-01',
+    'Request sent on October 30 follows the November 1 contractual anchor');
 status_check(adc_ledger_due_date('2026-02-28 10:00:00',31)==='2026-02-28',
     '31st clamps to last day of February');
 status_check(adc_ledger_due_date('2028-02-29 10:00:00',31)==='2028-02-29',
@@ -45,23 +48,24 @@ try {
     $entry=(int)$db->lastInsertId();
     adc_audit($db,null,'contact_client','client_entry',$entry);
     $early=adc_ledger_client_status($db,$client,'2026-10-20');
-    status_check(str_contains($early[0],'Ждём оплату')&&!str_contains($early[0],'просрочка')&&$early[1]==='danger',
-        'Waiting payment is red before the due date too');
+    status_check($early===['Ждём оплату · 1','danger'],
+        'Waiting payment is red and uses only the unpaid count');
     $preparationWindow=adc_ledger_client_status($db,$client,'2026-10-22');
     status_check(str_contains($preparationWindow[0],'Ждём оплату')&&$preparationWindow[1]==='danger',
         'Document sent ten days early suppresses duplicate preparation reminder while payment stays red');
     $withinGrace=adc_ledger_client_status($db,$client,'2026-10-28');
-    status_check(str_contains($withinGrace[0],'Ждём оплату')&&!str_contains($withinGrace[0],'просрочка')&&$withinGrace[1]==='danger',
-        'Payment remains red during the three-day grace period');
+    status_check($withinGrace===['Ждём оплату · 1','danger'],
+        'Payment status stays the same across the billing date');
     $late=adc_ledger_client_status($db,$client,'2026-10-29');
-    status_check(str_contains($late[0],'просрочка')&&$late[1]==='danger',
-        'October 29 is overdue');
+    status_check($late===['Ждём оплату · 1','danger'],
+        'Even an old unpaid document never shows payment overdue');
     $db->prepare('UPDATE client_entries SET received_at="2026-10-29 12:00:00" WHERE id=?')->execute([$entry]);
     $paid=adc_ledger_client_status($db,$client,'2026-10-29');
-    status_check($paid[0]==='Оплачено','Full receipt hides overdue status');
+    status_check($paid[0]==='Оплачено','Full receipt clears waiting status');
     $db->prepare('UPDATE client_entries SET received_at=NULL WHERE id=?')->execute([$entry]);
     $again=adc_ledger_client_status($db,$client,'2026-10-29');
-    status_check(str_contains($again[0],'просрочка'),'Undo receipt restores overdue');
+    status_check($again===['Ждём оплату · 1','danger'],
+        'Undo receipt restores neutral unpaid count');
     $db->prepare('INSERT INTO client_entries(client_id,entry_kind,amount,currency,category,
         created_at) VALUES (?,"document","200.00","BYN","advertising","2026-10-29 08:00:00")')->execute([$client]);
     $priority=adc_ledger_client_status($db,$client,'2026-10-29');
@@ -85,13 +89,15 @@ try {
         'Staff can confirm contact but cannot confirm payment prematurely');
     adc_audit($db,null,'contact_client','client_entry',$cardEntry);
     $contacted=adc_ledger_client_status($db,$cardClient,'2026-10-29',['role'=>'employee']);
-    status_check(str_contains($contacted[0],'Ждём оплату') &&
-        str_contains($contacted[0],'просрочка') && $contacted[1]==='danger',
-        'Confirmed contact moves the request to red payment waiting with original deadline');
+    status_check($contacted===['Ждём оплату · 1','danger'],
+        'Confirmed contact moves the request to red payment waiting without late labels');
     $contactedPanel=adc_ledger_panel($db,['id'=>1,'role'=>'employee'],$cardClient);
     status_check(str_contains($contactedPanel,'Отменить отметку') &&
         str_contains($contactedPanel,'name="action" value="receive_entry"'),
         'After contacting, the receipt button and reversible contact appear');
+    $directorCardPanel=adc_ledger_panel($db,['id'=>1,'role'=>'director'],$cardClient);
+    status_check(str_contains($directorCardPanel,'</div><details class="ledger-edit">'),
+        'Card editor renders outside the action buttons so the title cannot collapse');
     adc_audit($db,null,'undo_client_contact','client_entry',$cardEntry);
     status_check(adc_ledger_client_status($db,$cardClient,'2026-10-29')[0]==='Связаться с клиентом · 1',
         'Undoing contact restores the contact task without erasing the payment request');
@@ -99,6 +105,18 @@ try {
         ->execute([$cardEntry]);
     status_check(adc_ledger_client_status($db,$cardClient,'2026-10-29')[0]==='Оплачено',
         'Already-paid legacy card records remain paid, never reopened as contact tasks');
+
+    $db->exec('INSERT INTO clients(name,is_demo) VALUES ("CI two open invoices",1)');
+    $twoInvoices=(int)$db->lastInsertId();
+    $db->prepare('INSERT INTO client_entries(client_id,entry_kind,amount,currency,category,sent_at)
+        VALUES (?,"document","500.00","BYN","advertising",?)')
+        ->execute([$twoInvoices,'2026-09-15 10:00:00']);
+    $db->prepare('INSERT INTO client_entries(client_id,entry_kind,amount,currency,category,sent_at)
+        VALUES (?,"document","600.00","BYN","advertising",?)')
+        ->execute([$twoInvoices,'2026-10-30 10:00:00']);
+    status_check(adc_ledger_client_status($db,$twoInvoices,'2026-11-05')===
+        ['Ждём оплату · 2','danger'],
+        'Two open payment requests display only the unpaid count, regardless of age');
 
     // Scheduled handovers are read-only and activate exactly on their date.
     $db->exec('INSERT INTO clients(name,is_demo) VALUES ("CI scheduled handover",1)');
@@ -117,6 +135,9 @@ try {
     $scheduledAct=(int)$db->lastInsertId();
     $db->prepare('INSERT INTO client_entries(client_id,document_id,entry_kind,category)
         VALUES (?,?,"document","advertising")')->execute([$scheduledClient,$scheduledAct]);
+    $directorDocumentPanel=adc_ledger_panel($db,['id'=>1,'role'=>'director'],$scheduledClient);
+    status_check(str_contains($directorDocumentPanel,'</div><details class="ledger-edit">'),
+        'Document editor renders outside the action buttons at full card width');
     $directorStatus=adc_ledger_client_status($db,$scheduledClient,'2026-10-27',['role'=>'director']);
     $employeeEarly=adc_ledger_client_status($db,$scheduledClient,'2026-10-27',['role'=>'employee']);
     $employeeBefore=adc_ledger_client_status($db,$scheduledClient,'2026-11-01',['role'=>'employee']);
@@ -160,11 +181,11 @@ try {
     $stmt->execute([$client,'2026-11-01 10:00:00','2026-11-05 12:00:00']);
     adc_audit($db,null,'contact_client','client_entry',(int)$db->lastInsertId());
     $db->prepare('UPDATE client_entries SET is_void=1 WHERE sent_at="2026-10-15 10:00:00" OR sent_at IS NULL')->execute();
-    $newGrace=adc_ledger_client_status($db,$client,'2026-11-08');
-    status_check(!str_contains($newGrace[0],'просрочка'),'Latest terms retain grace around new 5th');
-    $newOverdue=adc_ledger_client_status($db,$client,'2026-11-09');
-    status_check(str_contains($newOverdue[0],'просрочка'),
-        'New contractual billing day applies only to the newer request');
+    $beforeBilling=adc_ledger_client_status($db,$client,'2026-11-08');
+    $afterBilling=adc_ledger_client_status($db,$client,'2026-11-09');
+    status_check($beforeBilling===['Ждём оплату · 1','danger'] &&
+        $afterBilling===['Ждём оплату · 1','danger'],
+        'No late-payment badge appears even after the contractual due date');
     $db->exec('INSERT INTO clients(name,is_demo) VALUES ("CI preparation date window",1)');
     $newClient=(int)$db->lastInsertId();
     $db->prepare('INSERT INTO engagements(client_id,started_on,billing_day,payment_mode,currency)

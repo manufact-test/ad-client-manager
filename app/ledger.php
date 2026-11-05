@@ -216,32 +216,6 @@ function adc_ledger_has_request_for_due(PDO $db,int $clientId,string $due,string
     return false;
 }
 
-function adc_ledger_has_overdue(PDO $db,int $clientId,string $today): bool {
-    $contact=adc_ledger_contact_sql('e');
-    $q=$db->prepare('SELECT e.sent_at,
-        COALESCE(
-          (SELECT t.billing_day FROM engagement_terms t
-            JOIN engagements g ON g.id=t.engagement_id
-            WHERE g.client_id=e.client_id AND t.effective_on<=DATE(e.sent_at)
-            ORDER BY t.effective_on DESC,t.id DESC LIMIT 1),
-          (SELECT g.billing_day FROM engagements g
-            WHERE g.client_id=e.client_id AND g.started_on<=DATE(e.sent_at)
-            ORDER BY g.started_on DESC,g.id DESC LIMIT 1)
-        ) AS billing_day
-        FROM client_entries e
-        WHERE e.client_id=? AND e.is_void=0 AND e.amount IS NOT NULL
-            AND e.sent_at IS NOT NULL AND e.received_at IS NULL
-            AND (e.entry_kind<>"card" OR '.$contact.')');
-    $q->execute([$clientId]);
-    foreach ($q as $entry) {
-        if ($entry['billing_day']===null) continue;
-        $due=adc_ledger_due_date((string)$entry['sent_at'],(int)$entry['billing_day']);
-        $grace=(new DateTimeImmutable($due))->modify('+3 days')->format('Y-m-d');
-        if ($today>$grace) return true;
-    }
-    return false;
-}
-
 function adc_ledger_client_status(PDO $db,int $clientId,string $today,?array $user=null): array {
     if (!adc_valid_date($today)) throw new InvalidArgumentException('Неверная дата.');
     if(adc_w_active_pause($db,$clientId))return ['Пауза','warning'];
@@ -284,9 +258,7 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today,?array $us
     }
     if($needsDocument) return ['Подготовить документы','warning'];
     if ((int)$s['unpaid']>0) {
-        $late=adc_ledger_has_overdue($db,$clientId,$today);
-        return [$late?'Ждём оплату · '.$s['unpaid'].' (просрочка)':'Ждём оплату · '.$s['unpaid'],
-            'danger'];
+        return ['Ждём оплату · '.$s['unpaid'],'danger'];
     }
     if ((int)$s['paid']>0) return ['Оплачено','good'];
     return ['Выполнено','good'];
@@ -318,6 +290,7 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
         $h='<div class="ledger-row"><div class="ledger-main"><strong>'.adc_h($title).'</strong>'.
             '<div class="muted">'.adc_h($state).' · '.$money.' · '.adc_ledger_category((string)$r['category']).'</div>'.
             (($r['note']??'')!==''?'<small>'.adc_h((string)$r['note']).'</small>':'').'</div><div class="ledger-actions">';
+        $editor='';
         if ($doc) {
             $h.='<a class="btn secondary" href="/?download='.(int)$r['document_id'].'">Скачать</a>';
             if ($r['sent_at']===null) {
@@ -343,7 +316,7 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
         }
         if ($user['role']==='director') {
             if ($doc) {
-                $h.='<details class="ledger-edit"><summary>Изменить</summary>'.
+                $editor='<details class="ledger-edit"><summary>Изменить</summary>'.
                     adc_doc_upload_form($db,$clientId,(int)$r['document_id']).
                     '</details>';
                 if ($r['received_at']===null) {
@@ -354,7 +327,7 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
                     $h.='<small class="muted">Для удаления сначала отмените получение.</small>';
                 }
             } else {
-                $h.='<details class="ledger-edit"><summary>Изменить</summary>'.
+                $editor='<details class="ledger-edit"><summary>Изменить</summary>'.
                     adc_w_form_start('edit_card_entry').adc_w_hidden('client_id',$clientId).
                     adc_w_hidden('entry_id',$id).adc_ledger_form_money($r).
                     adc_w_field('Комментарий','note',(string)($r['note']??''),'text','maxlength="500"').
@@ -368,7 +341,9 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
                 }
             }
         }
-        return $h.'</div></div>';
+        // The expanded editor must not take width from the document title.
+        // It is a separate grid row, never a flex item beside action buttons.
+        return $h.'</div>'.$editor.'</div>';
     };
     if ($pending) foreach($pending as $r) $html.=$render($r);
     else $html.='<p class="muted">Нет ожидающих отправки или оплаты записей.</p>';
