@@ -14,6 +14,8 @@ status_check(adc_ledger_due_date('2026-10-27 10:00:00',25)==='2026-10-25',
     'Invoice sent two days after billing anchor stays in the same month');
 status_check(adc_ledger_due_date('2026-10-29 10:00:00',25)==='2026-11-25',
     'Invoice sent outside grace window belongs to next cycle');
+status_check(adc_ledger_due_date('2026-10-30 10:00:00',1)==='2026-11-01',
+    'Request sent on October 30 follows the November 1 contractual anchor');
 status_check(adc_ledger_due_date('2026-02-28 10:00:00',31)==='2026-02-28',
     '31st clamps to last day of February');
 status_check(adc_ledger_due_date('2028-02-29 10:00:00',31)==='2028-02-29',
@@ -92,6 +94,9 @@ try {
     status_check(str_contains($contactedPanel,'Отменить отметку') &&
         str_contains($contactedPanel,'name="action" value="receive_entry"'),
         'After contacting, the receipt button and reversible contact appear');
+    $directorCardPanel=adc_ledger_panel($db,['id'=>1,'role'=>'director'],$cardClient);
+    status_check(str_contains($directorCardPanel,'</div><details class="ledger-edit">'),
+        'Card editor renders outside the action buttons so the title cannot collapse');
     adc_audit($db,null,'undo_client_contact','client_entry',$cardEntry);
     status_check(adc_ledger_client_status($db,$cardClient,'2026-10-29')[0]==='Связаться с клиентом · 1',
         'Undoing contact restores the contact task without erasing the payment request');
@@ -117,6 +122,9 @@ try {
     $scheduledAct=(int)$db->lastInsertId();
     $db->prepare('INSERT INTO client_entries(client_id,document_id,entry_kind,category)
         VALUES (?,?,"document","advertising")')->execute([$scheduledClient,$scheduledAct]);
+    $directorDocumentPanel=adc_ledger_panel($db,['id'=>1,'role'=>'director'],$scheduledClient);
+    status_check(str_contains($directorDocumentPanel,'</div><details class="ledger-edit">'),
+        'Document editor renders outside the action buttons at full card width');
     $directorStatus=adc_ledger_client_status($db,$scheduledClient,'2026-10-27',['role'=>'director']);
     $employeeEarly=adc_ledger_client_status($db,$scheduledClient,'2026-10-27',['role'=>'employee']);
     $employeeBefore=adc_ledger_client_status($db,$scheduledClient,'2026-11-01',['role'=>'employee']);
