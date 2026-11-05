@@ -233,7 +233,25 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           .analytics-chart-row{grid-template-columns:60px minmax(90px,1fr);gap:8px}
           .analytics-chart-label{grid-column:2;justify-self:end}
           .analytics-filter label{flex:1;min-width:120px}}
-.ledger-row{padding:13px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:15px;border-top:1px solid #e8e7f4}.ledger-row:nth-of-type(even){background:#faf9ff}.ledger-main{flex:1;min-width:0}.ledger-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.ledger-actions form{margin:0}.ledger-actions button,.ledger-actions .btn{font-size:12px;padding:7px 10px;min-width:0}.ledger-edit{width:100%}.ledger-edit form{min-width:min(320px,100%)}.ledger-paid{margin-top:12px;padding-top:9px;border-top:1px solid #dad6f7}.status-cell{min-width:150px}.table-scroll th:nth-child(3),.table-scroll td:nth-child(3){text-align:right}.table-scroll tbody tr:nth-child(even) td{background:#f7f6fe}.client-summary-header{display:flex;align-items:center;justify-content:space-between;gap:12px}.ledger-panel summary{cursor:pointer}.ledger-money-toggle:not(:has(input[name=has_amount]:checked)) .ledger-money-fields{display:none}@media(max-width:680px){.ledger-row{flex-direction:column}.ledger-actions{width:100%}}
+        /* Each document or payment is a rounded row with breathing room. */
+        .ledger-row{padding:14px 16px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px 15px;margin:8px 0;border:1px solid #e8e7f4;border-radius:12px;background:#fff}
+        .ledger-row:nth-of-type(even){background:#f7f6fd;border-color:#e8e5f5}
+        .ledger-panel>.ledger-row:last-of-type{margin-bottom:18px}
+        .ledger-main{min-width:0;overflow-wrap:anywhere}
+        .ledger-actions{display:flex;gap:7px;align-items:center;justify-content:flex-end;flex-wrap:wrap;min-width:0;max-width:100%}
+        .ledger-actions form{margin:0}
+        .ledger-actions button,.ledger-actions .btn{font-size:12px;padding:7px 10px;min-width:0}
+        .ledger-edit{grid-column:1/-1;width:100%;min-width:0;margin:0}
+        .ledger-edit>summary{display:list-item;width:fit-content;padding:6px 0}
+        .ledger-edit form{width:100%;min-width:0;max-width:100%}
+        .ledger-paid{margin-top:12px;padding-top:9px;border-top:1px solid #dad6f7}
+        .status-cell{min-width:150px}
+        .table-scroll th:nth-child(3),.table-scroll td:nth-child(3){text-align:right}
+        .table-scroll tbody tr:nth-child(even) td{background:#f7f6fe}
+        .client-summary-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+        .ledger-panel summary{cursor:pointer}
+        .ledger-money-toggle:not(:has(input[name=has_amount]:checked)) .ledger-money-fields{display:none}
+        @media(max-width:680px){.ledger-row{grid-template-columns:minmax(0,1fr)}.ledger-actions{justify-content:flex-start;width:100%}}
 
         /* Accessible native backing controls with consistently purple, custom pickers. */
         .ac-select{position:relative;min-width:0}.ac-select>select{position:absolute!important;opacity:0!important;width:1px!important;height:1px!important;pointer-events:none!important}
