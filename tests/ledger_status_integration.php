@@ -4,6 +4,7 @@ require __DIR__.'/../app/core.php';
 require __DIR__.'/../app/finance.php';
 require __DIR__.'/../app/workflow.php';
 require __DIR__.'/../app/ledger.php';
+require __DIR__.'/../app/documents.php';
 
 function status_check(bool $ok,string $message):void {
     if(!$ok) throw new RuntimeException('Ledger due dates: '.$message);
