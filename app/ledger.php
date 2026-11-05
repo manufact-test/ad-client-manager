@@ -216,32 +216,6 @@ function adc_ledger_has_request_for_due(PDO $db,int $clientId,string $due,string
     return false;
 }
 
-function adc_ledger_has_overdue(PDO $db,int $clientId,string $today): bool {
-    $contact=adc_ledger_contact_sql('e');
-    $q=$db->prepare('SELECT e.sent_at,
-        COALESCE(
-          (SELECT t.billing_day FROM engagement_terms t
-            JOIN engagements g ON g.id=t.engagement_id
-            WHERE g.client_id=e.client_id AND t.effective_on<=DATE(e.sent_at)
-            ORDER BY t.effective_on DESC,t.id DESC LIMIT 1),
-          (SELECT g.billing_day FROM engagements g
-            WHERE g.client_id=e.client_id AND g.started_on<=DATE(e.sent_at)
-            ORDER BY g.started_on DESC,g.id DESC LIMIT 1)
-        ) AS billing_day
-        FROM client_entries e
-        WHERE e.client_id=? AND e.is_void=0 AND e.amount IS NOT NULL
-            AND e.sent_at IS NOT NULL AND e.received_at IS NULL
-            AND (e.entry_kind<>"card" OR '.$contact.')');
-    $q->execute([$clientId]);
-    foreach ($q as $entry) {
-        if ($entry['billing_day']===null) continue;
-        $due=adc_ledger_due_date((string)$entry['sent_at'],(int)$entry['billing_day']);
-        $grace=(new DateTimeImmutable($due))->modify('+3 days')->format('Y-m-d');
-        if ($today>$grace) return true;
-    }
-    return false;
-}
-
 function adc_ledger_client_status(PDO $db,int $clientId,string $today,?array $user=null): array {
     if (!adc_valid_date($today)) throw new InvalidArgumentException('Неверная дата.');
     if(adc_w_active_pause($db,$clientId))return ['Пауза','warning'];
@@ -284,9 +258,7 @@ function adc_ledger_client_status(PDO $db,int $clientId,string $today,?array $us
     }
     if($needsDocument) return ['Подготовить документы','warning'];
     if ((int)$s['unpaid']>0) {
-        $late=adc_ledger_has_overdue($db,$clientId,$today);
-        return [$late?'Ждём оплату · '.$s['unpaid'].' (просрочка)':'Ждём оплату · '.$s['unpaid'],
-            'danger'];
+        return ['Ждём оплату · '.$s['unpaid'],'danger'];
     }
     if ((int)$s['paid']>0) return ['Оплачено','good'];
     return ['Выполнено','good'];
