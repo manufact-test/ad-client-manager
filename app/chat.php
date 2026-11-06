@@ -355,15 +355,18 @@ function adc_chat_item(array $m,int $uid,string $role='employee',array $reaction
             $out.='<a class="chat-file" href="'.$url.'">📄 '.$name.' · Скачать PDF</a>';
         }
     }
-    $out.='<div class="chat-reactions" data-chat-reactions="'.$id.'" aria-label="Реакции">'.
+    // Keep the reaction trigger visible for mouse, touch and keyboard users.
+    // The live poll only replaces the chips, not the trigger beside them.
+    $out.='<div class="chat-reaction-row">'.
+        '<div class="chat-reactions" data-chat-reactions="'.$id.'" aria-label="Реакции">'.
         adc_chat_reaction_chips($id,$reactions).'</div>'.
+        '<button type="button" class="chat-react-toggle" data-chat-react-toggle="'.$id.'" '.
+        'aria-controls="chat-react-picker-'.$id.'" aria-expanded="false" '.
+        'title="Выбрать реакцию">😊 Реакция</button></div>'.
         '<div class="chat-msg-tools">'.
         '<button type="button" class="chat-reply-btn chat-mini-action" title="Ответить на сообщение" '.
         'data-chat-reply="'.$id.'" data-reply-preview="'.
         adc_h((string)$m['author'].': '.$messagePreview).'">↩ Ответить</button>'.
-        '<button type="button" class="chat-react-toggle chat-mini-action" data-chat-react-toggle="'.$id.'" '.
-        'aria-controls="chat-react-picker-'.$id.'" aria-expanded="false" '.
-        'title="Выбрать реакцию">😊 Реакция</button>'.
         '<form method="post"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
         '<input type="hidden" name="action" value="chat_toggle_pin">'.
         '<input type="hidden" name="thread" value="'.$thread.'">'.
