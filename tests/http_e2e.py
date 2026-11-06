@@ -542,9 +542,10 @@ try:
         match=re.search(r'data-chat-reply="(\d+)"',html(initial))
         require(match,"Chat messages have reply controls")
         messageid=match.group(1)
-    require("📌 Закрепить" in html(initial) and
+    require('title="Закрепить сообщение" aria-label="Закрепить сообщение"' in html(initial) and
             "chat-reply-btn chat-mini-action" in html(initial) and
-            "chat-pin-btn chat-mini-action" in html(initial) and
+            "chat-pin-btn chat-mini-action chat-icon-action" in html(initial) and
+            "chat-react-toggle chat-mini-action chat-icon-action" in html(initial) and
             "data-chat-menu-toggle" in html(initial) and
             "data-chat-menu" in html(initial) and
             "data-chat-selection-toolbar" in html(initial) and
@@ -553,7 +554,7 @@ try:
             'class="chat-menu-item chat-pin-btn' not in html(initial) and
             ".chat-message-menu{position:absolute" in html(initial) and
             ".chat-msg:is(:hover,:focus-within) .chat-msg-tools{display:flex}" in html(initial),
-            "Ellipsis stays discreet at the top; reply and pin are separate bottom hover actions")
+            "Ellipsis stays discreet; reply text and pin/reaction icon actions share bottom hover toolbar")
     status,headers,_=post("employee",employee,"chat_send",{
         "thread":str(real),"message":"This is an answer",
         "reply_to_id":messageid})
