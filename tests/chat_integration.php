@@ -127,11 +127,15 @@ $ok(str_contains($replyHtml,'chat-replied')&&
     'Reply context links back to exact message');
 $ok(str_contains($replyHtml,'Ответить')&&
     str_contains($replyHtml,'chat_toggle_pin')&&
-    str_contains($replyHtml,'class="chat-reaction-row"')&&
+    str_contains($replyHtml,'class="chat-msg-tools"')&&
+    str_contains($replyHtml,'class="chat-reactions"')&&
     str_contains($replyHtml,'data-chat-react-toggle')&&
     str_contains($replyHtml,'data-chat-react-picker')&&
-    strpos($replyHtml,'data-chat-react-toggle')<strpos($replyHtml,'class="chat-msg-tools"'),
-    'Reply and pin actions remain contextual while emoji reaction is always visible');
+    strpos($replyHtml,'data-chat-react-toggle')>strpos($replyHtml,'class="chat-msg-tools"')&&
+    str_contains($replyHtml,'class="chat-pin-btn chat-mini-action chat-icon-action"')&&
+    !str_contains($replyHtml,'😊 Реакция')&&
+    !str_contains($replyHtml,'📌 Закрепить'),
+    'Reply remains a label and pin/reaction are icon-only hover actions');
 $_POST=['thread'=>(string)$client,'message_id'=>(string)$reply['id']];
 adc_chat_toggle_pin($db,['id'=>$a['id']]);
 $clientPin=adc_chat_pinned($db,$client);
@@ -186,7 +190,8 @@ $menuEnd=$menuStart===false?false:strpos($ownerHtml,'</div>',$menuStart);
 $menuMarkup=$menuStart===false||$menuEnd===false?'':substr($ownerHtml,$menuStart,$menuEnd-$menuStart);
 $toolsStart=strpos($ownerHtml,'<div class="chat-msg-tools">');
 $replyStart=strpos($ownerHtml,'data-chat-reply=');
-$pinStart=strpos($ownerHtml,'class="chat-pin-btn chat-mini-action"');
+$pinStart=strpos($ownerHtml,'class="chat-pin-btn chat-mini-action chat-icon-action"');
+$reactStart=strpos($ownerHtml,'data-chat-react-toggle=');
 $ok(str_contains($ownerHtml,'data-chat-menu-toggle')&&
     str_contains($ownerHtml,'data-chat-select-message')&&
     str_contains($ownerHtml,'name="action" value="chat_delete"')&&
@@ -194,9 +199,10 @@ $ok(str_contains($ownerHtml,'data-chat-menu-toggle')&&
     $menuStart!==false&&$menuEnd!==false&&
     !str_contains($menuMarkup,'data-chat-reply')&&
     !str_contains($menuMarkup,'chat-pin-btn')&&
-    $toolsStart!==false&&$replyStart!==false&&$pinStart!==false&&
-    $replyStart>$toolsStart&&$pinStart>$toolsStart,
-    'Ellipsis menu contains only select/delete; reply and pin stay in bottom hover tools');
+    !str_contains($menuMarkup,'data-chat-react-toggle')&&
+    $toolsStart!==false&&$replyStart!==false&&$pinStart!==false&&$reactStart!==false&&
+    $replyStart>$toolsStart&&$pinStart>$toolsStart&&$reactStart>$toolsStart,
+    'Ellipsis menu contains only select/delete; reply, pin and reaction stay in hover tools');
 $ok(str_contains($directorHtml,'name="action" value="chat_delete"'),
     'Director can moderate another employee message');
 
