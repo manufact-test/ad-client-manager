@@ -52,6 +52,9 @@ jobs:
       - name: Test shared calendar day selection
         run: node tests/calendar_regression.js
 
+      - name: Test audible chat notifications across page navigation
+        run: node tests/chat_sound_regression.js
+
       - name: Check PHP version
         run: |
           php -v

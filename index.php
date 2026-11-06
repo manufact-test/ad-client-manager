@@ -24,7 +24,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         foreach (['overview'=>'Обзор','clients'=>'Клиенты','tasks'=>'Мои задачи','archive'=>'Архив',
                   'analytics'=>'Аналитика','chat'=>'Чат','team'=>'Настройки'] as $id=>$label) {
             $menu .= '<a href="/?view='.$id.'"'.($view===$id?' class="active" aria-current="page"':'').
-                '>'.adc_h($label).($id==='chat'?' <span data-chat-badge class="chat-badge" hidden></span>':'').'</a>';
+                '>'.adc_h($label).($id==='chat'?' <span data-chat-badge data-chat-user="'.(int)$user['id'].'" class="chat-badge" hidden></span>':'').'</a>';
         }
         $menu .= '</nav><div class="account"><span>'.$name.' · '.
             ($user['role']==='director'?'Директор':'Сотрудник').'</span>'.
@@ -729,33 +729,66 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         if(send){send.disabled=false;send.textContent="Отправить сообщение";}
       });
     }
-    var audible=true,activated=false,lastOther=null,busy=false;
+    var audible=true,activated=false,lastOther=null,busy=false,soundContext=null;
+    var soundCursorKey="adc-chat-last-other-"+badge.getAttribute("data-chat-user");
     // Sound is ON unless this browser explicitly disabled it.
     try{audible=localStorage.getItem("adc-chat-sound")!=="off";}catch(e){}
+    // Keep the cursor across full-page chat sends and navigation. A fresh page
+    // must not silently swallow the first reply while establishing its baseline.
+    try{
+      activated=sessionStorage.getItem("adc-chat-activated")==="1";
+      var previous=sessionStorage.getItem(soundCursorKey);
+      if(previous!==null&&/^\d+$/.test(previous))lastOther=Number(previous);
+    }catch(e){}
+    function audioChannel(){
+      if(!audible)return null;
+      try{
+        var Constructor=window.AudioContext||window.webkitAudioContext;
+        if(!Constructor)return null;
+        if(!soundContext||soundContext.state==="closed")soundContext=new Constructor();
+        return soundContext;
+      }catch(e){return null;}
+    }
+    function chime(ctx){
+      var start=ctx.currentTime;
+      [[660,0,0.15],[880,0.17,0.24]].forEach(function(note){
+        var osc=ctx.createOscillator(),gain=ctx.createGain(),at=start+note[1];
+        osc.type="sine";osc.frequency.value=note[0];
+        gain.gain.setValueAtTime(0.001,at);
+        gain.gain.exponentialRampToValueAtTime(0.13,at+0.025);
+        gain.gain.exponentialRampToValueAtTime(0.001,at+note[2]);
+        osc.connect(gain);gain.connect(ctx.destination);
+        osc.start(at);osc.stop(at+note[2]+0.01);
+      });
+    }
     function beep(){
       if(!audible||!activated)return;
-      try{
-        var ctx=new (window.AudioContext||window.webkitAudioContext)();
-        var osc=ctx.createOscillator(),gain=ctx.createGain();
-        osc.type="sine";osc.frequency.value=810;
-        gain.gain.setValueAtTime(0.065,ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.16);
-        osc.connect(gain);gain.connect(ctx.destination);
-        osc.start();osc.stop(ctx.currentTime+0.17);
-        osc.onended=function(){ctx.close();};
-      }catch(e){}
+      var ctx=audioChannel();if(!ctx)return;
+      if(ctx.state==="running"){chime(ctx);return;}
+      // Some browsers suspend audio after navigation or a background pause.
+      try{ctx.resume().then(function(){if(audible&&ctx.state==="running")chime(ctx);}).catch(function(){});}catch(e){}
+    }
+    function unlockAudio(){
+      activated=true;
+      try{sessionStorage.setItem("adc-chat-activated","1");}catch(e){}
+      var ctx=audioChannel();
+      if(ctx&&ctx.state!=="running"){
+        try{ctx.resume().catch(function(){});}catch(e){}
+      }
     }
     function soundLabel(){
       if(!soundButton)return;
       soundButton.textContent=audible?"Выключить звук":"Включить звук";
       soundButton.setAttribute("aria-pressed",String(audible));
     }
-    document.addEventListener("pointerdown",function(){activated=true;},{once:true});
-    document.addEventListener("keydown",function(){activated=true;},{once:true});
+    // Resume a single shared AudioContext *during* a user gesture. Creating a
+    // new context from the background polling callback was muted by autoplay.
+    document.addEventListener("pointerdown",unlockAudio,{once:true});
+    document.addEventListener("keydown",unlockAudio,{once:true});
     if(soundButton)soundButton.addEventListener("click",function(){
-      audible=!audible;activated=true;
+      audible=!audible;
       try{localStorage.setItem("adc-chat-sound",audible?"on":"off");}catch(e){}
-      soundLabel();if(audible)beep();
+      soundLabel();if(audible){unlockAudio();beep();}
     });
     soundLabel();
     function markRead(id){
@@ -796,7 +829,8 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         showRooms(r.room_unread);
         var newest=Number(r.newest_other_id)||0;
         if(lastOther!==null&&newest>lastOther)beep();
-        lastOther=newest;
+        lastOther=Math.max(lastOther===null?0:lastOther,newest);
+        try{sessionStorage.setItem(soundCursorKey,String(lastOther));}catch(e){}
         if(!feed||focused)return;
         var messages=Array.isArray(r.messages)?r.messages:[];
         var wasNearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<110;
@@ -841,7 +875,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         markRead(Number(feed.getAttribute("data-last")||0));
       }
     }
-    poll();window.setInterval(poll,12000);
+    poll();window.setInterval(poll,6000);
     document.addEventListener("visibilitychange",function(){if(!document.hidden)poll();});
 
     // Telegram-like composer: type @ or #, choose a match, insert a stable tag.
