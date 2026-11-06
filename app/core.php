@@ -280,7 +280,7 @@ function adc_schema(PDO $db, bool $chatOnly=false): void {
         ,'CREATE TABLE IF NOT EXISTS team_chat_reactions (
             message_id BIGINT UNSIGNED NOT NULL,
             user_id BIGINT UNSIGNED NOT NULL,
-            emoji VARCHAR(16) NOT NULL,
+            emoji VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
             created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
             PRIMARY KEY(message_id,user_id),
             INDEX idx_chat_reaction_emoji(message_id,emoji),
