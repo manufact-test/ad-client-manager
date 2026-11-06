@@ -190,7 +190,8 @@ $menuEnd=$menuStart===false?false:strpos($ownerHtml,'</div>',$menuStart);
 $menuMarkup=$menuStart===false||$menuEnd===false?'':substr($ownerHtml,$menuStart,$menuEnd-$menuStart);
 $toolsStart=strpos($ownerHtml,'<div class="chat-msg-tools">');
 $replyStart=strpos($ownerHtml,'data-chat-reply=');
-$pinStart=strpos($ownerHtml,'class="chat-pin-btn chat-mini-action"');
+$pinStart=strpos($ownerHtml,'class="chat-pin-btn chat-mini-action chat-icon-action"');
+$reactStart=strpos($ownerHtml,'data-chat-react-toggle=');
 $ok(str_contains($ownerHtml,'data-chat-menu-toggle')&&
     str_contains($ownerHtml,'data-chat-select-message')&&
     str_contains($ownerHtml,'name="action" value="chat_delete"')&&
@@ -198,9 +199,10 @@ $ok(str_contains($ownerHtml,'data-chat-menu-toggle')&&
     $menuStart!==false&&$menuEnd!==false&&
     !str_contains($menuMarkup,'data-chat-reply')&&
     !str_contains($menuMarkup,'chat-pin-btn')&&
-    $toolsStart!==false&&$replyStart!==false&&$pinStart!==false&&
-    $replyStart>$toolsStart&&$pinStart>$toolsStart,
-    'Ellipsis menu contains only select/delete; reply and pin stay in bottom hover tools');
+    !str_contains($menuMarkup,'data-chat-react-toggle')&&
+    $toolsStart!==false&&$replyStart!==false&&$pinStart!==false&&$reactStart!==false&&
+    $replyStart>$toolsStart&&$pinStart>$toolsStart&&$reactStart>$toolsStart,
+    'Ellipsis menu contains only select/delete; reply, pin and reaction stay in hover tools');
 $ok(str_contains($directorHtml,'name="action" value="chat_delete"'),
     'Director can moderate another employee message');
 
