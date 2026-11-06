@@ -194,6 +194,9 @@ try {
         'Newly activated collaboration is neutral on its first contractual billing date');
     status_check(adc_ledger_client_status($db,$newClient,'2026-10-30')[0]==='Подготовить документы',
         'November 1 billing anchor creates preparation reminder from October');
+    status_check(adc_ledger_client_status($db,$newClient,'2026-10-30',['role'=>'employee'])===
+        ['Выполнено','good'],
+        'Employee does not see the director-only preparation reminder');
     status_check(adc_ledger_client_status($db,$newClient,'2026-10-20')[0]==='Выполнено',
         'Preparation reminder does not persist all month');
     // A future effective change cannot move an earlier document deadline.
@@ -210,6 +213,9 @@ try {
         'Scheduled new terms do not affect earlier October-November billing');
     status_check(adc_ledger_client_status($db,$newClient,'2026-11-29')[0]==='Подготовить документы',
         'November 29 still prepares for original December 1 billing date');
+    status_check(adc_ledger_client_status($db,$newClient,'2026-11-29',['role'=>'employee'])===
+        ['Выполнено','good'],
+        'Director-only preparation stays hidden from employees after a terms change');
     status_check(adc_ledger_client_status($db,$newClient,'2026-12-07')[0]==='Выполнено',
         'New billing day is not effective before December 10');
     $termAfter=adc_w_effective_terms($db,["id"=>$futureEng,"started_on"=>"2026-10-01",
@@ -224,6 +230,9 @@ try {
         'Starting the day before billing date does not demand new paperwork');
     status_check(adc_ledger_client_status($db,$laterClient,'2026-11-18')[0]==='Подготовить документы',
         'First reminder is for the next monthly billing cycle');
+    status_check(adc_ledger_client_status($db,$laterClient,'2026-11-18',['role'=>'employee'])===
+        ['Выполнено','good'],
+        'Employee list stays in the completed state until an actual document arrives');
 } finally {
     if($db->inTransaction())$db->rollBack();
 }
