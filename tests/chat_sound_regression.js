@@ -21,13 +21,13 @@ async function tick() {
   await new Promise(resolve => setImmediate(resolve));
 }
 
-function openPage(sessionStorage, localStorage, firstCursor) {
+function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   const events = new Map();
   const badge = {
     hidden: true,
     textContent: '',
     title: '',
-    getAttribute(name) { return name === 'data-chat-user' ? '2' : null; }
+    getAttribute(name) { return name === 'data-chat-user' ? userId : null; }
   };
   const soundButton = {
     textContent: '',
@@ -35,7 +35,13 @@ function openPage(sessionStorage, localStorage, firstCursor) {
     addEventListener(name, cb) { events.set('sound:' + name, cb); },
     setAttribute(name, value) { this.attributes[name] = value; }
   };
-  const audio = { tones: 0, contexts: 0, gestures: 0 };
+  const tones = [1,2,3].map(number => ({
+    textContent: '', attributes: {},
+    getAttribute(name) { return name === 'data-chat-tone' ? String(number) : null; },
+    addEventListener(name, cb) { events.set('tone:' + number + ':' + name, cb); },
+    setAttribute(name, value) { this.attributes[name] = value; }
+  }));
+  const audio = { tones: 0, clips: 0, contexts: 0, gestures: 0, soundFetches: [] };
   let latest = firstCursor;
   let interval;
 
@@ -64,6 +70,10 @@ function openPage(sessionStorage, localStorage, firstCursor) {
         connect() {}
       };
     }
+    decodeAudioData(bytes) { return Promise.resolve({ tone: bytes.tone }); }
+    createBufferSource() {
+      return { buffer: null, connect() {}, start() { audio.clips += 1; } };
+    }
   }
   const document = {
     querySelector(selector) {
@@ -71,7 +81,7 @@ function openPage(sessionStorage, localStorage, firstCursor) {
         selector === '[data-chat-sound]' ? soundButton : null;
     },
     addEventListener(name, cb) { events.set(name, cb); },
-    querySelectorAll() { return []; },
+    querySelectorAll(selector) { return selector === '[data-chat-tone]' ? tones : []; },
     hidden: false
   };
   const window = {
@@ -82,7 +92,12 @@ function openPage(sessionStorage, localStorage, firstCursor) {
   const context = {
     document, window, localStorage, sessionStorage,
     FormData,
-    fetch() {
+    fetch(url) {
+      if(url.startsWith('/?chat_sound=')) {
+        const tone=Number(url.split('=')[1]);audio.soundFetches.push(tone);
+        const bytes=new ArrayBuffer(10);bytes.tone=tone;
+        return Promise.resolve({ok:true,arrayBuffer:()=>Promise.resolve(bytes)});
+      }
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({
@@ -97,7 +112,7 @@ function openPage(sessionStorage, localStorage, firstCursor) {
   };
   vm.runInNewContext(script, context, { timeout: 1000 });
   return {
-    audio, badge, soundButton,
+    audio, badge, soundButton, tones,
     get cursor() { return latest; },
     set cursor(value) { latest = value; },
     async poll() { interval(); await tick(); },
@@ -112,6 +127,12 @@ function openPage(sessionStorage, localStorage, firstCursor) {
       events.get('sound:click')();
       await tick();
       audio.gestures -= 1;
+    },
+    async choose(number) {
+      audio.gestures += 1;
+      events.get('tone:' + number + ':click')();
+      await tick();
+      audio.gestures -= 1;
     }
   };
 }
@@ -122,29 +143,57 @@ function openPage(sessionStorage, localStorage, firstCursor) {
   const page = openPage(session, local, 10);
   await tick();
   assert.equal(page.audio.tones, 0, 'Initial status is not a notification');
-  assert.equal(page.soundButton.textContent, 'Выключить звук', 'Sound defaults to on');
+  assert.equal(page.soundButton.textContent, 'Включить звук', 'Sound defaults to off');
 
   await page.interact();
   page.cursor = 11;
   await page.poll();
-  assert.equal(page.audio.tones, 2, 'Incoming message plays a distinct two-note chime');
-  assert.equal(page.audio.contexts, 1, 'One audio context is reused');
+  assert.equal(page.audio.tones, 0, 'Opt-in is required before incoming messages make sound');
 
   await page.toggle();
-  assert.equal(page.soundButton.textContent, 'Включить звук');
+  assert.equal(page.soundButton.textContent, 'Выключить звук');
+  assert.equal(local.getItem('adc-chat-sound-v2-2'), 'on', 'Opt-in persists per account');
+  assert.equal(page.audio.tones, 2, 'Opt-in previews standard two-note chime');
+  assert.equal(page.audio.contexts, 1, 'One audio context is reused');
   page.cursor = 12;
   await page.poll();
-  assert.equal(page.audio.tones, 2, 'Explicitly disabled sound remains silent');
-  await page.toggle();
-  assert.equal(page.audio.tones, 4, 'Enabling sound plays an audible test chime');
+  assert.equal(page.audio.tones, 4, 'Incoming message plays standard chime');
 
-  const nextPage = openPage(session, local, 12);
+  await page.choose(1);
+  assert.equal(page.tones[0].attributes['aria-pressed'], 'true');
+  assert.equal(page.audio.clips, 1, 'Choosing custom tone previews the owner-provided MP3');
+  page.cursor = 13;
+  await page.poll();
+  assert.equal(page.audio.clips, 2, 'Selected custom clip plays on a new message');
+  await page.choose(1);
+  assert.equal(page.tones[0].attributes['aria-pressed'], 'false');
+  assert.equal(page.audio.tones, 6, 'Pressing selected tone again restores standard preview');
+  await page.choose(3);
+  assert.equal(page.tones[2].attributes['aria-pressed'], 'true');
+  assert.deepEqual(page.audio.soundFetches, [1,3], 'Only selected MP3 files are downloaded');
+  assert.equal(local.getItem('adc-chat-tone-v1-2'), '3');
+
+  const nextPage = openPage(session, local, 13);
   await tick();
-  assert.equal(nextPage.audio.tones, 0, 'Reload does not replay an old message');
+  assert.equal(nextPage.soundButton.textContent, 'Выключить звук', 'Reload remembers opt-in');
+  assert.equal(nextPage.tones[2].attributes['aria-pressed'], 'true', 'Reload remembers selected tone');
+  assert.equal(nextPage.audio.clips, 0, 'Reload does not replay an old message');
   await nextPage.interact();
-  nextPage.cursor = 13;
+  nextPage.cursor = 14;
   await nextPage.poll();
-  assert.equal(nextPage.audio.tones, 2, 'Reply after navigation is announced');
-  assert.equal(session.getItem('adc-chat-last-other-2'), '13');
-  console.log('Chat sound and navigation cursor regression passed');
+  assert.equal(nextPage.audio.clips, 1, 'Custom tone plays after full navigation');
+  assert.equal(session.getItem('adc-chat-last-other-2'), '14');
+
+  const colleague = openPage(session, local, 14, '3');
+  await tick();
+  assert.equal(colleague.soundButton.textContent, 'Включить звук',
+    'A different account on the same browser is not opted in automatically');
+
+  await nextPage.toggle();
+  assert.equal(local.getItem('adc-chat-sound-v2-2'), 'off');
+  const mutedReload = openPage(session, local, 14);
+  await tick();
+  assert.equal(mutedReload.soundButton.textContent, 'Включить звук',
+    'Explicitly disabled sound remains disabled after reload');
+  console.log('Chat opt-in, custom tones, persistence and navigation regression passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

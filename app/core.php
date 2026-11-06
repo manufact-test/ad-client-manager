@@ -277,6 +277,18 @@ function adc_schema(PDO $db, bool $chatOnly=false): void {
             CONSTRAINT fk_chat_tag_message FOREIGN KEY(message_id) REFERENCES team_chat_messages(id) ON DELETE CASCADE,
             CONSTRAINT fk_chat_tag_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         )'
+        ,'CREATE TABLE IF NOT EXISTS team_chat_reactions (
+            message_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NOT NULL,
+            emoji VARCHAR(16) NOT NULL,
+            created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+            PRIMARY KEY(message_id,user_id),
+            INDEX idx_chat_reaction_emoji(message_id,emoji),
+            CONSTRAINT fk_chat_reaction_message FOREIGN KEY(message_id)
+                REFERENCES team_chat_messages(id) ON DELETE CASCADE,
+            CONSTRAINT fk_chat_reaction_user FOREIGN KEY(user_id)
+                REFERENCES users(id) ON DELETE CASCADE
+        )'
         ,'CREATE TABLE IF NOT EXISTS team_chat_pins (
             thread_key BIGINT UNSIGNED NOT NULL PRIMARY KEY,
             message_id BIGINT UNSIGNED NOT NULL,
