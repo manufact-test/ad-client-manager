@@ -155,6 +155,95 @@ function adc_chat_thread_unread(PDO $db,int $uid,int $thread):int {
     $s->execute([$uid,$thread,$thread,$uid]);
     return (int)$s->fetchColumn();
 }
+
+/** Each member may have one reaction per message; pressing it again removes it. */
+function adc_chat_reaction_choices():array {
+    return ['👍','❤️','😂','🤣','😮','😢','👏','💩'];
+}
+function adc_chat_reaction_summary(PDO $db,array $messageIds,int $uid):array {
+    $ids=array_values(array_unique(array_filter(array_map('intval',$messageIds),
+        static fn(int $id):bool=>$id>0)));
+    if(!$ids)return [];
+    $ids=array_slice($ids,0,200);
+    $placeholders=implode(',',array_fill(0,count($ids),'?'));
+    try {
+        $stmt=$db->prepare('SELECT message_id,emoji,COUNT(*) AS reaction_count,
+            MAX(CASE WHEN user_id=? THEN 1 ELSE 0 END) AS mine
+            FROM team_chat_reactions WHERE message_id IN ('.$placeholders.')
+            GROUP BY message_id,emoji ORDER BY MIN(created_at),emoji');
+        $stmt->execute(array_merge([$uid],$ids));
+        $result=[];
+        foreach($stmt as $row)$result[(int)$row['message_id']][]=[
+            'emoji'=>(string)$row['emoji'],
+            'count'=>(int)$row['reaction_count'],
+            'mine'=>(int)$row['mine']===1,
+        ];
+        return $result;
+    }catch(PDOException $e){
+        // Existing installations may briefly await the director's additive
+        // chat-only migration; their messages must remain readable meanwhile.
+        if((int)($e->errorInfo[1]??0)===1146)return [];
+        throw $e;
+    }
+}
+function adc_chat_reaction_chips(int $messageId,array $summary):string {
+    $out='';
+    foreach($summary as $r){
+        $emoji=(string)$r['emoji'];
+        if(!in_array($emoji,adc_chat_reaction_choices(),true))continue;
+        $count=max(0,(int)$r['count']);
+        $mine=($r['mine']??false)===true;
+        $out.='<button type="button" class="chat-reaction-chip'.($mine?' is-mine':'').'"'.
+            ' data-chat-react-emoji="'.adc_h($emoji).'" data-chat-react-message="'.$messageId.'"'.
+            ' aria-pressed="'.($mine?'true':'false').'" title="'.($mine?'Убрать реакцию':'Поставить реакцию').'">'.
+            adc_h($emoji).' <span>'.$count.'</span></button>';
+    }
+    return $out;
+}
+function adc_chat_toggle_reaction(PDO $db,array $user):array {
+    $message=(string)adc_chat_post('message_id');
+    $emoji=(string)adc_chat_post('emoji');
+    if(!ctype_digit($message)||(int)$message<1 ||
+        !in_array($emoji,adc_chat_reaction_choices(),true)){
+        throw new RuntimeException('Некорректная реакция.');
+    }
+    $messageId=(int)$message;$uid=(int)$user['id'];
+    $stmt=$db->prepare('SELECT id FROM team_chat_messages WHERE id=?');
+    $stmt->execute([$messageId]);
+    if(!$stmt->fetchColumn())throw new RuntimeException('Сообщение не найдено.');
+    $db->beginTransaction();
+    try {
+        $stmt=$db->prepare('SELECT emoji FROM team_chat_reactions
+            WHERE message_id=? AND user_id=? FOR UPDATE');
+        $stmt->execute([$messageId,$uid]);
+        $previous=$stmt->fetchColumn();
+        if($previous===$emoji){
+            $db->prepare('DELETE FROM team_chat_reactions WHERE message_id=? AND user_id=?')
+                ->execute([$messageId,$uid]);
+        }elseif($previous!==false){
+            $db->prepare('UPDATE team_chat_reactions SET emoji=?,created_at=UTC_TIMESTAMP(6)
+                WHERE message_id=? AND user_id=?')->execute([$emoji,$messageId,$uid]);
+        }else{
+            $db->prepare('INSERT INTO team_chat_reactions(message_id,user_id,emoji)
+                VALUES (?,?,?)')->execute([$messageId,$uid,$emoji]);
+        }
+        $db->commit();
+    }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
+    $summary=adc_chat_reaction_summary($db,[$messageId],$uid);
+    return ['ok'=>true,'message_id'=>$messageId,
+        'html'=>adc_chat_reaction_chips($messageId,$summary[$messageId]??[])];
+}
+/** Stream only the three owner-provided short notification sounds. */
+function adc_chat_sound_download(int $tone):never {
+    if($tone<1||$tone>3){http_response_code(404);exit;}
+    $path=__DIR__.'/chat_sounds/'.$tone.'.mp3';
+    if(!is_file($path)){http_response_code(404);exit;}
+    header('Content-Type: audio/mpeg');
+    header('Content-Length: '.filesize($path));
+    header('Cache-Control: private,max-age=604800');
+    header('X-Content-Type-Options: nosniff');
+    readfile($path);exit;
+}
 /** The focus view lets a pinned or replied-to message be revisited after pagination. */
 function adc_chat_rows(PDO $db,int $after=0,int $thread=0,int $uid=0,int $focus=0):array {
     $sql='SELECT m.*,u.display_name author,mu.display_name mention_name,c.name client_name,
@@ -203,7 +292,7 @@ function adc_chat_safe_text(string $body,?int $clientId=null):string {
     }
     return nl2br($html);
 }
-function adc_chat_item(array $m,int $uid,string $role='employee'):string {
+function adc_chat_item(array $m,int $uid,string $role='employee',array $reactions=[]):string {
     $mine=(int)$m['author_user_id']===$uid;
     $canDelete=$mine||$role==='director';
     $tagged=(int)($m['is_mentioned']??0)===1||(int)($m['mentioned_user_id']??0)===$uid;
@@ -266,16 +355,28 @@ function adc_chat_item(array $m,int $uid,string $role='employee'):string {
             $out.='<a class="chat-file" href="'.$url.'">📄 '.$name.' · Скачать PDF</a>';
         }
     }
-    $out.='<div class="chat-msg-tools">'.
+    $out.='<div class="chat-reactions" data-chat-reactions="'.$id.'" aria-label="Реакции">'.
+        adc_chat_reaction_chips($id,$reactions).'</div>'.
+        '<div class="chat-msg-tools">'.
         '<button type="button" class="chat-reply-btn chat-mini-action" title="Ответить на сообщение" '.
         'data-chat-reply="'.$id.'" data-reply-preview="'.
         adc_h((string)$m['author'].': '.$messagePreview).'">↩ Ответить</button>'.
+        '<button type="button" class="chat-react-toggle chat-mini-action" data-chat-react-toggle="'.$id.'" '.
+        'aria-controls="chat-react-picker-'.$id.'" aria-expanded="false" '.
+        'title="Выбрать реакцию">😊 Реакция</button>'.
         '<form method="post"><input type="hidden" name="csrf" value="'.adc_csrf().'">'.
         '<input type="hidden" name="action" value="chat_toggle_pin">'.
         '<input type="hidden" name="thread" value="'.$thread.'">'.
         '<input type="hidden" name="message_id" value="'.$id.'">'.
         '<button class="chat-pin-btn chat-mini-action" type="submit" title="Закрепить сообщение">📌 Закрепить</button>'.
-        '</form></div>';
+        '</form></div>'.
+        '<div class="chat-reaction-picker" id="chat-react-picker-'.$id.'" data-chat-react-picker hidden>';
+    foreach(adc_chat_reaction_choices() as $emoji){
+        $out.='<button type="button" data-chat-react-emoji="'.adc_h($emoji).'" '.
+            'data-chat-react-message="'.$id.'" title="Реакция '.adc_h($emoji).'" '.
+            'aria-label="Реакция '.adc_h($emoji).'">'.adc_h($emoji).'</button>';
+    }
+    $out.='</div>';
     return $out.'</article>';
 }
 
@@ -293,6 +394,7 @@ function adc_chat_html(PDO $db,array $user):string {
         if(!$probe->fetchColumn())$focus=0;
     }
     $rows=adc_chat_rows($db,0,$thread,$uid,$focus);
+    $reactions=adc_chat_reaction_summary($db,array_column($rows,'id'),$uid);
     $last=$rows?(int)$rows[count($rows)-1]['id']:0;
     $pin=adc_chat_pinned($db,$thread);
     $q=is_string($_GET['chat_q']??null)?trim((string)$_GET['chat_q']):'';
@@ -325,7 +427,14 @@ function adc_chat_html(PDO $db,array $user):string {
     } else $selectedName='Общий чат';
     $GLOBALS['adc_chat_read_stage']='render';
     $out='<section class="card"><div class="chat-top"><h1>Чат команды</h1>'.
-       '<button class="secondary" type="button" data-chat-sound>Выключить звук</button></div>'.
+       '<div class="chat-sound-controls" aria-label="Звуковые уведомления">'.
+       '<button class="secondary" type="button" data-chat-sound>Включить звук</button>'.
+       '<div class="chat-tone-options" role="group" aria-label="Выбрать звук уведомления">';
+    foreach([1,2,3] as $tone){
+        $out.='<button type="button" data-chat-tone="'.$tone.'" aria-pressed="false" '.
+            'title="Смешной звук '.$tone.'">'.$tone.'</button>';
+    }
+    $out.='</div></div></div>'.
        '<div><span data-chat-state role="status" class="muted">'.
        ($statusWarning?'Уведомления временно недоступны, переписка работает.':'').
        '</span></div>'.
@@ -385,7 +494,8 @@ function adc_chat_html(PDO $db,array $user):string {
     $out.='<div id="chat-feed" class="chat-feed" data-thread="'.$thread.
         '" data-last="'.$last.'" data-focused="'.($focus?'1':'0').
         '" role="log" aria-live="polite">';
-    foreach($rows as $m)$out.=adc_chat_item($m,$uid,(string)($user['role']??'employee'));
+    foreach($rows as $m)$out.=adc_chat_item($m,$uid,(string)($user['role']??'employee'),
+        $reactions[(int)$m['id']]??[]);
     if(!$rows)$out.='<p data-empty class="muted">Пока нет сообщений. Начните обсуждение.</p>';
     $sendError=$GLOBALS['adc_chat_send_error']??null;
     if (!is_array($sendError) ||
@@ -657,14 +767,23 @@ function adc_chat_poll(PDO $db,array $user):never {
     $after=($after===false||$after===null)?0:max(0,(int)$after);
     $thread=adc_chat_thread($db,$_GET['thread']??null);
     $payload=adc_chat_status($db,$uid);
-    $rows=($_GET['status']??'')==='1'?[]:adc_chat_rows($db,$after,$thread,$uid);
+    $statusOnly=($_GET['status']??'')==='1';
+    $rows=$statusOnly?[]:adc_chat_rows($db,$after,$thread,$uid);
     $visible=$db->prepare('SELECT id FROM team_chat_messages
         WHERE COALESCE(thread_client_id,0)=? ORDER BY id DESC LIMIT 120');
     $visible->execute([$thread]);
     $payload['visible_ids']=array_map('intval',$visible->fetchAll(PDO::FETCH_COLUMN));
+    $reactions=$statusOnly?[]:adc_chat_reaction_summary($db,
+        array_merge($payload['visible_ids'],array_column($rows,'id')),$uid);
+    $payload['reactions']=[];
+    foreach($payload['visible_ids'] as $messageId){
+        if(!$statusOnly)$payload['reactions'][(string)$messageId]=
+            adc_chat_reaction_chips($messageId,$reactions[$messageId]??[]);
+    }
     $payload['ok']=true;
     $payload['messages']=array_map(static fn(array $r):array=>
-        ['id'=>(int)$r['id'],'html'=>adc_chat_item($r,$uid,(string)($user['role']??'employee'))],$rows);
+        ['id'=>(int)$r['id'],'html'=>adc_chat_item($r,$uid,(string)($user['role']??'employee'),
+            $reactions[(int)$r['id']]??[])],$rows);
     header('Content-Type: application/json; charset=UTF-8');
     header('Cache-Control: no-store,private');
     echo json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_THROW_ON_ERROR);exit;
