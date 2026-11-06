@@ -188,6 +188,36 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   await tick();
   assert.equal(colleague.soundButton.textContent, 'Включить звук',
     'A different account on the same browser is not opted in automatically');
+  await colleague.choose(2);
+  assert.equal(colleague.soundButton.textContent, 'Выключить звук',
+    'Selecting a custom tone explicitly enables incoming notifications');
+  assert.equal(local.getItem('adc-chat-sound-v2-3'), 'on');
+  colleague.cursor = 15;
+  await colleague.poll();
+  assert.equal(colleague.audio.clips, 2,
+    'Staff receives the selected sound for an incoming message after preview');
+
+  const directorLocal = new Memory();
+  directorLocal.setItem('adc-chat-tone-v1-1', '2');
+  const directorSession = new Memory();
+  const director = openPage(directorSession, directorLocal, 30, '1');
+  await tick();
+  assert.equal(director.soundButton.textContent, 'Выключить звук',
+    'A director who selected a tone in the old version is migrated to sound ON');
+  assert.equal(directorLocal.getItem('adc-chat-sound-v2-1'), 'on');
+  await director.interact();
+  director.cursor = 31;
+  await director.poll();
+  assert.equal(director.audio.clips, 1,
+    'Director receives notification sound from an employee message');
+
+  const explicitlyMuted = new Memory();
+  explicitlyMuted.setItem('adc-chat-tone-v1-1', '2');
+  explicitlyMuted.setItem('adc-chat-sound-v2-1', 'off');
+  const mutedDirector = openPage(new Memory(), explicitlyMuted, 40, '1');
+  await tick();
+  assert.equal(mutedDirector.soundButton.textContent, 'Включить звук',
+    'Migration never overrides the directors explicit mute preference');
 
   await nextPage.toggle();
   assert.equal(local.getItem('adc-chat-sound-v2-2'), 'off');

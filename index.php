@@ -498,8 +498,15 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-msg-tools{display:none;justify-content:flex-start;gap:9px;align-items:center;flex-wrap:wrap;margin:6px 0 0}
         .chat-msg:is(:hover,:focus-within) .chat-msg-tools{display:flex}
         .chat-msg-tools form{display:inline-flex;margin:0}
-        .chat-reactions{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px}
+        .chat-reaction-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
+        .chat-reactions{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
         .chat-reactions:empty{display:none}
+        button.chat-react-toggle{display:inline-flex;align-items:center;justify-content:center;
+          padding:4px 8px;min-height:26px;border:1px solid #e0ddec;border-radius:999px;
+          background:#fff;color:#665c93;font-size:11px;font-weight:550;line-height:1.2;
+          box-shadow:none}
+        button.chat-react-toggle:hover,button.chat-react-toggle[aria-expanded=true]{
+          background:#f1edff;border-color:#a79ce2;color:#4032ae}
         .chat-reaction-chip{display:inline-flex;align-items:center;gap:5px;min-height:26px;
           padding:3px 8px;background:#fff;border:1px solid #d8d9e9;border-radius:999px;
           color:#37405e;font-size:13px;line-height:1.2;box-shadow:none}
@@ -765,12 +772,17 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var soundPreferenceKey="adc-chat-sound-v2-"+userKey;
     var soundToneKey="adc-chat-tone-v1-"+userKey;
     var soundBuffers={},soundLoads={};
-    // An employee explicitly enables notifications once. Keep the choice on
-    // this browser without automatically opting in old sessions.
+    // Each account starts muted until sound or a custom tone is selected.
+    // Remember that choice on this browser across navigation and restarts.
     try{
-      audible=localStorage.getItem(soundPreferenceKey)==="on";
+      var storedSound=localStorage.getItem(soundPreferenceKey);
       var savedTone=localStorage.getItem(soundToneKey);
       if(/^[1-3]$/.test(savedTone||""))selectedTone=Number(savedTone);
+      // In the previous version picking a tone only played a preview. Those
+      // users had opted into a tone but never got notifications. Repair only
+      // that ambiguous state; preserve any explicit "off" preference.
+      audible=storedSound==="on"||(storedSound===null&&selectedTone>0);
+      if(storedSound===null&&audible)localStorage.setItem(soundPreferenceKey,"on");
     }catch(e){}
     // Keep the cursor across full-page chat sends and navigation. A fresh page
     // must not silently swallow the first reply while establishing its baseline.
@@ -852,8 +864,10 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     }
     // Resume a single shared AudioContext *during* a user gesture. Creating a
     // new context from the background polling callback was muted by autoplay.
-    document.addEventListener("pointerdown",unlockAudio,{once:true});
-    document.addEventListener("keydown",unlockAudio,{once:true});
+    // Brave/Chrome can suspend audio again when a tab sits in the background.
+    // Every later gesture may safely resume the same context, not just the first.
+    document.addEventListener("pointerdown",unlockAudio);
+    document.addEventListener("keydown",unlockAudio);
     if(soundButton)soundButton.addEventListener("click",function(){
       audible=!audible;
       try{localStorage.setItem(soundPreferenceKey,audible?"on":"off");}catch(e){}
@@ -863,7 +877,13 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       button.addEventListener("click",function(){
         var tone=Number(button.getAttribute("data-chat-tone"));
         selectedTone=selectedTone===tone?0:tone;
-        try{localStorage.setItem(soundToneKey,String(selectedTone));}catch(e){}
+        // Choosing a tone is an explicit opt-in, not just a silent preview.
+        // Otherwise staff can hear this click yet hear nothing on new messages.
+        audible=true;
+        try{
+          localStorage.setItem(soundToneKey,String(selectedTone));
+          localStorage.setItem(soundPreferenceKey,"on");
+        }catch(e){}
         soundLabel();unlockAudio();beep(true);
       });
     });
