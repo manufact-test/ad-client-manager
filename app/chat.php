@@ -355,14 +355,10 @@ function adc_chat_item(array $m,int $uid,string $role='employee',array $reaction
             $out.='<a class="chat-file" href="'.$url.'">📄 '.$name.' · Скачать PDF</a>';
         }
     }
-    // Keep the reaction trigger visible for mouse, touch and keyboard users.
-    // The live poll only replaces the chips, not the trigger beside them.
-    $out.='<div class="chat-reaction-row">'.
-        '<div class="chat-reactions" data-chat-reactions="'.$id.'" aria-label="Реакции">'.
+    // Existing reactions are visible; the picker itself is a compact hover action.
+    // Empty reaction containers take no space until somebody actually reacts.
+    $out.='<div class="chat-reactions" data-chat-reactions="'.$id.'" aria-label="Реакции">'.
         adc_chat_reaction_chips($id,$reactions).'</div>'.
-        '<button type="button" class="chat-react-toggle" data-chat-react-toggle="'.$id.'" '.
-        'aria-controls="chat-react-picker-'.$id.'" aria-expanded="false" '.
-        'title="Выбрать реакцию">😊 Реакция</button></div>'.
         '<div class="chat-msg-tools">'.
         '<button type="button" class="chat-reply-btn chat-mini-action" title="Ответить на сообщение" '.
         'data-chat-reply="'.$id.'" data-reply-preview="'.
@@ -371,8 +367,19 @@ function adc_chat_item(array $m,int $uid,string $role='employee',array $reaction
         '<input type="hidden" name="action" value="chat_toggle_pin">'.
         '<input type="hidden" name="thread" value="'.$thread.'">'.
         '<input type="hidden" name="message_id" value="'.$id.'">'.
-        '<button class="chat-pin-btn chat-mini-action" type="submit" title="Закрепить сообщение">📌 Закрепить</button>'.
-        '</form></div>'.
+        '<button class="chat-pin-btn chat-mini-action chat-icon-action" type="submit" '.
+        'title="Закрепить сообщение" aria-label="Закрепить сообщение">'.
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '.
+        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'.
+        '<path d="m16 3 5 5-4 1-4 4-1 5-6-6 5-1 4-4zM2 22l8-8"/></svg></button>'.
+        '</form>'.
+        '<button type="button" class="chat-react-toggle chat-mini-action chat-icon-action" '.
+        'data-chat-react-toggle="'.$id.'" aria-controls="chat-react-picker-'.$id.'" '.
+        'aria-expanded="false" title="Поставить реакцию" aria-label="Поставить реакцию">'.
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '.
+        'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'.
+        '<circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/>'.
+        '<path d="M9 9h.01M15 9h.01" stroke-width="2.6"/></svg></button></div>'.
         '<div class="chat-reaction-picker" id="chat-react-picker-'.$id.'" data-chat-react-picker hidden>';
     foreach(adc_chat_reaction_choices() as $emoji){
         $out.='<button type="button" data-chat-react-emoji="'.adc_h($emoji).'" '.

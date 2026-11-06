@@ -127,11 +127,15 @@ $ok(str_contains($replyHtml,'chat-replied')&&
     'Reply context links back to exact message');
 $ok(str_contains($replyHtml,'Ответить')&&
     str_contains($replyHtml,'chat_toggle_pin')&&
-    str_contains($replyHtml,'class="chat-reaction-row"')&&
+    str_contains($replyHtml,'class="chat-msg-tools"')&&
+    str_contains($replyHtml,'class="chat-reactions"')&&
     str_contains($replyHtml,'data-chat-react-toggle')&&
     str_contains($replyHtml,'data-chat-react-picker')&&
-    strpos($replyHtml,'data-chat-react-toggle')<strpos($replyHtml,'class="chat-msg-tools"'),
-    'Reply and pin actions remain contextual while emoji reaction is always visible');
+    strpos($replyHtml,'data-chat-react-toggle')>strpos($replyHtml,'class="chat-msg-tools"')&&
+    str_contains($replyHtml,'class="chat-pin-btn chat-mini-action chat-icon-action"')&&
+    !str_contains($replyHtml,'😊 Реакция')&&
+    !str_contains($replyHtml,'📌 Закрепить'),
+    'Reply remains a label and pin/reaction are icon-only hover actions');
 $_POST=['thread'=>(string)$client,'message_id'=>(string)$reply['id']];
 adc_chat_toggle_pin($db,['id'=>$a['id']]);
 $clientPin=adc_chat_pinned($db,$client);

@@ -484,10 +484,13 @@ try:
         require(status==200 and sum(retryText in item for item in articles)==1,
                 "Only one copy of replayed employee message visible to "+reader)
         target=next(item for item in articles if retryText in item)
-        require('class="chat-reaction-row"' in target and
-                re.search(r'data-chat-react-toggle="\d+".*?</div><div class="chat-msg-tools"',
-                          target,re.S),
-                "Emoji picker remains visible outside hover-only tools for "+reader)
+        require('class="chat-reaction-row"' not in target and
+                re.search(r'<div class="chat-msg-tools">.*?data-chat-react-toggle="\d+"',
+                          target,re.S) and
+                'class="chat-pin-btn chat-mini-action chat-icon-action"' in target and
+                'chat-reaction-chip' not in target and
+                '😊 Реакция' not in target and '📌 Закрепить' not in target,
+                "Unreacted messages have only compact contextual pin/reaction icons for "+reader)
         if reader=="director":
             messageid=re.search(r'data-mid="(\d+)"',target).group(1)
     for role,token,emoji in (("director",director,"👍"),("employee",employee,"👍")):

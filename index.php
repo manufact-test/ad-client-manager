@@ -493,20 +493,13 @@ function adc_page(string $title, string $body, ?array $user = null): never {
             padding:7px 10px;line-height:1.3;white-space:nowrap}
         @media(max-width:650px){.chat-pinned{flex-wrap:wrap}
           .chat-pinned-actions{width:100%}}
-        /* Reply and pin remain at the bottom on hover. The ellipsis is absolute
+        /* Reply, pin and reaction appear together on hover. The ellipsis is absolute
            and does not reserve empty width or height in the message bubble. */
-        .chat-msg-tools{display:none;justify-content:flex-start;gap:9px;align-items:center;flex-wrap:wrap;margin:6px 0 0}
+        .chat-msg-tools{display:none;justify-content:flex-start;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0 0}
         .chat-msg:is(:hover,:focus-within) .chat-msg-tools{display:flex}
         .chat-msg-tools form{display:inline-flex;margin:0}
-        .chat-reaction-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
-        .chat-reactions{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+        .chat-reactions{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:6px}
         .chat-reactions:empty{display:none}
-        button.chat-react-toggle{display:inline-flex;align-items:center;justify-content:center;
-          padding:4px 8px;min-height:26px;border:1px solid #e0ddec;border-radius:999px;
-          background:#fff;color:#665c93;font-size:11px;font-weight:550;line-height:1.2;
-          box-shadow:none}
-        button.chat-react-toggle:hover,button.chat-react-toggle[aria-expanded=true]{
-          background:#f1edff;border-color:#a79ce2;color:#4032ae}
         .chat-reaction-chip{display:inline-flex;align-items:center;gap:5px;min-height:26px;
           padding:3px 8px;background:#fff;border:1px solid #d8d9e9;border-radius:999px;
           color:#37405e;font-size:13px;line-height:1.2;box-shadow:none}
@@ -526,6 +519,12 @@ function adc_page(string $title, string $body, ?array $user = null): never {
             background:transparent;border:0;color:#625d91;border-radius:3px;box-shadow:none}
         button.chat-mini-action:hover{background:transparent;color:var(--accent-dark);text-decoration:underline}
         button.chat-mini-action:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+        button.chat-icon-action{display:inline-flex;align-items:center;justify-content:center;
+          width:26px;height:26px;min-width:26px;padding:4px;border:1px solid transparent;
+          border-radius:6px;line-height:1;color:#625d91}
+        button.chat-icon-action svg{width:17px;height:17px;display:block;flex:none}
+        button.chat-icon-action:hover,button.chat-icon-action[aria-expanded=true]{
+          background:#f0edff;border-color:#c8c0ec;color:var(--accent-dark);text-decoration:none}
         @media(hover:none),(pointer:coarse){.chat-message-menu{opacity:1;pointer-events:auto}.chat-msg-tools{display:flex}}
         .account .logout-btn{display:inline-flex;align-items:center;justify-content:center;
             background:#fff;border:1px solid #c5c9dd;border-radius:8px;color:var(--accent-dark);
