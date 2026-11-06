@@ -89,6 +89,10 @@ $privateRoom=adc_chat_rows($db,0,$client,$a['id']);$reply=end($privateRoom);
 $ok((int)$reply['thread_client_id']===$client,'Client conversation persists separately');
 $ok(!array_filter($general,static fn($x)=>(int)$x['id']===(int)$reply['id']),
     'Client messages cannot leak into general room query');
+$directorNotice=adc_chat_status($db,$a['id']);
+$ok((int)$directorNotice['newest_other_id']===(int)$reply['id']&&
+    (int)$directorNotice['unread']>=1,
+    'Director receives the same incoming-message notification cursor as employees');
 $ok(adc_chat_thread_unread($db,$a['id'],$client)===1,'Client room unread count');
 $ok(adc_chat_thread_unread($db,$a['id'],0)===0,'Unrelated room stays read');
 adc_chat_read($db,$a['id'],(int)$reply['id'],0);
@@ -123,9 +127,11 @@ $ok(str_contains($replyHtml,'chat-replied')&&
     'Reply context links back to exact message');
 $ok(str_contains($replyHtml,'Ответить')&&
     str_contains($replyHtml,'chat_toggle_pin')&&
+    str_contains($replyHtml,'class="chat-reaction-row"')&&
     str_contains($replyHtml,'data-chat-react-toggle')&&
-    str_contains($replyHtml,'data-chat-react-picker'),
-    'Reply, pin and emoji reaction actions are rendered');
+    str_contains($replyHtml,'data-chat-react-picker')&&
+    strpos($replyHtml,'data-chat-react-toggle')<strpos($replyHtml,'class="chat-msg-tools"'),
+    'Reply and pin actions remain contextual while emoji reaction is always visible');
 $_POST=['thread'=>(string)$client,'message_id'=>(string)$reply['id']];
 adc_chat_toggle_pin($db,['id'=>$a['id']]);
 $clientPin=adc_chat_pinned($db,$client);
@@ -166,8 +172,9 @@ $ok(str_contains($page,'Включить звук')&&
     'Chat sound starts with opt-in and three tone selectors');
 $_GET=['view'=>'chat','thread'=>(string)$client];
 $page=adc_chat_html($db,['id'=>$b['id'],'role'=>'employee']);
-$ok(str_contains($page,'chat-feed') && str_contains($page,$clientName),
-    'Employee can render a client conversation without HTTP 500');
+$ok(str_contains($page,'chat-feed') && str_contains($page,$clientName)&&
+    str_contains($page,'data-chat-react-toggle'),
+    'Employee can render a client conversation with the same emoji picker');
 $ok(str_contains($page,'chat-pinned')&&str_contains($page,'Закреплено') &&
     str_contains($page,'data-reply-id'),
     'Pinned client banner and reply composer rendered');

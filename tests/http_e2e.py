@@ -483,8 +483,12 @@ try:
         articles=re.findall(r'<article\b[^>]*>.*?</article>',html(chatPage),re.S)
         require(status==200 and sum(retryText in item for item in articles)==1,
                 "Only one copy of replayed employee message visible to "+reader)
+        target=next(item for item in articles if retryText in item)
+        require('class="chat-reaction-row"' in target and
+                re.search(r'data-chat-react-toggle="\d+".*?</div><div class="chat-msg-tools"',
+                          target,re.S),
+                "Emoji picker remains visible outside hover-only tools for "+reader)
         if reader=="director":
-            target=next(item for item in articles if retryText in item)
             messageid=re.search(r'data-mid="(\d+)"',target).group(1)
     for role,token,emoji in (("director",director,"👍"),("employee",employee,"👍")):
         status,_,raw=post(role,token,"chat_react",{
