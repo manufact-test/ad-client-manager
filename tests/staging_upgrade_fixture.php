@@ -78,6 +78,7 @@ if ($mode === 'seed') {
     $db->exec('DROP TABLE IF EXISTS team_chat_attachments');
     $db->exec('DROP TABLE IF EXISTS team_chat_thread_reads');
     $db->exec('DROP TABLE IF EXISTS team_chat_mentions');
+    $db->exec('DROP TABLE IF EXISTS team_chat_reactions');
     $db->exec('DROP TABLE IF EXISTS team_chat_reads');
     $db->exec('DROP TABLE IF EXISTS team_chat_messages');
     // Simulate the previous deployed schema: no client context or monthly-price snapshots.
@@ -111,6 +112,8 @@ foreach ([
 $contextCol=$db->query("SHOW COLUMNS FROM clients LIKE 'client_context_text'")->fetch();
 if (!$contextCol || strtolower((string)$contextCol['Type'])!=='varchar(500)' ||
     $contextCol['Null']!=='YES') throw new RuntimeException('Client context migration failed');
+$reactionTable=$db->query("SHOW TABLES LIKE 'team_chat_reactions'")->fetchColumn();
+if(!$reactionTable)throw new RuntimeException('Chat reactions table was not restored by the safe migration');
 $priceCol=$db->query("SHOW COLUMNS FROM engagement_terms LIKE 'quoted_amount'")->fetch();
 if (!$priceCol || strtolower((string)$priceCol['Type'])!=='decimal(16,2)' ||
     $priceCol['Null']!=='YES') throw new RuntimeException('Monthly contract price migration failed');
