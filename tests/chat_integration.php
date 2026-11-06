@@ -55,6 +55,33 @@ $after=adc_chat_status($db,$b['id']);
 $ok($after['unread']===0&&$after['mentions']===0,'Reading general chat clears only general unread');
 $ok(adc_chat_status($db,$c['id'])['mentions']>=1,
     'Other tagged employee retains an independent notification');
+$ok(count(adc_chat_reaction_choices())===8,'Eight predefined emoji reactions available');
+$_POST=['message_id'=>(string)$m['id'],'emoji'=>'👍'];
+$reaction=adc_chat_toggle_reaction($db,['id'=>$b['id'],'role'=>'employee']);
+$ok($reaction['ok']===true&&str_contains($reaction['html'],'👍')&&
+    str_contains($reaction['html'],'is-mine'),
+    'Employee can react without creating a new message');
+adc_chat_toggle_reaction($db,['id'=>$c['id'],'role'=>'employee']);
+$summary=adc_chat_reaction_summary($db,[(int)$m['id']],$b['id']);
+$ok($summary[(int)$m['id']][0]['count']===2,
+    'Two employees see the shared reaction count');
+$_POST['emoji']='😂';
+adc_chat_toggle_reaction($db,['id'=>$c['id'],'role'=>'employee']);
+$summary=adc_chat_reaction_summary($db,[(int)$m['id']],$c['id']);
+$ok(count($summary[(int)$m['id']])===2 &&
+    array_sum(array_column($summary[(int)$m['id']],'count'))===2,
+    'Changing emoji replaces the previous reaction for that member');
+$_POST['emoji']='👍';
+adc_chat_toggle_reaction($db,['id'=>$b['id'],'role'=>'employee']);
+$summary=adc_chat_reaction_summary($db,[(int)$m['id']],$b['id']);
+$ok(count($summary[(int)$m['id']])===1&&$summary[(int)$m['id']][0]['emoji']==='😂'&&
+    $summary[(int)$m['id']][0]['mine']===false,
+    'Clicking the selected emoji again removes only the current member reaction');
+$_POST['emoji']='<script>';
+$rejected=false;
+try{adc_chat_toggle_reaction($db,['id'=>$b['id']]);}catch(RuntimeException $e){$rejected=true;}
+$ok($rejected,'Unlisted emoji are rejected without changing existing reactions');
+$_POST=[];
 $_POST=['message'=>'Проверь, пожалуйста, платёж '.$alice,
     'thread'=>(string)$client];
 adc_chat_send($db,['id'=>$b['id'],'role'=>'employee']);
@@ -95,7 +122,10 @@ $ok(str_contains($replyHtml,'chat-replied')&&
     str_contains($replyHtml,'focus='.(int)$m['id']),
     'Reply context links back to exact message');
 $ok(str_contains($replyHtml,'Ответить')&&
-    str_contains($replyHtml,'chat_toggle_pin'),'Context actions rendered');
+    str_contains($replyHtml,'chat_toggle_pin')&&
+    str_contains($replyHtml,'data-chat-react-toggle')&&
+    str_contains($replyHtml,'data-chat-react-picker'),
+    'Reply, pin and emoji reaction actions are rendered');
 $_POST=['thread'=>(string)$client,'message_id'=>(string)$reply['id']];
 adc_chat_toggle_pin($db,['id'=>$a['id']]);
 $clientPin=adc_chat_pinned($db,$client);
@@ -129,6 +159,11 @@ $_GET=['view'=>'chat'];
 $page=adc_chat_html($db,['id'=>$a['id'],'role'=>'director']);
 $ok(str_contains($page,'Чат команды') && str_contains($page,'Общий чат'),
     'Director can render the complete general chat without HTTP 500');
+$ok(str_contains($page,'Включить звук')&&
+    str_contains($page,'data-chat-tone="1"')&&
+    str_contains($page,'data-chat-tone="2"')&&
+    str_contains($page,'data-chat-tone="3"'),
+    'Chat sound starts with opt-in and three tone selectors');
 $_GET=['view'=>'chat','thread'=>(string)$client];
 $page=adc_chat_html($db,['id'=>$b['id'],'role'=>'employee']);
 $ok(str_contains($page,'chat-feed') && str_contains($page,$clientName),
@@ -226,6 +261,10 @@ $references=$db->prepare('SELECT COUNT(*) FROM team_chat_messages WHERE reply_to
 $references->execute([(int)$m['id']]);
 $ok($deleted===1&&$exists->fetchColumn()===false&&(int)$references->fetchColumn()===0,
     'Director deletion succeeds and removes dangling reply references');
+$reactionsLeft=$db->prepare('SELECT COUNT(*) FROM team_chat_reactions WHERE message_id=?');
+$reactionsLeft->execute([(int)$m['id']]);
+$ok((int)$reactionsLeft->fetchColumn()===0,
+    'Deleting a message cascades its reactions without touching other messages');
 
 unset($_GET['thread']);
-echo "Chat integration PASS: mentions, safe links, isolated rooms, pins/replies, authorized and bulk deletion\n";
+echo "Chat integration PASS: mentions, reactions, safe links, rooms, pins/replies, authorized deletion\n";

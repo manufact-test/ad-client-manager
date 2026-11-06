@@ -441,10 +441,21 @@ try:
         require(status==200 and "Чат команды" in html(chatPage) and
                 "Общий чат" in html(chatPage),
                 "Authenticated chat page loads for "+role)
+        require('data-chat-tone="1"' in html(chatPage) and
+                'data-chat-tone="2"' in html(chatPage) and
+                'data-chat-tone="3"' in html(chatPage) and
+                "Включить звук" in html(chatPage),
+                "Opt-in audio and three tone selectors available for "+role)
         status,_,roomPage=request(role,"/?view=chat&thread="+str(real))
         require(status==200 and "chat-feed" in html(roomPage) and
                 "CI real ledger" in html(roomPage),
                 "Client-specific chat HTTP page loads for "+role)
+    for tone in (1,2,3):
+        status,headers,clip=request("employee","/?chat_sound="+str(tone))
+        require(status==200 and "audio/mpeg" in headers.lower() and len(clip)>1000,
+                "Authenticated staff can stream custom sound "+str(tone))
+    status,_,_=request("visitor","/?chat_sound=1")
+    require(status==200,"Unauthenticated sound route redirects to the login view")
     # If staff posting fails, the error stays near the composer rather than
     # being lost above the chat, and their unsent draft is preserved safely.
     draft="CI employee unsent reply "+("x"*2001)
@@ -472,6 +483,22 @@ try:
         articles=re.findall(r'<article\b[^>]*>.*?</article>',html(chatPage),re.S)
         require(status==200 and sum(retryText in item for item in articles)==1,
                 "Only one copy of replayed employee message visible to "+reader)
+        if reader=="director":
+            target=next(item for item in articles if retryText in item)
+            messageid=re.search(r'data-mid="(\d+)"',target).group(1)
+    for role,token,emoji in (("director",director,"👍"),("employee",employee,"👍")):
+        status,_,raw=post(role,token,"chat_react",{
+            "message_id":messageid,"emoji":emoji})
+        require(status==200 and '"ok":true' in html(raw) and emoji in html(raw),
+                "Reaction is saved with CSRF for "+role)
+    status,_,chatPage=request("director","/?view=chat&thread="+str(real))
+    require('class="chat-reaction-chip is-mine"' in html(chatPage) and
+            '👍 <span>2</span>' in html(chatPage),
+            "Both accounts share reaction counts on the existing message")
+    status,_,raw=post("employee",employee,"chat_react",{
+        "message_id":messageid,"emoji":"👍"})
+    require(status==200 and '"ok":true' in html(raw),
+            "A repeated emoji click removes the employee reaction")
     # Reply to a specific chat message, pin it and follow the pinned link.
     status,_,initial=request("director","/?view=chat&thread="+str(real))
     require(status==200 and 'data-chat-compose' in html(initial),

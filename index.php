@@ -64,7 +64,8 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         header{padding:0 18px;display:block}
         .header-inner{max-width:948px;margin:auto;min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:14px}
         .top-nav{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:14px}
-        .top-nav a{padding:11px 13px;border-radius:9px;color:#30395a;text-decoration:none;white-space:nowrap}
+        .top-nav a{display:inline-flex;align-items:center;justify-content:center;gap:7px;
+          padding:11px 13px;border-radius:9px;color:#30395a;text-decoration:none;white-space:nowrap}
         .top-nav a.active{color:var(--accent-dark);background:var(--accent-soft);font-weight:750}
         .top-nav a:hover{background:#f3f1ff}
         .account{display:flex;align-items:center;gap:14px;font-size:12px;color:#596680;white-space:nowrap}
@@ -346,8 +347,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           .client-context-edit-panel{width:min(360px,calc(100vw - 48px));max-width:calc(100vw - 48px);padding:16px}
         }
 
-        .chat-badge{display:inline-flex;min-width:18px;height:18px;justify-content:center;align-items:center;
-          background:#cf3959;color:#fff;border-radius:20px;font-size:11px;padding:0 5px}
+        .chat-badge{display:inline-flex;flex:0 0 auto;min-width:19px;height:19px;
+          justify-content:center;align-items:center;box-sizing:border-box;
+          border:1.5px solid #d43b52;background:transparent;color:#c92e48;
+          border-radius:999px;font-size:11px;font-weight:750;line-height:1;
+          padding:0 5px;vertical-align:middle}
         .chat-badge[hidden]{display:none}
         .chat-feed{min-height:230px;max-height:480px;overflow-y:auto;margin:16px 0;border:1px solid #e4e6ed;
           background:#f8f9fc;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:11px}
@@ -406,8 +410,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           color:#28345a;text-decoration:none;font-size:13px;min-width:0}
         .chat-room:hover,.chat-room.selected{background:#ebe8ff;color:#3829a1}
         .chat-room-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
-        .chat-room-count{margin-left:auto;padding:1px 6px;border-radius:15px;background:#5547ba;
-          color:white;font-weight:700;font-size:11px;flex-shrink:0}
+        .chat-room-count{display:inline-flex;align-items:center;justify-content:center;
+          margin-left:auto;min-width:19px;height:19px;box-sizing:border-box;
+          padding:0 5px;border-radius:999px;border:1.5px solid #d43b52;
+          background:transparent;color:#c92e48;font-weight:750;font-size:11px;line-height:1;
+          flex-shrink:0}
         .chat-search{margin:12px 0 5px}.chat-search label{display:block;margin-bottom:5px}
         .chat-search input{font-size:13px}
         .chat-heading{display:flex;align-items:baseline;gap:10px;justify-content:space-between;flex-wrap:wrap}
@@ -449,7 +456,14 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         @media(max-width:520px){.customer-profile .profile-facts{grid-template-columns:1fr 1fr}}
         .chat-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
         .chat-top h1{margin:0}
-        .chat-top [data-chat-sound]{margin-left:auto}
+        .chat-sound-controls{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;
+          gap:9px;flex-wrap:wrap}
+        .chat-tone-options{display:flex;align-items:center;gap:5px}
+        .chat-tone-options button{display:inline-flex;align-items:center;justify-content:center;
+          min-width:33px;height:33px;padding:0 6px;border:1px solid #bfc4db;
+          background:#fff;border-radius:8px;color:#433ca5;font-size:12px;font-weight:700;box-shadow:none}
+        .chat-tone-options button[aria-pressed=true]{background:#4d43c2;border-color:#4d43c2;color:#fff}
+        @media(max-width:560px){.chat-sound-controls{width:100%;justify-content:flex-start;margin-left:0}}
         .chat-attach{position:relative;display:inline-flex;align-items:center;gap:10px;
             max-width:100%;cursor:pointer;margin:8px 0 13px;font-size:13px;color:#525d77;font-weight:500}
         .chat-attach input{position:absolute;left:0;top:0;width:1px;height:1px;
@@ -484,6 +498,22 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-msg-tools{display:none;justify-content:flex-start;gap:9px;align-items:center;flex-wrap:wrap;margin:6px 0 0}
         .chat-msg:is(:hover,:focus-within) .chat-msg-tools{display:flex}
         .chat-msg-tools form{display:inline-flex;margin:0}
+        .chat-reactions{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px}
+        .chat-reactions:empty{display:none}
+        .chat-reaction-chip{display:inline-flex;align-items:center;gap:5px;min-height:26px;
+          padding:3px 8px;background:#fff;border:1px solid #d8d9e9;border-radius:999px;
+          color:#37405e;font-size:13px;line-height:1.2;box-shadow:none}
+        .chat-reaction-chip.is-mine{background:#e8e4ff;border-color:#8478da;color:#33259d}
+        .chat-reaction-chip span{font-size:11px;font-weight:700}
+        .chat-reaction-picker{display:flex;align-items:center;gap:5px;flex-wrap:wrap;
+          padding:7px;margin-top:8px;border:1px solid #ded9f0;border-radius:10px;background:#faf9ff}
+        .chat-reaction-picker[hidden]{display:none!important}
+        .chat-reaction-picker button{display:inline-flex;align-items:center;justify-content:center;
+          width:35px;height:34px;min-width:35px;padding:0;background:#fff;
+          border:1px solid #e6e2f2;border-radius:8px;font-size:19px;box-shadow:none}
+        .chat-reaction-picker button:hover,.chat-reaction-picker button:focus-visible{
+          background:#f0ebff;border-color:#897edc}
+        .chat-feed.is-selecting .chat-reaction-picker{display:none!important}
         .chat-msg:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
         button.chat-mini-action{font-family:inherit;font-size:11px;font-weight:500;line-height:1.3;padding:4px 1px;
             background:transparent;border:0;color:#625d91;border-radius:3px;box-shadow:none}
@@ -729,10 +759,19 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         if(send){send.disabled=false;send.textContent="Отправить сообщение";}
       });
     }
-    var audible=true,activated=false,lastOther=null,busy=false,soundContext=null;
-    var soundCursorKey="adc-chat-last-other-"+badge.getAttribute("data-chat-user");
-    // Sound is ON unless this browser explicitly disabled it.
-    try{audible=localStorage.getItem("adc-chat-sound")!=="off";}catch(e){}
+    var audible=false,selectedTone=0,activated=false,lastOther=null,busy=false,soundContext=null;
+    var userKey=badge.getAttribute("data-chat-user")||"0";
+    var soundCursorKey="adc-chat-last-other-"+userKey;
+    var soundPreferenceKey="adc-chat-sound-v2-"+userKey;
+    var soundToneKey="adc-chat-tone-v1-"+userKey;
+    var soundBuffers={},soundLoads={};
+    // An employee explicitly enables notifications once. Keep the choice on
+    // this browser without automatically opting in old sessions.
+    try{
+      audible=localStorage.getItem(soundPreferenceKey)==="on";
+      var savedTone=localStorage.getItem(soundToneKey);
+      if(/^[1-3]$/.test(savedTone||""))selectedTone=Number(savedTone);
+    }catch(e){}
     // Keep the cursor across full-page chat sends and navigation. A fresh page
     // must not silently swallow the first reply while establishing its baseline.
     try{
@@ -741,7 +780,6 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       if(previous!==null&&/^\d+$/.test(previous))lastOther=Number(previous);
     }catch(e){}
     function audioChannel(){
-      if(!audible)return null;
       try{
         var Constructor=window.AudioContext||window.webkitAudioContext;
         if(!Constructor)return null;
@@ -761,25 +799,56 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         osc.start(at);osc.stop(at+note[2]+0.01);
       });
     }
-    function beep(){
-      if(!audible||!activated)return;
+    function loadTone(ctx,tone){
+      if(soundBuffers[tone])return Promise.resolve(soundBuffers[tone]);
+      if(!soundLoads[tone]){
+        soundLoads[tone]=fetch("/?chat_sound="+tone,{credentials:"same-origin",cache:"force-cache"})
+          .then(function(r){if(!r.ok)throw Error("Sound file unavailable");return r.arrayBuffer();})
+          .then(function(bytes){return ctx.decodeAudioData(bytes);})
+          .then(function(buffer){soundBuffers[tone]=buffer;return buffer;})
+          .catch(function(error){delete soundLoads[tone];throw error;});
+      }
+      return soundLoads[tone];
+    }
+    function playTone(ctx,preview){
+      var tone=selectedTone;
+      if(!tone){chime(ctx);return;}
+      loadTone(ctx,tone).then(function(buffer){
+        if(tone!==selectedTone||ctx.state!=="running"||(!preview&&!audible))return;
+        var source=ctx.createBufferSource();
+        source.buffer=buffer;source.connect(ctx.destination);source.start();
+      }).catch(function(){if(ctx.state==="running"&&(preview||audible))chime(ctx);});
+    }
+    function beep(preview){
+      if(!preview&&(!audible||!activated))return;
       var ctx=audioChannel();if(!ctx)return;
-      if(ctx.state==="running"){chime(ctx);return;}
+      if(ctx.state==="running"){playTone(ctx,!!preview);return;}
       // Some browsers suspend audio after navigation or a background pause.
-      try{ctx.resume().then(function(){if(audible&&ctx.state==="running")chime(ctx);}).catch(function(){});}catch(e){}
+      try{ctx.resume().then(function(){
+        if((preview||audible)&&ctx.state==="running")playTone(ctx,!!preview);
+      }).catch(function(){});}catch(e){}
     }
     function unlockAudio(){
       activated=true;
       try{sessionStorage.setItem("adc-chat-activated","1");}catch(e){}
+      if(!audible)return;
       var ctx=audioChannel();
       if(ctx&&ctx.state!=="running"){
         try{ctx.resume().catch(function(){});}catch(e){}
       }
     }
     function soundLabel(){
-      if(!soundButton)return;
-      soundButton.textContent=audible?"Выключить звук":"Включить звук";
-      soundButton.setAttribute("aria-pressed",String(audible));
+      if(soundButton){
+        soundButton.textContent=audible?"Выключить звук":"Включить звук";
+        soundButton.setAttribute("aria-pressed",String(audible));
+      }
+      document.querySelectorAll("[data-chat-tone]").forEach(function(button){
+        var tone=Number(button.getAttribute("data-chat-tone"));
+        var selected=tone===selectedTone;
+        button.textContent=selected?"✓ "+tone:String(tone);
+        button.setAttribute("aria-pressed",String(selected));
+        button.title=selected?"Отменить выбор, вернуть стандартный звук":"Выбрать смешной звук "+tone;
+      });
     }
     // Resume a single shared AudioContext *during* a user gesture. Creating a
     // new context from the background polling callback was muted by autoplay.
@@ -787,8 +856,16 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     document.addEventListener("keydown",unlockAudio,{once:true});
     if(soundButton)soundButton.addEventListener("click",function(){
       audible=!audible;
-      try{localStorage.setItem("adc-chat-sound",audible?"on":"off");}catch(e){}
-      soundLabel();if(audible){unlockAudio();beep();}
+      try{localStorage.setItem(soundPreferenceKey,audible?"on":"off");}catch(e){}
+      soundLabel();if(audible){unlockAudio();beep(true);}
+    });
+    document.querySelectorAll("[data-chat-tone]").forEach(function(button){
+      button.addEventListener("click",function(){
+        var tone=Number(button.getAttribute("data-chat-tone"));
+        selectedTone=selectedTone===tone?0:tone;
+        try{localStorage.setItem(soundToneKey,String(selectedTone));}catch(e){}
+        soundLabel();unlockAudio();beep(true);
+      });
     });
     soundLabel();
     function markRead(id){
@@ -813,6 +890,63 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         }else if(span)span.remove();
       });
     }
+    var reactionMarkup=Object.create(null);
+    function updateReactions(summary){
+      if(!feed||!summary)return;
+      Object.keys(summary).forEach(function(id){
+        var container=feed.querySelector("[data-chat-reactions=\""+id+"\"]");
+        if(!container)return;
+        var markup=String(summary[id]||"");
+        if(reactionMarkup[id]!==markup){
+          container.innerHTML=markup;
+          reactionMarkup[id]=markup;
+        }
+      });
+    }
+    if(feed)document.addEventListener("click",function(event){
+      var toggle=event.target.closest("[data-chat-react-toggle]");
+      var reaction=event.target.closest("[data-chat-react-emoji][data-chat-react-message]");
+      function closePickers(except){
+        feed.querySelectorAll("[data-chat-react-picker]").forEach(function(picker){
+          if(picker!==except)picker.hidden=true;
+          var control=feed.querySelector("[aria-controls=\""+picker.id+"\"]");
+          if(control&&picker!==except)control.setAttribute("aria-expanded","false");
+        });
+      }
+      if(toggle){
+        var picker=document.getElementById(toggle.getAttribute("aria-controls"));
+        if(!picker)return;
+        var opening=picker.hidden;
+        closePickers(picker);
+        picker.hidden=!opening;
+        toggle.setAttribute("aria-expanded",String(opening));
+        return;
+      }
+      if(!reaction){
+        if(!event.target.closest("[data-chat-react-picker]"))closePickers(null);
+        return;
+      }
+      var id=Number(reaction.getAttribute("data-chat-react-message"));
+      var emoji=reaction.getAttribute("data-chat-react-emoji")||"";
+      var csrf=document.querySelector("[data-chat-compose] [name=csrf]");
+      if(!id||!csrf||reaction.disabled)return;
+      closePickers(null);
+      var form=new FormData();
+      form.set("action","chat_react");form.set("csrf",csrf.value);
+      form.set("message_id",String(id));form.set("emoji",emoji);
+      reaction.disabled=true;
+      fetch("/",{method:"POST",credentials:"same-origin",body:form})
+        .then(function(r){if(!r.ok)throw Error("Reaction failed");return r.json();})
+        .then(function(r){
+          if(!r.ok)throw Error("Reaction failed");
+          updateReactions({[String(id)]:r.html||""});
+          var status=document.querySelector("[data-chat-state]");
+          if(status)status.textContent="";
+        }).catch(function(){
+          var status=document.querySelector("[data-chat-state]");
+          if(status)status.textContent="Не удалось сохранить реакцию. Повторите попытку.";
+        }).finally(function(){reaction.disabled=false;});
+    });
     function poll(){
       if(busy)return;busy=true;
       var after=feed?Number(feed.getAttribute("data-last")||0):0;
@@ -831,7 +965,8 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         if(lastOther!==null&&newest>lastOther)beep();
         lastOther=Math.max(lastOther===null?0:lastOther,newest);
         try{sessionStorage.setItem(soundCursorKey,String(lastOther));}catch(e){}
-        if(!feed||focused)return;
+        if(!feed)return;
+        if(focused){updateReactions(r.reactions);return;}
         var messages=Array.isArray(r.messages)?r.messages:[];
         var wasNearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<110;
         var empty=feed.querySelector("[data-empty]");
@@ -859,6 +994,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         }
         while(feed.querySelectorAll(".chat-msg").length>120)
           feed.querySelector(".chat-msg").remove();
+        updateReactions(r.reactions);
         if(wasNearBottom)feed.scrollTop=feed.scrollHeight;
         if(messages.length)markRead(maxId);
       }).catch(function(){}).finally(function(){busy=false;});
@@ -1529,6 +1665,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo '{"ok":true}';
             exit;
         }
+        if ($action==='chat_react') {
+            $payload=adc_chat_toggle_reaction($db,$current);
+            header('Content-Type: application/json; charset=UTF-8');
+            header('Cache-Control: no-store,private');
+            echo json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_THROW_ON_ERROR);
+            exit;
+        }
         if (adc_team_task_action($db, $current, $action)) {
             adc_redirect();
         }
@@ -1749,7 +1892,8 @@ if (!$initialized) {
     adc_page('Первичная настройка', $html);
 }
 
-$user = adc_current_user($db,!isset($_GET['chat_poll'])&&!isset($_GET['chat_suggest']));
+$user = adc_current_user($db,!isset($_GET['chat_poll'])&&!isset($_GET['chat_suggest'])&&
+    !isset($_GET['chat_sound']));
 if (!$user) {
     $html = '<section class="card narrow"><h1>Вход</h1><p class="muted">Доступ только для сотрудников компании.</p>' . $alert
         . '<form method="post" class="stack"><input type="hidden" name="csrf" value="' . $csrf . '">'
@@ -1780,7 +1924,8 @@ if ($dedicatedStagingHost && $user['role']==='director' &&
     try {
         $chatNeeds=false;
         foreach(['team_chat_messages','team_chat_reads','team_chat_mentions',
-                 'team_chat_thread_reads','team_chat_attachments','team_chat_pins'] as $table){
+                 'team_chat_thread_reads','team_chat_attachments','team_chat_pins',
+                 'team_chat_reactions'] as $table){
             if(!$db->query("SHOW TABLES LIKE '$table'")->fetchColumn()){
                 $chatNeeds=true;break;
             }
@@ -1874,6 +2019,10 @@ try {
 // Chat polls do not extend idle sessions.
 if(isset($_GET['chat_poll']))adc_chat_poll($db,$user);
 if(isset($_GET['chat_suggest']))adc_chat_suggest($db,$user);
+if(isset($_GET['chat_sound'])){
+    $tone=filter_var($_GET['chat_sound'],FILTER_VALIDATE_INT);
+    adc_chat_sound_download($tone===false?0:(int)$tone);
+}
 
 // Financial downloads follow the same session and temporary-password gates.
 if (isset($_GET['export']) && is_string($_GET['export'])) {
