@@ -454,7 +454,10 @@ function adc_chat_html(PDO $db,array $user):string {
         $out.='<button type="button" data-chat-tone="'.$tone.'" aria-pressed="false" '.
             'title="Смешной звук '.$tone.'">'.$tone.'</button>';
     }
-    $out.='</div></div></div>'.
+    $out.='</div>'.
+       '<details class="chat-sound-debug"><summary>Диагностика</summary>'.
+       '<p class="muted" data-chat-sound-debug>Ожидаем входящее сообщение.</p>'.
+       '</details></div></div>'.
        '<div><span data-chat-state role="status" class="muted">'.
        ($statusWarning?'Уведомления временно недоступны, переписка работает.':'').
        '</span></div>'.
@@ -524,7 +527,7 @@ function adc_chat_html(PDO $db,array $user):string {
     // One unpredictable form token per send attempt. The receipt is stored
     // in this user's session only after the SQL transaction commits.
     $sendToken=bin2hex(random_bytes(16));
-    $out.='</div><form method="post" enctype="multipart/form-data" class="chat-compose" data-chat-compose>'.
+    $out.='</div><form method="post" enctype="multipart/form-data" class="chat-compose" data-chat-compose data-skip-scroll-restore>'.
         ($sendError!==null?
           '<div class="error chat-send-error" data-chat-send-error role="alert">'.
           adc_h((string)($sendError['message']??'Не удалось отправить сообщение.')).'</div>':'').
