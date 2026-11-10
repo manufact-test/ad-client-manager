@@ -1146,7 +1146,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           feed.querySelector(".chat-msg").remove();
         updateReactions(r.reactions);
         if(wasNearBottom)feed.scrollTop=feed.scrollHeight;
-        if(messages.length&&wasNearBottom)markRead(maxId);
+        // A read POST can fail once (temporary network or session race).
+        // Retry on later polls while this visible room still has unread items.
+        var pendingHere=Number((r.room_unread||{})[String(thread)]||0);
+        if(wasNearBottom&&(messages.length||pendingHere>0))
+          markRead(Number(feed.getAttribute("data-last")||0));
       }).catch(function(){}).finally(function(){
         busy=false;
         // A read acknowledgment can finish during a poll. Never lose the
