@@ -447,7 +447,7 @@ try:
                 'data-chat-tone="3"' in html(chatPage) and
                 "Включить звук" in html(chatPage) and
                 'data-chat-audio-status data-audio-state="off"' in html(chatPage) and
-                'data-chat-sound-debug' in html(chatPage) and
+                '<details class="chat-sound-debug">' not in html(chatPage) and
                 'data-skip-scroll-restore' in html(chatPage) and
                 re.search(r'data-chat-user="\d+" data-chat-initial="\d+"',html(chatPage)),
                 "Both roles receive a server-generated initial alert cursor and sound controls")
