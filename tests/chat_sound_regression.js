@@ -29,6 +29,16 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
     title: '',
     getAttribute(name) { return name === 'data-chat-user' ? userId : null; }
   };
+  const icon = {
+    attributes:{href:'/favicon.ico?v=97b21d17',type:'image/x-icon'},
+    getAttribute(name) { return this.attributes[name] ?? null; },
+    setAttribute(name,value) { this.attributes[name]=value; }
+  };
+  const soundIndicator = {
+    attributes:{},title:'',
+    addEventListener(name,cb) { events.set('indicator:'+name,cb); },
+    setAttribute(name,value) { this.attributes[name]=value; }
+  };
   const soundButton = {
     textContent: '',
     attributes: {},
@@ -44,6 +54,9 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   const audio = { tones: 0, clips: 0, contexts: 0, gestures: 0, soundFetches: [] };
   let latest = firstCursor;
   let interval;
+  let alertInterval=null;
+  let timerCounter=0;
+  const timers=new Map();
 
   class AudioContext {
     constructor() {
@@ -76,18 +89,26 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
     }
   }
   const document = {
+    title:'Реклама MANUFACT',hidden:false,
     querySelector(selector) {
       return selector === '[data-chat-badge]' ? badge :
-        selector === '[data-chat-sound]' ? soundButton : null;
+        selector === '[data-chat-sound]' ? soundButton :
+        selector === '[data-chat-audio-status]' ? soundIndicator :
+        selector === 'link[rel~="icon"]' ? icon : null;
     },
     addEventListener(name, cb) { events.set(name, cb); },
-    querySelectorAll(selector) { return selector === '[data-chat-tone]' ? tones : []; },
-    hidden: false
+    querySelectorAll(selector) { return selector === '[data-chat-tone]' ? tones : []; }
   };
   const window = {
     AudioContext,
-    setInterval(callback) { interval = callback; },
-    addEventListener() {}
+    setInterval(callback,ms) {
+      const id=++timerCounter;timers.set(id,callback);
+      if(ms===6000)interval=callback;
+      else if(ms===2200)alertInterval=callback;
+      return id;
+    },
+    clearInterval(id) { timers.delete(id);alertInterval=null; },
+    addEventListener(name,cb) { events.set('window:'+name,cb); }
   };
   const context = {
     document, window, localStorage, sessionStorage,
@@ -112,10 +133,20 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   };
   vm.runInNewContext(script, context, { timeout: 1000 });
   return {
-    audio, badge, soundButton, tones,
+    audio, badge, soundButton, soundIndicator, tones, document, icon,
     get cursor() { return latest; },
     set cursor(value) { latest = value; },
     async poll() { interval(); await tick(); },
+    async visibility(hidden) {
+      document.hidden=hidden;events.get('visibilitychange')();await tick();
+    },
+    blink() { if(alertInterval)alertInterval(); },
+    async storage(key) { events.get('window:storage')({key});await tick(); },
+    async checkSound() {
+      audio.gestures += 1;
+      events.get('indicator:click')();await tick();
+      audio.gestures -= 1;
+    },
     async interact() {
       audio.gestures += 1;
       events.get('pointerdown')();
@@ -144,6 +175,9 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   await tick();
   assert.equal(page.audio.tones, 0, 'Initial status is not a notification');
   assert.equal(page.soundButton.textContent, 'Включить звук', 'Sound defaults to off');
+  assert.equal(page.soundIndicator.attributes['data-audio-state'], 'off',
+    'First visit displays a crossed-out audio icon');
+  assert.equal(page.document.title,'Реклама MANUFACT');
 
   await page.interact();
   page.cursor = 11;
@@ -155,9 +189,24 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   assert.equal(local.getItem('adc-chat-sound-v2-2'), 'on', 'Opt-in persists per account');
   assert.equal(page.audio.tones, 2, 'Opt-in previews standard two-note chime');
   assert.equal(page.audio.contexts, 1, 'One audio context is reused');
+  assert.equal(page.soundIndicator.attributes['data-audio-state'],'ready',
+    'Audio icon only turns green after the browser reports a running channel');
   page.cursor = 12;
   await page.poll();
   assert.equal(page.audio.tones, 4, 'Incoming message plays standard chime');
+  assert.equal(page.document.title,'(2) Реклама MANUFACT',
+    'Unread messages are visible in the browser tab, not just app navigation');
+  assert.equal(page.icon.attributes.href,'/?chat_icon=1',
+    'Unread tab switches to the same-origin favicon with a red dot');
+  await page.visibility(true);
+  assert.match(page.document.title,/новых сообщений/,
+    'Background tab announces new messages in the browser title');
+  page.blink();
+  assert.equal(page.document.title,'(2) Реклама MANUFACT',
+    'Background tab alternates a quiet title alert');
+  await page.visibility(false);
+  assert.equal(page.document.title,'(2) Реклама MANUFACT',
+    'Tab stops flashing after returning to the app');
 
   await page.choose(1);
   assert.equal(page.tones[0].attributes['aria-pressed'], 'true');
@@ -178,10 +227,14 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   assert.equal(nextPage.soundButton.textContent, 'Выключить звук', 'Reload remembers opt-in');
   assert.equal(nextPage.tones[2].attributes['aria-pressed'], 'true', 'Reload remembers selected tone');
   assert.equal(nextPage.audio.clips, 0, 'Reload does not replay an old message');
+  assert.equal(nextPage.soundIndicator.attributes['data-audio-state'],'needs-click',
+    'A fresh page cannot claim that the old browser audio unlock still applies');
   await nextPage.interact();
   nextPage.cursor = 14;
   await nextPage.poll();
   assert.equal(nextPage.audio.clips, 1, 'Custom tone plays after full navigation');
+  assert.equal(nextPage.soundIndicator.attributes['data-audio-state'],'ready',
+    'Interaction reactivates sound on a freshly loaded document');
   assert.equal(session.getItem('adc-chat-last-other-2'), '14');
 
   const colleague = openPage(session, local, 14, '3');
@@ -205,7 +258,11 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   assert.equal(director.soundButton.textContent, 'Выключить звук',
     'A director who selected a tone in the old version is migrated to sound ON');
   assert.equal(directorLocal.getItem('adc-chat-sound-v2-1'), 'on');
-  await director.interact();
+  assert.equal(director.soundIndicator.attributes['data-audio-state'],'needs-click',
+    'Director sees when a selected MP3 is not yet allowed by the browser');
+  await director.checkSound();
+  assert.equal(director.soundIndicator.attributes['data-audio-state'],'ready',
+    'Director can rearm selected MP3 by clicking the crossed indicator once');
   director.cursor = 31;
   await director.poll();
   assert.equal(director.audio.clips, 1,
@@ -218,6 +275,12 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   await tick();
   assert.equal(mutedDirector.soundButton.textContent, 'Включить звук',
     'Migration never overrides the directors explicit mute preference');
+  assert.equal(mutedDirector.soundIndicator.attributes['data-audio-state'],'off');
+  await mutedDirector.checkSound();
+  assert.equal(mutedDirector.soundButton.textContent,'Выключить звук',
+    'The crossed indicator can enable sound directly in one click');
+  assert.equal(mutedDirector.audio.clips,1,
+    'The audio check click immediately previews the selected audio file');
 
   await nextPage.toggle();
   assert.equal(local.getItem('adc-chat-sound-v2-2'), 'off');
@@ -225,5 +288,28 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   await tick();
   assert.equal(mutedReload.soundButton.textContent, 'Включить звук',
     'Explicitly disabled sound remains disabled after reload');
-  console.log('Chat opt-in, custom tones, persistence and navigation regression passed');
+  mutedReload.cursor=10;
+  await mutedReload.poll();
+  assert.equal(mutedReload.document.title,'Реклама MANUFACT',
+    'Unread count zero restores the original browser tab title');
+  assert.equal(mutedReload.icon.attributes.href,'/favicon.ico?v=97b21d17',
+    'The original favicon is restored when messages are read');
+
+  const syncedLocal=new Memory(),syncSessionA=new Memory(),syncSessionB=new Memory();
+  const staffA=openPage(syncSessionA,syncedLocal,15,'7');
+  const staffB=openPage(syncSessionB,syncedLocal,15,'7');
+  await staffA.choose(1);
+  await staffB.storage('adc-chat-sound-v2-7');
+  await staffB.storage('adc-chat-tone-v1-7');
+  assert.equal(staffB.soundButton.textContent,'Выключить звук',
+    'Other tabs of the same account adopt changed sound preferences');
+  assert.equal(staffB.tones[0].attributes['aria-pressed'],'true',
+    'Custom tone selection synchronizes across tabs');
+  assert.equal(staffB.soundIndicator.attributes['data-audio-state'],'needs-click',
+    'Another tab does not inherit an unlocked audio channel it never owned');
+  await staffA.toggle();
+  await staffB.storage('adc-chat-sound-v2-7');
+  assert.equal(staffB.soundIndicator.attributes['data-audio-state'],'off',
+    'Muting one tab visibly mutes other tabs for that account');
+  console.log('Chat opt-in, audio readiness, tab unread alerts and multi-account regressions passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
