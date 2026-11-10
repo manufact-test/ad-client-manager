@@ -28,16 +28,29 @@ if (isset($_GET['chat_icon'])) {
 }
 
 function adc_page(string $title, string $body, ?array $user = null): never {
-    global $adcJsNonce;
+    global $adcJsNonce, $db;
     $name = $user ? adc_h((string) $user['display_name']) : '';
     $menu = '';
     if ($user) {
+        // Set a reliable initial incoming-message cursor at HTML render time.
+        // On the first poll, a message received after render must notify.
+        $initialIncoming = 0;
+        try {
+            if (isset($db) && $db instanceof PDO) {
+                $stmt = $db->prepare('SELECT COALESCE(MAX(id),0) FROM team_chat_messages WHERE author_user_id<>?');
+                $stmt->execute([(int)$user['id']]);
+                $initialIncoming = max(0,(int)$stmt->fetchColumn());
+            }
+        } catch (Throwable $error) {
+            // Optional chat setup must not break an unrelated page.
+            error_log('Chat notification initial cursor: '.get_class($error));
+        }
         $view = is_string($_GET['view'] ?? null) ? $_GET['view'] : 'clients';
         $menu = '<div class="header-inner"><nav class="top-nav" aria-label="Основные разделы">';
         foreach (['overview'=>'Обзор','clients'=>'Клиенты','tasks'=>'Мои задачи','archive'=>'Архив',
                   'analytics'=>'Аналитика','chat'=>'Чат','team'=>'Настройки'] as $id=>$label) {
             $menu .= '<a href="/?view='.$id.'"'.($view===$id?' class="active" aria-current="page"':'').
-                '>'.adc_h($label).($id==='chat'?' <span data-chat-badge data-chat-user="'.(int)$user['id'].'" class="chat-badge" hidden></span>':'').'</a>';
+                '>'.adc_h($label).($id==='chat'?' <span data-chat-badge data-chat-user="'.(int)$user['id'].'" data-chat-initial="'.(int)$initialIncoming.'" class="chat-badge" hidden></span>':'').'</a>';
         }
         $menu .= '</nav><div class="account"><span>'.$name.' · '.
             ($user['role']==='director'?'Директор':'Сотрудник').'</span>'.
@@ -818,7 +831,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         if(send){send.disabled=false;send.textContent="Отправить сообщение";}
       });
     }
-    var audible=false,selectedTone=0,activated=false,lastOther=null,busy=false,soundContext=null;
+    var audible=false,selectedTone=0,lastOther=null,busy=false,soundContext=null;
     var userKey=badge.getAttribute("data-chat-user")||"0";
     var soundCursorKey="adc-chat-last-other-"+userKey;
     var soundPreferenceKey="adc-chat-sound-v2-"+userKey;
@@ -836,12 +849,14 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       audible=storedSound==="on"||(storedSound===null&&selectedTone>0);
       if(storedSound===null&&audible)localStorage.setItem(soundPreferenceKey,"on");
     }catch(e){}
-    // Keep the cursor across full-page chat sends and navigation. A fresh page
-    // must not silently swallow the first reply while establishing its baseline.
+    // Fresh tabs take their baseline from the HTML-generation instant.
+    // Reopened pages keep their per-tab incoming cursor across navigation.
+    var initialIncoming=Number(badge.getAttribute("data-chat-initial"));
+    if(Number.isFinite(initialIncoming)&&initialIncoming>=0)lastOther=initialIncoming;
     try{
-      activated=sessionStorage.getItem("adc-chat-activated")==="1";
       var previous=sessionStorage.getItem(soundCursorKey);
-      if(previous!==null&&/^\d+$/.test(previous))lastOther=Number(previous);
+      if(previous!==null&&/^\d+$/.test(previous))
+        lastOther=Math.max(lastOther===null?0:lastOther,Number(previous));
     }catch(e){}
     function showAudioStatus(){
       if(!soundIndicator)return;
@@ -899,7 +914,10 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       }).catch(function(){if(ctx.state==="running"&&(preview||audible))chime(ctx);});
     }
     function beep(preview){
-      if(!preview&&(!audible||!activated))return;
+      // The browser audio channel's actual state decides if playback can run.
+      // The former "activated" flag could stay false despite a green/running
+      // AudioContext, silently dropping genuine incoming messages.
+      if(!preview&&!audible)return;
       var ctx=audioChannel();if(!ctx){showAudioStatus();return;}
       if(ctx.state==="running"){showAudioStatus();playTone(ctx,!!preview);return;}
       // A new document/background tab can lose autoplay permission even when
@@ -912,8 +930,6 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       }).catch(function(){showAudioStatus();});}catch(e){showAudioStatus();}
     }
     function unlockAudio(){
-      activated=true;
-      try{sessionStorage.setItem("adc-chat-activated","1");}catch(e){}
       if(!audible){showAudioStatus();return;}
       var ctx=audioChannel();
       if(ctx&&ctx.state!=="running"){
@@ -978,15 +994,28 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       });
     });
     soundLabel();
+    var lastReadRequested=0,readInFlight=false;
     function markRead(id){
-      if(!feed||!id||focused||document.hidden||!document.hasFocus())return;
+      // A visible live chat counts as read even if a text field or a popover
+      // temporarily owns focus. Historical focused-message mode remains safe.
+      if(!feed||!id||focused||document.hidden)return;
+      lastReadRequested=Math.max(lastReadRequested,id);
+      if(readInFlight)return;
+      readInFlight=true;
       var form=new FormData();
       form.set("action","chat_read");
       form.set("csrf",document.querySelector("[data-chat-compose] [name=csrf]").value);
-      form.set("last_id",String(id));form.set("thread",String(thread));
+      var requested=lastReadRequested;
+      form.set("last_id",String(requested));form.set("thread",String(thread));
       fetch("/",{method:"POST",credentials:"same-origin",body:form})
         .then(function(r){return r.ok?r.json():null;})
-        .then(function(r){if(r&&r.ok)poll();}).catch(function(){});
+        .then(function(r){if(r&&r.ok)poll();})
+        .catch(function(){})
+        .finally(function(){
+          readInFlight=false;
+          // A second message can arrive while the first read is in flight.
+          if(lastReadRequested>requested)markRead(lastReadRequested);
+        });
     }
     function showRooms(unread){
       if(!feed||!unread)return;
@@ -1125,7 +1154,10 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     poll();window.setInterval(poll,6000);
     document.addEventListener("visibilitychange",function(){
       updateTabNotice(unreadCount);showAudioStatus();
-      if(!document.hidden)poll();
+      if(!document.hidden){
+        if(feed&&!focused)markRead(Number(feed.getAttribute("data-last")||0));
+        poll();
+      }
     });
     window.addEventListener("pageshow",showAudioStatus);
 
