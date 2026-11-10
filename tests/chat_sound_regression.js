@@ -42,6 +42,8 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
     addEventListener(name,cb) { events.set('indicator:'+name,cb); },
     setAttribute(name,value) { this.attributes[name]=value; }
   };
+  const diagnostics = { textContent: '' };
+  const chatStatus={textContent:''};
   const soundButton = {
     textContent: '',
     attributes: {},
@@ -54,9 +56,10 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
     addEventListener(name, cb) { events.set('tone:' + number + ':' + name, cb); },
     setAttribute(name, value) { this.attributes[name] = value; }
   }));
-  const audio = { tones: 0, clips: 0, contexts: 0, gestures: 0, soundFetches: [] };
+  const audio = { tones: 0, clips: 0, contexts: 0, gestures: 0, soundFetches: [], lastCtx:null, sends:0 };
   let latest = firstCursor, readCursor=firstCursor, readCalls=[];
   let failReadOnceAt=opts.failReadOnceAt??null;
+  let failAsyncOnce=!!opts.failAsyncOnce;
   let interval;
   let alertInterval=null;
   let timerCounter=0;
@@ -66,6 +69,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
     constructor() {
       audio.contexts += 1;
       this.state = 'suspended';
+      audio.lastCtx=this;
       this.currentTime = 1;
       this.destination = {};
     }
@@ -109,13 +113,43 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
     appendChild(node){feedNodes.push(node);},
     removeChild(node){const i=feedNodes.indexOf(node);if(i>=0)feedNodes.splice(i,1);}
   }:null;
+  const composerState={
+    csrf:{value:'test-csrf'},
+    send:{disabled:false,textContent:'Отправить сообщение'},
+    token:{value:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'},
+    message:{value:'Тестовое сообщение'},
+    file:{value:'fake.mp3'},
+    fileName:{textContent:'Вложение',title:'Вложение'},
+    reply:{value:'10'},replyPreview:{hidden:false},replyLabel:{textContent:'Ответ'}
+  };
   const composer=opts.liveChat?{
-    addEventListener(){},
+    addEventListener(name,fn){events.set('compose:'+name,fn);},
     querySelector(selector){
-      return selector==='[name=csrf]'?{value:'test-csrf'}:
-        selector==='.chat-submit-row button[type=submit]'?{disabled:false,textContent:'Отправить сообщение'}:null;
+      const k={
+        '[name=csrf]':'csrf',
+        '.chat-submit-row button[type=submit]':'send',
+        '[name=send_token]':'token','[name=message]':'message',
+        '[data-chat-file]':'file','[data-chat-file-name]':'fileName',
+        '[data-reply-id]':'reply','[data-reply-preview]':'replyPreview',
+        '[data-reply-label]':'replyLabel'
+      }[selector];
+      return k?composerState[k]:null;
     }
   }:null;
+  class MockFormData {
+    constructor(form){
+      this.map=new Map();
+      if(form===composer){
+        this.map.set('csrf',composerState.csrf.value);
+        this.map.set('action','chat_send');
+        this.map.set('send_token',composerState.token.value);
+        this.map.set('message',composerState.message.value);
+        this.map.set('thread','0');
+      }
+    }
+    set(key,value){this.map.set(key,String(value));}
+    get(key){return this.map.get(key)||null;}
+  }
   const document = {
     title:'Реклама MANUFACT',hidden:false,focused:opts.focused!==false,
     hasFocus(){return this.focused;},
@@ -143,6 +177,8 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
       return selector === '[data-chat-badge]' ? badge :
         selector === '[data-chat-sound]' ? soundButton :
         selector === '[data-chat-audio-status]' ? soundIndicator :
+        selector === '[data-chat-sound-debug]' ? diagnostics :
+        selector === '[data-chat-state]' ? chatStatus :
         selector === 'link[rel~=icon]' ? icon :
         selector === '[data-last]' ? feed :
         selector === '[data-chat-compose]' ? composer :
@@ -164,8 +200,20 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
   };
   const context = {
     document, window, localStorage, sessionStorage,
-    FormData,
+    FormData:MockFormData,
     fetch(url,request={}) {
+      if(url==='/' && request.method==='POST'&&request.body?.get('chat_async')==='1'){
+        audio.sends+=1;
+        if(failAsyncOnce){
+          failAsyncOnce=false;
+          return Promise.resolve({ok:false,
+            json:()=>Promise.resolve({ok:false,error:'Тестовая ошибка отправки'})});
+        }
+        return Promise.resolve({
+          ok:true,
+          json:()=>Promise.resolve({ok:true,send_token:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'})
+        });
+      }
       if(url==='/' && request.method==='POST' && opts.liveChat){
         const requested=Number(request.body?.get('last_id')||0);
         readCalls.push(requested);
@@ -186,7 +234,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
           ok: true,
           unread: Math.max(0, latest - (opts.liveChat?readCursor:10)),
           mentions: 0,
-          newest_other_id: latest,
+          newest_other_id: opts.staticNewest??latest,
           room_unread: opts.liveChat?{'0':Math.max(0,latest-readCursor)}:{},
           messages: opts.liveChat&&latest>Number(feed.attrs['data-last'])?
             [{id:latest,html:'<div class="chat-msg" data-mid="'+latest+'"></div>'}]:[],
@@ -198,8 +246,21 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
   };
   vm.runInNewContext(script, context, { timeout: 1000 });
   return {
-    audio, badge, soundButton, soundIndicator, tones, document, icon,
+    audio, badge, soundButton, soundIndicator, tones, document, icon, diagnostics, chatStatus,
+    get composeState(){return composerState;},
     get readCalls(){return readCalls.slice();}, get feed(){return feed;},
+    async send(){
+      if(!composer)throw Error('No chat composer in test page');
+      let prevented=false;
+      events.get('compose:submit')({preventDefault(){prevented=true;}});
+      await tick();await tick();await tick();
+      return prevented;
+    },
+    suspend(){
+      if(!audio.lastCtx)throw Error('Audio not initialized');
+      audio.lastCtx.state='suspended';
+      if(audio.lastCtx.onstatechange)audio.lastCtx.onstatechange();
+    },
     get cursor() { return latest; },
     set cursor(value) { latest = value; },
     async poll() { interval(); await tick(); },
@@ -422,6 +483,76 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
     'Returning to the active live chat acknowledges the pending message');
   assert.equal(backgroundWindow.badge.hidden,true,
     'Unread badge clears immediately on returning to a visible chat');
+
+  // The staff account can detect an incoming event from an increase in
+  // unread even when the legacy newest-ID cursor is stale or frozen.
+  const staleLocal=new Memory();
+  staleLocal.setItem('adc-chat-sound-v2-31','on');
+  const staleStaff=openPage(new Memory(),staleLocal,10,'31',
+    {staticNewest:10,browserAllowsAuto:true});
+  await tick();
+  staleStaff.cursor=11;await staleStaff.poll();
+  assert.equal(staleStaff.audio.tones,2,
+    'Staff gets a sound from growing unread count when newest_other_id is stale');
+  assert.match(staleStaff.diagnostics.textContent,/запущен/i,
+    'Diagnostics confirms actual audio playback rather than only green channel');
+
+  // The first custom sound click unlocks WebAudio; sending a chat message
+  // must not navigate or replace the activated page/audio context.
+  const keepLocal=new Memory();
+  const keepPage=openPage(new Memory(),keepLocal,25,'44',{liveChat:true});
+  await tick();
+  await keepPage.choose(2);
+  const keepCtx=keepPage.audio.lastCtx;
+  const sendPrevented=await keepPage.send();
+  assert.equal(sendPrevented,true,
+    'Chat submit prevents full-page navigation when fetch is available');
+  assert.equal(keepPage.audio.sends,1,'AJAX sends message exactly once');
+  assert.equal(keepPage.audio.lastCtx,keepCtx,
+    'Sending does not recreate the previously unlocked AudioContext');
+  assert.equal(keepPage.soundIndicator.attributes['data-audio-state'],'ready',
+    'Sending leaves the green audio status intact');
+  assert.equal(keepPage.composeState.token.value,'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    'Server returns a fresh idempotency token for the next message');
+  assert.equal(keepPage.composeState.message.value,'',
+    'Message input is cleared only after confirmed successful send');
+  keepPage.cursor=26;await keepPage.poll();
+  assert.equal(keepPage.audio.clips,2,
+    'Staff continues to receive MP3 notification after sending a message');
+
+  // A browser that initially rejects background playback must keep the
+  // incoming signal pending and flush it exactly once after an allowed click.
+  const blockedLocal=new Memory();
+  blockedLocal.setItem('adc-chat-sound-v2-48','on');
+  const blockedStaff=openPage(new Memory(),blockedLocal,50,'48');
+  await tick();
+  blockedStaff.cursor=51;await blockedStaff.poll();await tick();
+  assert.equal(blockedStaff.audio.tones,0,
+    'No false success when the browser suspends the incoming audio channel');
+  assert.equal(blockedStaff.soundIndicator.attributes['data-audio-state'],'needs-click');
+  await blockedStaff.interact();await tick();
+  assert.equal(blockedStaff.audio.tones,2,
+    'The pending incoming alert plays after the next permitted employee gesture');
+  assert.equal(blockedStaff.soundIndicator.attributes['data-audio-state'],'ready');
+
+  // A failed AJAX send must keep the draft and idempotency token, without
+  // reloading the page or disabling sound. A subsequent retry can succeed.
+  const retryStaff=openPage(new Memory(),new Memory(),30,'49',
+    {liveChat:true,failAsyncOnce:true});
+  await tick();await retryStaff.choose(1);
+  const originalToken=retryStaff.composeState.token.value;
+  await retryStaff.send();
+  assert.equal(retryStaff.audio.sends,1);
+  assert.equal(retryStaff.composeState.token.value,originalToken,
+    'Failed send does not consume or change the retry token');
+  assert.equal(retryStaff.composeState.message.value,'Тестовое сообщение',
+    'Failed AJAX request does not clear the employee draft');
+  assert.match(retryStaff.chatStatus.textContent,/Тестовая ошибка отправки/);
+  assert.equal(retryStaff.soundIndicator.attributes['data-audio-state'],'ready');
+  await retryStaff.send();
+  assert.equal(retryStaff.audio.sends,2);
+  assert.equal(retryStaff.composeState.message.value,'',
+    'Successful retry clears the draft without a page reload');
 
   const syncedLocal=new Memory(),syncSessionA=new Memory(),syncSessionB=new Memory();
   const staffA=openPage(syncSessionA,syncedLocal,15,'7');

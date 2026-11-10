@@ -502,6 +502,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           min-width:33px;height:33px;padding:0 6px;border:1px solid #bfc4db;
           background:#fff;border-radius:8px;color:#433ca5;font-size:12px;font-weight:700;box-shadow:none}
         .chat-tone-options button[aria-pressed=true]{background:#4d43c2;border-color:#4d43c2;color:#fff}
+        .chat-sound-debug{position:relative;margin:0;min-width:0}
+        .chat-sound-debug>summary{padding:5px 3px;font-weight:500;font-size:11px;color:#69728b;white-space:nowrap}
+        .chat-sound-debug>p{position:absolute;z-index:15;right:0;top:100%;width:min(310px,75vw);
+          padding:10px;margin:3px 0 0;background:#fff;border:1px solid #dfe2ed;border-radius:9px;
+          box-shadow:0 7px 22px #1b245426;font-size:12px;line-height:1.5;white-space:pre-wrap}
         @media(max-width:560px){.chat-sound-controls{width:100%;justify-content:flex-start;margin-left:0}}
         .chat-attach{position:relative;display:inline-flex;align-items:center;gap:10px;
             max-width:100%;cursor:pointer;margin:8px 0 13px;font-size:13px;color:#525d77;font-weight:500}
@@ -825,21 +830,83 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       drawTabTitle();
     }
     var compose=document.querySelector("[data-chat-compose]");
-    if(compose) {
+    if(compose){
       var send=compose.querySelector(".chat-submit-row button[type=submit]");
-      compose.addEventListener("submit",function(){
+      var sending=false;
+      compose.addEventListener("submit",function(event){
+        if(typeof window.fetch!=="function"&&typeof fetch!=="function"){
+          if(send){send.disabled=true;send.textContent="Отправляем…";}
+          return; // Browser fallback: normal POST + redirect
+        }
+        event.preventDefault();
+        if(sending)return;
+        sending=true;
         if(send){send.disabled=true;send.textContent="Отправляем…";}
+        var data=new FormData(compose);
+        data.set("chat_async","1");
+        var status=document.querySelector("[data-chat-state]");
+        if(status)status.textContent="";
+        fetch("/",{method:"POST",credentials:"same-origin",body:data})
+          .then(function(response){
+            return response.json().then(function(data){
+              if(!response.ok||!data.ok)throw Error(data.error||"Не удалось отправить сообщение.");
+              return data;
+            });
+          })
+          .then(function(result){
+            var token=compose.querySelector("[name=send_token]");
+            if(token&&result.send_token)token.value=result.send_token;
+            var message=compose.querySelector("[name=message]");
+            if(message)message.value="";
+            var file=compose.querySelector("[data-chat-file]");
+            if(file)file.value="";
+            var fileName=compose.querySelector("[data-chat-file-name]");
+            if(fileName){fileName.textContent="PDF или изображение · до 10 МБ";fileName.title="";}
+            var reply=compose.querySelector("[data-reply-id]");
+            if(reply)reply.value="0";
+            var replyPreview=compose.querySelector("[data-reply-preview]");
+            if(replyPreview)replyPreview.hidden=true;
+            var replyLabel=compose.querySelector("[data-reply-label]");
+            if(replyLabel)replyLabel.textContent="";
+            poll();
+          })
+          .catch(function(error){
+            if(status)status.textContent=error&&error.message?
+              error.message:"Не удалось отправить сообщение. Повторите попытку.";
+          })
+          .finally(function(){
+            sending=false;
+            if(send){send.disabled=false;send.textContent="Отправить сообщение";}
+          });
       });
       window.addEventListener("pageshow",function(){
+        sending=false;
         if(send){send.disabled=false;send.textContent="Отправить сообщение";}
       });
     }
-    var audible=false,selectedTone=0,lastOther=null,busy=false,soundContext=null;
+    var audible=false,selectedTone=0,lastOther=null,lastUnread=null;
+    var busy=false,soundContext=null,pendingIncoming=false;
     var userKey=badge.getAttribute("data-chat-user")||"0";
     var soundCursorKey="adc-chat-last-other-"+userKey;
     var soundPreferenceKey="adc-chat-sound-v2-"+userKey;
     var soundToneKey="adc-chat-tone-v1-"+userKey;
     var soundBuffers={},soundLoads={};
+    var soundDebug=document.querySelector("[data-chat-sound-debug]");
+    var soundDebugKey="adc-chat-audio-debug-"+userKey;
+    var debugHistory=[];
+    try{
+      var savedDebug=JSON.parse(sessionStorage.getItem(soundDebugKey)||"[]");
+      if(Array.isArray(savedDebug))debugHistory=savedDebug.slice(-12);
+    }catch(e){}
+    function audioDebug(message){
+      var line=new Date().toLocaleTimeString("ru-RU")+" · "+message;
+      debugHistory.push(line);
+      if(debugHistory.length>12)debugHistory.shift();
+      if(soundDebug)soundDebug.textContent=debugHistory.join("\n");
+      try{sessionStorage.setItem(soundDebugKey,JSON.stringify(debugHistory));}catch(e){}
+    }
+    if(soundDebug)soundDebug.textContent=debugHistory.join("\n")||
+      "Ожидаем входящее сообщение.";
     // Each account starts muted until sound or a custom tone is selected.
     // Remember that choice on this browser across navigation and restarts.
     try{
@@ -908,36 +975,80 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       return soundLoads[tone];
     }
     function playTone(ctx,preview){
+      var eventName=preview?"Проверка":"Входящее сообщение";
       var tone=selectedTone;
-      if(!tone){chime(ctx);return;}
+      if(!tone){
+        try{chime(ctx);audioDebug(eventName+": стандартный сигнал запущен.");}
+        catch(e){audioDebug(eventName+": ошибка аудиоканала.");}
+        return;
+      }
       loadTone(ctx,tone).then(function(buffer){
-        if(tone!==selectedTone||ctx.state!=="running"||(!preview&&!audible))return;
-        var source=ctx.createBufferSource();
-        source.buffer=buffer;source.connect(ctx.destination);source.start();
-      }).catch(function(){if(ctx.state==="running"&&(preview||audible))chime(ctx);});
+        if(tone!==selectedTone||ctx.state!=="running"||(!preview&&!audible)){
+          audioDebug(eventName+": звук не запущен, аудиоканал изменился.");
+          return;
+        }
+        try{
+          var source=ctx.createBufferSource();
+          source.buffer=buffer;source.connect(ctx.destination);source.start();
+          audioDebug(eventName+": MP3 №"+tone+" запущен в браузере.");
+        }catch(e){
+          audioDebug(eventName+": ошибка запуска MP3.");
+        }
+      }).catch(function(){
+        if(ctx.state==="running"&&(preview||audible)){
+          try{chime(ctx);audioDebug(eventName+": MP3 недоступен, запущен стандартный сигнал.");}
+          catch(e){audioDebug(eventName+": воспроизведение недоступно.");}
+        }else audioDebug(eventName+": браузер заблокировал аудиоканал.");
+      });
+    }
+    function flushIncoming(ctx){
+      if(!pendingIncoming||!audible||!ctx||ctx.state!=="running")return;
+      pendingIncoming=false;
+      playTone(ctx,false);
     }
     function beep(preview){
-      // The actual browser audio channel state decides if playback can run.
-      // The former "activated" flag could stay false despite a green/running
-      // AudioContext, silently dropping genuine incoming messages.
-      if(!preview&&!audible)return;
-      var ctx=audioChannel();if(!ctx){showAudioStatus();return;}
-      if(ctx.state==="running"){showAudioStatus();playTone(ctx,!!preview);return;}
-      // A new document/background tab can lose autoplay permission even when
-      // the saved sound preference remains enabled. Never call it "ready"
-      // until the browser actually resumes the current AudioContext.
+      if(!preview&&!audible){
+        audioDebug("Входящее сообщение: звук выключен в настройках.");
+        return;
+      }
+      var ctx=audioChannel();
+      if(!ctx){
+        showAudioStatus();
+        audioDebug("Звуковой канал недоступен в браузере.");
+        return;
+      }
+      if(!preview)pendingIncoming=true;
+      if(ctx.state==="running"){
+        showAudioStatus();
+        if(preview)playTone(ctx,true);else flushIncoming(ctx);
+        return;
+      }
       showAudioStatus();
+      audioDebug(preview?"Проверка: включаем аудиоканал.":"Входящее сообщение: аудиоканал приостановлен, пробуем восстановить.");
       try{ctx.resume().then(function(){
         showAudioStatus();
-        if((preview||audible)&&ctx.state==="running")playTone(ctx,!!preview);
-      }).catch(function(){showAudioStatus();});}catch(e){showAudioStatus();}
+        if(ctx.state==="running"){
+          if(preview)playTone(ctx,true);
+          flushIncoming(ctx);
+        }else audioDebug("Браузер не разрешил воспроизведение. Нажмите значок звука.");
+      }).catch(function(){
+        showAudioStatus();
+        audioDebug("Браузер отклонил воспроизведение. Нажмите значок звука.");
+      });}catch(e){
+        showAudioStatus();
+        audioDebug("Не удалось активировать аудиоканал.");
+      }
     }
     function unlockAudio(){
       if(!audible){showAudioStatus();return;}
       var ctx=audioChannel();
       if(ctx&&ctx.state!=="running"){
-        try{ctx.resume().then(showAudioStatus).catch(showAudioStatus);}catch(e){showAudioStatus();}
-      }else showAudioStatus();
+        try{ctx.resume().then(function(){
+          showAudioStatus();flushIncoming(ctx);
+        }).catch(showAudioStatus);}catch(e){showAudioStatus();}
+      }else{
+        showAudioStatus();flushIncoming(ctx);
+      }
     }
     function soundLabel(){
       if(soundButton){
@@ -1112,7 +1223,17 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         updateTabNotice(count);
         showRooms(r.room_unread);
         var newest=Number(r.newest_other_id)||0;
-        if(lastOther!==null&&newest>lastOther)beep();
+        var byId=lastOther!==null&&newest>lastOther;
+        // The unread count is an independent safety net for a stale or
+        // out-of-sequence cursor in a staff account. Notify only once if
+        // either source detects a new incoming message.
+        var byUnread=lastUnread!==null&&count>lastUnread;
+        if(byId||byUnread){
+          audioDebug("Обнаружено новое входящее: ID "+newest+
+            ", непрочитанных "+count+", аудио "+(audible?"включено":"выключено")+".");
+          beep(false);
+        }
+        lastUnread=count;
         lastOther=Math.max(lastOther===null?0:lastOther,newest);
         try{sessionStorage.setItem(soundCursorKey,String(lastOther));}catch(e){}
         if(!feed)return;
@@ -1814,6 +1935,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Connected workflow actions share the established authentication and CSRF gates.
         if ($action==='chat_send') {
             adc_chat_send($db,$current);
+            if (adc_chat_post('chat_async')==='1') {
+                // Same authenticated, CSRF-protected and idempotent sender;
+                // asynchronous submit keeps the unlocked audio page alive.
+                header('Content-Type: application/json; charset=UTF-8');
+                header('Cache-Control: no-store, private');
+                echo json_encode(['ok'=>true,'send_token'=>bin2hex(random_bytes(16))],
+                    JSON_THROW_ON_ERROR);
+                exit;
+            }
             adc_flash('Сообщение отправлено.');
             $chatThread=adc_chat_thread($db,adc_chat_post('thread'));
             adc_redirect('?view=chat'.($chatThread?'&thread='.$chatThread:''));
@@ -2020,6 +2150,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'date'=>(string)($_POST['resume_start_on']??'')
             ];
             $errorMessage=null;
+        }
+        // Explicit AJAX chat sends return a safe validation error and retain
+        // their idempotency token on the client. Other forms use old redirects.
+        if (($action??'')==='chat_send' && ($_POST['chat_async']??null)==='1') {
+            http_response_code(400);
+            header('Content-Type: application/json; charset=UTF-8');
+            header('Cache-Control: no-store, private');
+            echo json_encode(['ok'=>false,'error'=>(string)$errorMessage],
+                JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_THROW_ON_ERROR);
+            exit;
         }
         // Chat errors belong next to the composer. A long conversation can
         // leave page-wide alerts far above the current scroll position.
