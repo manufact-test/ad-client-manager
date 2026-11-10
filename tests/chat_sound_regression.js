@@ -21,13 +21,16 @@ async function tick() {
   await new Promise(resolve => setImmediate(resolve));
 }
 
-function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
+function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}) {
   const events = new Map();
   const badge = {
     hidden: true,
     textContent: '',
     title: '',
-    getAttribute(name) { return name === 'data-chat-user' ? userId : null; }
+    getAttribute(name) {
+      return name === 'data-chat-user' ? userId :
+        name === 'data-chat-initial' ? String(opts.initialIncoming ?? firstCursor) : null;
+    }
   };
   const icon = {
     attributes:{href:'/favicon.ico?v=97b21d17',type:'image/x-icon'},
@@ -52,7 +55,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
     setAttribute(name, value) { this.attributes[name] = value; }
   }));
   const audio = { tones: 0, clips: 0, contexts: 0, gestures: 0, soundFetches: [] };
-  let latest = firstCursor;
+  let latest = firstCursor, readCursor=firstCursor, readCalls=[];
   let interval;
   let alertInterval=null;
   let timerCounter=0;
@@ -66,7 +69,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
       this.destination = {};
     }
     resume() {
-      if (audio.gestures > 0) this.state = 'running';
+      if (audio.gestures > 0 || opts.browserAllowsAuto) this.state = 'running';
       return Promise.resolve();
     }
     createOscillator() {
@@ -88,13 +91,39 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
       return { buffer: null, connect() {}, start() { audio.clips += 1; } };
     }
   }
+  const feedNodes=[];
+  const feed=opts.liveChat?{
+    attrs:{'data-last':String(firstCursor),'data-thread':'0','data-focused':'0'},
+    scrollHeight:500,scrollTop:250,clientHeight:250,
+    getAttribute(name){return this.attrs[name]??null;},
+    setAttribute(name,value){this.attrs[name]=String(value);},
+    querySelector(){return null;},
+    querySelectorAll(selector){return selector==='.chat-msg'?feedNodes:[];},
+    appendChild(node){feedNodes.push(node);},
+    removeChild(node){const i=feedNodes.indexOf(node);if(i>=0)feedNodes.splice(i,1);}
+  }:null;
+  const composer=opts.liveChat?{
+    addEventListener(){},
+    querySelector(selector){
+      return selector==='[name=csrf]'?{value:'test-csrf'}:
+        selector==='.chat-submit-row button[type=submit]'?{disabled:false,textContent:'Отправить сообщение'}:null;
+    }
+  }:null;
   const document = {
     title:'Реклама MANUFACT',hidden:false,
+    hasFocus(){return false;},
+    createElement(name){
+      if(name==='template')return {content:{firstElementChild:{getAttribute(){return String(latest);},remove(){feedNodes.pop();}}},set innerHTML(s){this.html=s;}};
+      return {className:'',setAttribute() {},textContent:''};
+    },
     querySelector(selector) {
       return selector === '[data-chat-badge]' ? badge :
         selector === '[data-chat-sound]' ? soundButton :
         selector === '[data-chat-audio-status]' ? soundIndicator :
-        selector === 'link[rel~=icon]' ? icon : null;
+        selector === 'link[rel~=icon]' ? icon :
+        selector === '[data-last]' ? feed :
+        selector === '[data-chat-compose]' ? composer :
+        selector === '[data-chat-compose] [name=csrf]' ? {value:'test-csrf'} : null;
     },
     addEventListener(name, cb) { events.set(name, cb); },
     querySelectorAll(selector) { return selector === '[data-chat-tone]' ? tones : []; }
@@ -113,7 +142,13 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   const context = {
     document, window, localStorage, sessionStorage,
     FormData,
-    fetch(url) {
+    fetch(url,request={}) {
+      if(url==='/' && request.method==='POST' && opts.liveChat){
+        const requested=Number(request.body?.get('last_id')||0);
+        readCalls.push(requested);
+        readCursor=Math.max(readCursor,requested);
+        return Promise.resolve({ok:true,json:()=>Promise.resolve({ok:true})});
+      }
       if(url.startsWith('/?chat_sound=')) {
         const tone=Number(url.split('=')[1]);audio.soundFetches.push(tone);
         const bytes=new ArrayBuffer(10);bytes.tone=tone;
@@ -123,10 +158,14 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
         ok: true,
         json: () => Promise.resolve({
           ok: true,
-          unread: Math.max(0, latest - 10),
+          unread: Math.max(0, latest - (opts.liveChat?readCursor:10)),
           mentions: 0,
           newest_other_id: latest,
-          room_unread: {}
+          room_unread: opts.liveChat?{'0':Math.max(0,latest-readCursor)}:{},
+          messages: opts.liveChat&&latest>Number(feed.attrs['data-last'])?
+            [{id:latest,html:'<div class="chat-msg"></div>'}]:[],
+          visible_ids:opts.liveChat?[latest]:[],
+          reactions:{}
         })
       });
     }
@@ -134,6 +173,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
   vm.runInNewContext(script, context, { timeout: 1000 });
   return {
     audio, badge, soundButton, soundIndicator, tones, document, icon,
+    get readCalls(){return readCalls.slice();}, get feed(){return feed;},
     get cursor() { return latest; },
     set cursor(value) { latest = value; },
     async poll() { interval(); await tick(); },
@@ -294,6 +334,46 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
     'Unread count zero restores the original browser tab title');
   assert.equal(mutedReload.icon.attributes.href,'/favicon.ico?v=97b21d17',
     'The original favicon is restored when messages are read');
+
+  // Previously sound was silently discarded on a first visit even though
+  // the site's WebAudio policy already allowed a working green channel.
+  const freshLocal=new Memory();
+  freshLocal.setItem('adc-chat-sound-v2-9','on');
+  const freshPage=openPage(new Memory(),freshLocal,100,'9',
+    {initialIncoming:100,browserAllowsAuto:true});
+  await tick();
+  assert.equal(freshPage.audio.clips,0);
+  freshPage.cursor=101;
+  await freshPage.poll();
+  assert.equal(freshPage.audio.tones,2,
+    'The first post-render incoming message plays without an activated flag');
+  assert.equal(freshPage.soundIndicator.attributes['data-audio-state'],'ready',
+    'Browser-allowed audio reports ready even without clicking this new document');
+
+  // The saved cursor MUST win over a later server render snapshot: arriving
+  // between navigation and the new page load is not an already-heard reply.
+  const revisitSession=new Memory();
+  revisitSession.setItem('adc-chat-last-other-9','110');
+  const revisit=openPage(revisitSession,freshLocal,111,'9',
+    {initialIncoming:111,browserAllowsAuto:true});
+  await tick();
+  assert.equal(revisit.audio.tones,2,
+    'Messages sent since the prior page still notify after navigation');
+
+  // Read acknowledgments can finish while the poll is busy. Re-poll after
+  // acknowledging so badges disappear automatically in the open chat.
+  const livePage=openPage(new Memory(),new Memory(),10,'20',{liveChat:true});
+  await tick();await tick();
+  livePage.cursor=11;
+  await livePage.poll();await tick();await tick();await tick();
+  assert.ok(livePage.readCalls.includes(11),
+    'Visible chat automatically acknowledges newly shown incoming messages even without document focus');
+  assert.equal(livePage.badge.hidden,true,
+    'The unread counter clears after the open chat acknowledges a message');
+  assert.equal(livePage.document.title,'Реклама MANUFACT',
+    'Browser tab title clears without re-opening the chat');
+  assert.equal(livePage.feed.getAttribute('data-last'),'11',
+    'Chat stays on the same thread with new message visible');
 
   const syncedLocal=new Memory(),syncSessionA=new Memory(),syncSessionB=new Memory();
   const staffA=openPage(syncSessionA,syncedLocal,15,'7');
