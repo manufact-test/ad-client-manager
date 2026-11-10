@@ -506,7 +506,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-sound-debug>summary{padding:5px 3px;font-weight:500;font-size:11px;color:#69728b;white-space:nowrap}
         .chat-sound-debug>p{position:absolute;z-index:15;right:0;top:100%;width:min(310px,75vw);
           padding:10px;margin:3px 0 0;background:#fff;border:1px solid #dfe2ed;border-radius:9px;
-          box-shadow:0 7px 22px #1b245426;font-size:12px;line-height:1.5;white-space:normal}
+          box-shadow:0 7px 22px #1b245426;font-size:12px;line-height:1.5;white-space:pre-wrap}
         @media(max-width:560px){.chat-sound-controls{width:100%;justify-content:flex-start;margin-left:0}}
         .chat-attach{position:relative;display:inline-flex;align-items:center;gap:10px;
             max-width:100%;cursor:pointer;margin:8px 0 13px;font-size:13px;color:#525d77;font-weight:500}
@@ -893,15 +893,20 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var soundBuffers={},soundLoads={};
     var soundDebug=document.querySelector("[data-chat-sound-debug]");
     var soundDebugKey="adc-chat-audio-debug-"+userKey;
+    var debugHistory=[];
+    try{
+      var savedDebug=JSON.parse(sessionStorage.getItem(soundDebugKey)||"[]");
+      if(Array.isArray(savedDebug))debugHistory=savedDebug.slice(-12);
+    }catch(e){}
     function audioDebug(message){
       var line=new Date().toLocaleTimeString("ru-RU")+" · "+message;
-      if(soundDebug)soundDebug.textContent=line;
-      try{sessionStorage.setItem(soundDebugKey,line);}catch(e){}
+      debugHistory.push(line);
+      if(debugHistory.length>12)debugHistory.shift();
+      if(soundDebug)soundDebug.textContent=debugHistory.join("\n");
+      try{sessionStorage.setItem(soundDebugKey,JSON.stringify(debugHistory));}catch(e){}
     }
-    if(soundDebug){
-      try{soundDebug.textContent=sessionStorage.getItem(soundDebugKey)||
-        "Ожидаем входящее сообщение."; }catch(e){}
-    }
+    if(soundDebug)soundDebug.textContent=debugHistory.join("\n")||
+      "Ожидаем входящее сообщение.";
     // Each account starts muted until sound or a custom tone is selected.
     // Remember that choice on this browser across navigation and restarts.
     try{
