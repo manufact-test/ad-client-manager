@@ -1814,6 +1814,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Connected workflow actions share the established authentication and CSRF gates.
         if ($action==='chat_send') {
             adc_chat_send($db,$current);
+            if (adc_chat_post('chat_async')==='1') {
+                // Same authenticated, CSRF-protected and idempotent sender;
+                // asynchronous submit keeps the unlocked audio page alive.
+                header('Content-Type: application/json; charset=UTF-8');
+                header('Cache-Control: no-store, private');
+                echo json_encode(['ok'=>true,'send_token'=>bin2hex(random_bytes(16))],
+                    JSON_THROW_ON_ERROR);
+                exit;
+            }
             adc_flash('Сообщение отправлено.');
             $chatThread=adc_chat_thread($db,adc_chat_post('thread'));
             adc_redirect('?view=chat'.($chatThread?'&thread='.$chatThread:''));
@@ -2020,6 +2029,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'date'=>(string)($_POST['resume_start_on']??'')
             ];
             $errorMessage=null;
+        }
+        // Explicit AJAX chat sends return a safe validation error and retain
+        // their idempotency token on the client. Other forms use old redirects.
+        if (($action??'')==='chat_send' && ($_POST['chat_async']??null)==='1') {
+            http_response_code(400);
+            header('Content-Type: application/json; charset=UTF-8');
+            header('Cache-Control: no-store, private');
+            echo json_encode(['ok'=>false,'error'=>(string)$errorMessage],
+                JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_THROW_ON_ERROR);
+            exit;
         }
         // Chat errors belong next to the composer. A long conversation can
         // leave page-wide alerts far above the current scroll position.
