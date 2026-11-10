@@ -3,6 +3,7 @@
 Runs only with disposable CI identities, database and out-of-root PDF storage.
 """
 import os
+import json
 import base64
 import re
 import subprocess
@@ -446,6 +447,8 @@ try:
                 'data-chat-tone="3"' in html(chatPage) and
                 "Включить звук" in html(chatPage) and
                 'data-chat-audio-status data-audio-state="off"' in html(chatPage) and
+                'data-chat-sound-debug' in html(chatPage) and
+                'data-skip-scroll-restore' in html(chatPage) and
                 re.search(r'data-chat-user="\d+" data-chat-initial="\d+"',html(chatPage)),
                 "Both roles receive a server-generated initial alert cursor and sound controls")
         status,_,roomPage=request(role,"/?view=chat&thread="+str(real))
@@ -458,6 +461,45 @@ try:
                 "Authenticated staff can stream custom sound "+str(tone))
     status,_,_=request("visitor","/?chat_sound=1")
     require(status==200,"Unauthenticated sound route redirects to the login view")
+    # Verify real per-account event delivery in both directions: a successful
+    # preview button must not be mistaken for a working incoming event poll.
+    for sender,receiver,token in (("director","employee",director),
+                                  ("employee","director",employee)):
+        status,headers,raw=request(receiver,"/?chat_poll=1&status=1")
+        previous=json.loads(html(raw))
+        require(status==200 and previous.get("ok") is True,
+                "Recipient can poll incoming events: "+receiver)
+        oldId=int(previous["newest_other_id"])
+        status,_,composerPage=request(sender,"/?view=chat")
+        tokenMatch=re.search(r'name="send_token" value="([a-f0-9]{32})"',html(composerPage))
+        require(status==200 and tokenMatch,"Sender has an idempotent chat token: "+sender)
+        sentToken=tokenMatch.group(1)
+        content="CI async notification "+sender+" to "+receiver
+        args={"thread":"0","message":content,"send_token":sentToken,"chat_async":"1"}
+        status,headers,result=post(sender,token,"chat_send",args,"/?view=chat")
+        reply=json.loads(html(result))
+        require(status==200 and reply.get("ok") is True and
+                re.fullmatch(r"[a-f0-9]{32}",reply.get("send_token","")),
+                "AJAX chat send returns a new token without navigating: "+sender)
+        status,_,event=request(receiver,"/?chat_poll=1&status=1")
+        received=json.loads(html(event))
+        newId=int(received["newest_other_id"])
+        require(status==200 and newId>oldId,
+                "Incoming message event advances for actual receiver: "+receiver)
+        # A lost AJAX response can be retried with the original same token;
+        # retry never inserts a second message or sounds a phantom alert.
+        status,_,replay=post(sender,token,"chat_send",args,"/?view=chat")
+        require(status==200 and json.loads(html(replay)).get("ok") is True,
+                "Retrying the identical AJAX send is successful without duplication")
+        status,_,unchanged=request(receiver,"/?chat_poll=1&status=1")
+        require(status==200 and
+                int(json.loads(html(unchanged))["newest_other_id"])==newId,
+                "Repeated request does not advance receiver message cursor")
+    invalidArgs={"thread":"0","message":"x"*2001,"chat_async":"1"}
+    status,_,invalidResult=post("employee",employee,"chat_send",invalidArgs,"/?view=chat")
+    require(status==400 and
+            json.loads(html(invalidResult)).get("ok") is False,
+            "Failed AJAX send returns an explicit JSON error, preserving draft")
     # If staff posting fails, the error stays near the composer rather than
     # being lost above the chat, and their unsent draft is preserved safely.
     draft="CI employee unsent reply "+("x"*2001)
