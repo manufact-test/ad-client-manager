@@ -14,6 +14,19 @@ $adcJsNonce=base64_encode(random_bytes(24));
 header("Content-Security-Policy: default-src 'none'; script-src 'nonce-" . $adcJsNonce . "'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
 adc_session();
 
+// Same-origin favicon for unread chat. SVG is static: no user data or scripts.
+// Using a same-origin image keeps the existing strict img-src CSP unchanged.
+if (isset($_GET['chat_icon'])) {
+    header('Content-Type: image/svg+xml; charset=UTF-8');
+    header('Cache-Control: public, max-age=86400');
+    echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">'.
+      '<rect width="64" height="64" rx="16" fill="#4d43c2"/>'.
+      '<path d="M13 17h38v26H27L15 52V43h-2z" fill="#fff"/>'.
+      '<circle cx="18" cy="24" r="10" fill="#e4344f" stroke="#fff" stroke-width="3"/>'.
+      '</svg>';
+    exit;
+}
+
 function adc_page(string $title, string $body, ?array $user = null): never {
     global $adcJsNonce;
     $name = $user ? adc_h((string) $user['display_name']) : '';
@@ -458,6 +471,16 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-top h1{margin:0}
         .chat-sound-controls{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;
           gap:9px;flex-wrap:wrap}
+        .chat-audio-indicator{display:inline-flex;align-items:center;justify-content:center;
+          width:35px;height:35px;min-width:35px;padding:5px;border-radius:50%;
+          border:1px solid #e4a5ac;background:#fff1f2;color:#b83249;box-shadow:none}
+        .chat-audio-indicator svg{display:block;width:20px;height:20px}
+        .chat-audio-indicator .chat-audio-waves{display:none}
+        .chat-audio-indicator[data-audio-state="ready"]{background:#e7f5ee;color:#137b43;border-color:#a6d8b9}
+        .chat-audio-indicator[data-audio-state="ready"] .chat-audio-waves{display:block}
+        .chat-audio-indicator[data-audio-state="ready"] .chat-audio-cross{display:none}
+        .chat-audio-indicator[data-audio-state="needs-click"]{background:#fff4e0;color:#996510;border-color:#ead29b}
+        .chat-audio-indicator:hover{filter:brightness(.97)}
         .chat-tone-options{display:flex;align-items:center;gap:5px}
         .chat-tone-options button{display:inline-flex;align-items:center;justify-content:center;
           min-width:33px;height:33px;padding:0 6px;border:1px solid #bfc4db;
@@ -755,6 +778,36 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var focused=!!(feed&&feed.getAttribute("data-focused")==="1");
     var thread=feed?Number(feed.getAttribute("data-thread")||0):0;
     var soundButton=document.querySelector("[data-chat-sound]");
+    var soundIndicator=document.querySelector("[data-chat-audio-status]");
+    var tabIcon=document.querySelector('link[rel~="icon"]');
+    var baseTitle=document.title,baseIcon=tabIcon?tabIcon.getAttribute("href"):null;
+    var baseIconType=tabIcon?tabIcon.getAttribute("type"):null;
+    var unreadCount=0,tabFlashTimer=null,tabFlashOn=false;
+    function drawTabTitle(){
+      if(!unreadCount){document.title=baseTitle;return;}
+      var digits=String(Math.min(99,unreadCount))+(unreadCount>99?"+":"");
+      document.title=document.hidden&&tabFlashOn?
+        "● "+digits+" новых сообщений — MANUFACT":"("+digits+") "+baseTitle;
+    }
+    function updateTabNotice(rawCount){
+      var count=Number(rawCount);
+      var next=Number.isFinite(count)?Math.max(0,Math.floor(count)):0;
+      if(next!==unreadCount){
+        unreadCount=next;
+        if(tabIcon){
+          tabIcon.setAttribute("href",next?"/?chat_icon=1":baseIcon);
+          tabIcon.setAttribute("type",next?"image/svg+xml":baseIconType);
+        }
+      }
+      if(!unreadCount||!document.hidden){
+        if(tabFlashTimer!==null){window.clearInterval(tabFlashTimer);tabFlashTimer=null;}
+        tabFlashOn=false;
+      }else if(tabFlashTimer===null){
+        tabFlashOn=true;
+        tabFlashTimer=window.setInterval(function(){tabFlashOn=!tabFlashOn;drawTabTitle();},2200);
+      }
+      drawTabTitle();
+    }
     var compose=document.querySelector("[data-chat-compose]");
     if(compose) {
       var send=compose.querySelector(".chat-submit-row button[type=submit]");
@@ -790,13 +843,28 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       var previous=sessionStorage.getItem(soundCursorKey);
       if(previous!==null&&/^\d+$/.test(previous))lastOther=Number(previous);
     }catch(e){}
+    function showAudioStatus(){
+      if(!soundIndicator)return;
+      var status=!audible?"off":!(window.AudioContext||window.webkitAudioContext)?
+        "unavailable":soundContext&&soundContext.state==="running"?"ready":"needs-click";
+      var label=status==="off"?"Звук выключен. Нажмите для включения и проверки":
+        status==="ready"?"Аудиоканал активен. Если не слышно, проверьте звук вкладки и компьютера. Нажмите для проверки":
+        status==="unavailable"?"Браузер не поддерживает звуковые уведомления":
+        "Звук выбран, но воспроизведение ещё не разрешено. Нажмите, чтобы проверить";
+      soundIndicator.setAttribute("data-audio-state",status);
+      soundIndicator.setAttribute("aria-label",label);
+      soundIndicator.title=label;
+    }
     function audioChannel(){
       try{
         var Constructor=window.AudioContext||window.webkitAudioContext;
         if(!Constructor)return null;
-        if(!soundContext||soundContext.state==="closed")soundContext=new Constructor();
+        if(!soundContext||soundContext.state==="closed"){
+          soundContext=new Constructor();
+          soundContext.onstatechange=showAudioStatus;
+        }
         return soundContext;
-      }catch(e){return null;}
+      }catch(e){showAudioStatus();return null;}
     }
     function chime(ctx){
       var start=ctx.currentTime;
@@ -832,21 +900,25 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     }
     function beep(preview){
       if(!preview&&(!audible||!activated))return;
-      var ctx=audioChannel();if(!ctx)return;
-      if(ctx.state==="running"){playTone(ctx,!!preview);return;}
-      // Some browsers suspend audio after navigation or a background pause.
+      var ctx=audioChannel();if(!ctx){showAudioStatus();return;}
+      if(ctx.state==="running"){showAudioStatus();playTone(ctx,!!preview);return;}
+      // A new document/background tab can lose autoplay permission even when
+      // the user's sound preference remains enabled. Never call it "ready"
+      // until the browser actually resumes the current AudioContext.
+      showAudioStatus();
       try{ctx.resume().then(function(){
+        showAudioStatus();
         if((preview||audible)&&ctx.state==="running")playTone(ctx,!!preview);
-      }).catch(function(){});}catch(e){}
+      }).catch(function(){showAudioStatus();});}catch(e){showAudioStatus();}
     }
     function unlockAudio(){
       activated=true;
       try{sessionStorage.setItem("adc-chat-activated","1");}catch(e){}
-      if(!audible)return;
+      if(!audible){showAudioStatus();return;}
       var ctx=audioChannel();
       if(ctx&&ctx.state!=="running"){
-        try{ctx.resume().catch(function(){});}catch(e){}
-      }
+        try{ctx.resume().then(showAudioStatus).catch(showAudioStatus);}catch(e){showAudioStatus();}
+      }else showAudioStatus();
     }
     function soundLabel(){
       if(soundButton){
@@ -860,6 +932,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         button.setAttribute("aria-pressed",String(selected));
         button.title=selected?"Отменить выбор, вернуть стандартный звук":"Выбрать смешной звук "+tone;
       });
+      showAudioStatus();
     }
     // Resume a single shared AudioContext *during* a user gesture. Creating a
     // new context from the background polling callback was muted by autoplay.
@@ -871,6 +944,24 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       audible=!audible;
       try{localStorage.setItem(soundPreferenceKey,audible?"on":"off");}catch(e){}
       soundLabel();if(audible){unlockAudio();beep(true);}
+    });
+    if(soundIndicator)soundIndicator.addEventListener("click",function(){
+      // One click retries browser activation; no off/on dance needed.
+      if(!audible){
+        audible=true;
+        try{localStorage.setItem(soundPreferenceKey,"on");}catch(e){}
+        soundLabel();
+      }
+      unlockAudio();beep(true);
+    });
+    window.addEventListener("storage",function(event){
+      if(event.key!==soundPreferenceKey&&event.key!==soundToneKey)return;
+      try{
+        audible=localStorage.getItem(soundPreferenceKey)==="on";
+        var tone=localStorage.getItem(soundToneKey);
+        selectedTone=/^[1-3]$/.test(tone||"")?Number(tone):0;
+        soundLabel();
+      }catch(e){}
     });
     document.querySelectorAll("[data-chat-tone]").forEach(function(button){
       button.addEventListener("click",function(){
@@ -979,6 +1070,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         badge.textContent=count?(mentions?"@"+Math.min(99,mentions):
           String(Math.min(99,count))+(count>99?"+":"")):"";
         badge.title=mentions?mentions+" упоминаний":count+" непрочитанных";
+        updateTabNotice(count);
         showRooms(r.room_unread);
         var newest=Number(r.newest_other_id)||0;
         if(lastOther!==null&&newest>lastOther)beep();
@@ -1031,7 +1123,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       }
     }
     poll();window.setInterval(poll,6000);
-    document.addEventListener("visibilitychange",function(){if(!document.hidden)poll();});
+    document.addEventListener("visibilitychange",function(){
+      updateTabNotice(unreadCount);showAudioStatus();
+      if(!document.hidden)poll();
+    });
+    window.addEventListener("pageshow",showAudioStatus);
 
     // Telegram-like composer: type @ or #, choose a match, insert a stable tag.
     // Suggestions are loaded only for authenticated staff and do not write data.
