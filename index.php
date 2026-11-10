@@ -917,7 +917,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       }).catch(function(){if(ctx.state==="running"&&(preview||audible))chime(ctx);});
     }
     function beep(preview){
-      // The browser audio channel's actual state decides if playback can run.
+      // The actual browser audio channel state decides if playback can run.
       // The former "activated" flag could stay false despite a green/running
       // AudioContext, silently dropping genuine incoming messages.
       if(!preview&&!audible)return;
