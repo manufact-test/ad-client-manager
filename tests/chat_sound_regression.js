@@ -43,6 +43,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
     setAttribute(name,value) { this.attributes[name]=value; }
   };
   const diagnostics = { textContent: '' };
+  const chatStatus={textContent:''};
   const soundButton = {
     textContent: '',
     attributes: {},
@@ -58,6 +59,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
   const audio = { tones: 0, clips: 0, contexts: 0, gestures: 0, soundFetches: [], lastCtx:null, sends:0 };
   let latest = firstCursor, readCursor=firstCursor, readCalls=[];
   let failReadOnceAt=opts.failReadOnceAt??null;
+  let failAsyncOnce=!!opts.failAsyncOnce;
   let interval;
   let alertInterval=null;
   let timerCounter=0;
@@ -176,7 +178,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
         selector === '[data-chat-sound]' ? soundButton :
         selector === '[data-chat-audio-status]' ? soundIndicator :
         selector === '[data-chat-sound-debug]' ? diagnostics :
-        selector === '[data-chat-state]' ? {textContent:''} :
+        selector === '[data-chat-state]' ? chatStatus :
         selector === 'link[rel~=icon]' ? icon :
         selector === '[data-last]' ? feed :
         selector === '[data-chat-compose]' ? composer :
@@ -202,6 +204,11 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
     fetch(url,request={}) {
       if(url==='/' && request.method==='POST'&&request.body?.get('chat_async')==='1'){
         audio.sends+=1;
+        if(failAsyncOnce){
+          failAsyncOnce=false;
+          return Promise.resolve({ok:false,
+            json:()=>Promise.resolve({ok:false,error:'Тестовая ошибка отправки'})});
+        }
         return Promise.resolve({
           ok:true,
           json:()=>Promise.resolve({ok:true,send_token:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'})
@@ -239,7 +246,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
   };
   vm.runInNewContext(script, context, { timeout: 1000 });
   return {
-    audio, badge, soundButton, soundIndicator, tones, document, icon, diagnostics,
+    audio, badge, soundButton, soundIndicator, tones, document, icon, diagnostics, chatStatus,
     get composeState(){return composerState;},
     get readCalls(){return readCalls.slice();}, get feed(){return feed;},
     async send(){
@@ -512,6 +519,40 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
   keepPage.cursor=26;await keepPage.poll();
   assert.equal(keepPage.audio.clips,2,
     'Staff continues to receive MP3 notification after sending a message');
+
+  // A browser that initially rejects background playback must keep the
+  // incoming signal pending and flush it exactly once after an allowed click.
+  const blockedLocal=new Memory();
+  blockedLocal.setItem('adc-chat-sound-v2-48','on');
+  const blockedStaff=openPage(new Memory(),blockedLocal,50,'48');
+  await tick();
+  blockedStaff.cursor=51;await blockedStaff.poll();await tick();
+  assert.equal(blockedStaff.audio.tones,0,
+    'No false success when the browser suspends the incoming audio channel');
+  assert.equal(blockedStaff.soundIndicator.attributes['data-audio-state'],'needs-click');
+  await blockedStaff.interact();await tick();
+  assert.equal(blockedStaff.audio.tones,2,
+    'The pending incoming alert plays after the next permitted employee gesture');
+  assert.equal(blockedStaff.soundIndicator.attributes['data-audio-state'],'ready');
+
+  // A failed AJAX send must keep the draft and idempotency token, without
+  // reloading the page or disabling sound. A subsequent retry can succeed.
+  const retryStaff=openPage(new Memory(),new Memory(),30,'49',
+    {liveChat:true,failAsyncOnce:true});
+  await tick();await retryStaff.choose(1);
+  const originalToken=retryStaff.composeState.token.value;
+  await retryStaff.send();
+  assert.equal(retryStaff.audio.sends,1);
+  assert.equal(retryStaff.composeState.token.value,originalToken,
+    'Failed send does not consume or change the retry token');
+  assert.equal(retryStaff.composeState.message.value,'Тестовое сообщение',
+    'Failed AJAX request does not clear the employee draft');
+  assert.match(retryStaff.chatStatus.textContent,/Тестовая ошибка отправки/);
+  assert.equal(retryStaff.soundIndicator.attributes['data-audio-state'],'ready');
+  await retryStaff.send();
+  assert.equal(retryStaff.audio.sends,2);
+  assert.equal(retryStaff.composeState.message.value,'',
+    'Successful retry clears the draft without a page reload');
 
   const syncedLocal=new Memory(),syncSessionA=new Memory(),syncSessionB=new Memory();
   const staffA=openPage(syncSessionA,syncedLocal,15,'7');
