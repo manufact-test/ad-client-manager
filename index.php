@@ -779,7 +779,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     var thread=feed?Number(feed.getAttribute("data-thread")||0):0;
     var soundButton=document.querySelector("[data-chat-sound]");
     var soundIndicator=document.querySelector("[data-chat-audio-status]");
-    var tabIcon=document.querySelector('link[rel~="icon"]');
+    var tabIcon=document.querySelector("link[rel~=icon]");
     var baseTitle=document.title,baseIcon=tabIcon?tabIcon.getAttribute("href"):null;
     var baseIconType=tabIcon?tabIcon.getAttribute("type"):null;
     var unreadCount=0,tabFlashTimer=null,tabFlashOn=false;
@@ -903,7 +903,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       var ctx=audioChannel();if(!ctx){showAudioStatus();return;}
       if(ctx.state==="running"){showAudioStatus();playTone(ctx,!!preview);return;}
       // A new document/background tab can lose autoplay permission even when
-      // the user's sound preference remains enabled. Never call it "ready"
+      // the saved sound preference remains enabled. Never call it "ready"
       // until the browser actually resumes the current AudioContext.
       showAudioStatus();
       try{ctx.resume().then(function(){
