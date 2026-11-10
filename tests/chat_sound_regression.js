@@ -97,8 +97,14 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
     scrollHeight:500,scrollTop:250,clientHeight:250,
     getAttribute(name){return this.attrs[name]??null;},
     setAttribute(name,value){this.attrs[name]=String(value);},
-    querySelector(){return null;},
-    querySelectorAll(selector){return selector==='.chat-msg'?feedNodes:[];},
+    addEventListener(name,cb){events.set('feed:'+name,cb);},
+    querySelector(selector){
+      return selector==='.chat-msg'?feedNodes.find(n=>n.className==='chat-msg')||null:
+        selector==='[data-empty]'?feedNodes.find(n=>n.attrs?.['data-empty']!==undefined)||null:null;
+    },
+    querySelectorAll(selector){
+      return selector==='.chat-msg'?feedNodes.filter(n=>n.className==='chat-msg'):[];
+    },
     appendChild(node){feedNodes.push(node);},
     removeChild(node){const i=feedNodes.indexOf(node);if(i>=0)feedNodes.splice(i,1);}
   }:null;
@@ -110,11 +116,27 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
     }
   }:null;
   const document = {
-    title:'Реклама MANUFACT',hidden:false,
-    hasFocus(){return false;},
+    title:'Реклама MANUFACT',hidden:false,focused:opts.focused!==false,
+    hasFocus(){return this.focused;},
     createElement(name){
-      if(name==='template')return {content:{firstElementChild:{getAttribute(){return String(latest);},remove(){feedNodes.pop();}}},set innerHTML(s){this.html=s;}};
-      return {className:'',setAttribute() {},textContent:''};
+      function node(className){
+        const n={className,attrs:{},textContent:'',
+          setAttribute(key,val){this.attrs[key]=String(val);},
+          getAttribute(key){return this.attrs[key]??null;},
+          remove(){const at=feedNodes.indexOf(this);if(at>=0)feedNodes.splice(at,1);}
+        };
+        return n;
+      }
+      if(name==='template')return {
+        content:{firstElementChild:null},
+        set innerHTML(value){
+          const match=String(value).match(/data-mid="(\d+)"/);
+          const item=node('chat-msg');
+          item.setAttribute('data-mid',match?match[1]:String(latest));
+          this.content.firstElementChild=item;
+        }
+      };
+      return node('');
     },
     querySelector(selector) {
       return selector === '[data-chat-badge]' ? badge :
@@ -163,7 +185,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
           newest_other_id: latest,
           room_unread: opts.liveChat?{'0':Math.max(0,latest-readCursor)}:{},
           messages: opts.liveChat&&latest>Number(feed.attrs['data-last'])?
-            [{id:latest,html:'<div class="chat-msg"></div>'}]:[],
+            [{id:latest,html:'<div class="chat-msg" data-mid="'+latest+'"></div>'}]:[],
           visible_ids:opts.liveChat?[latest]:[],
           reactions:{}
         })
@@ -179,6 +201,11 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
     async poll() { interval(); await tick(); },
     async visibility(hidden) {
       document.hidden=hidden;events.get('visibilitychange')();await tick();
+    },
+    async focus(active=true){
+      document.focused=active;
+      if(active)events.get('window:focus')();
+      await tick();
     },
     blink() { if(alertInterval)alertInterval(); },
     async storage(key) { events.get('window:storage')({key});await tick(); },
@@ -367,13 +394,26 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
   livePage.cursor=11;
   await livePage.poll();await tick();await tick();await tick();
   assert.ok(livePage.readCalls.includes(11),
-    'Visible chat automatically acknowledges newly shown incoming messages even without document focus');
+    'Active live chat acknowledges newly shown incoming messages');
   assert.equal(livePage.badge.hidden,true,
     'The unread counter clears after the open chat acknowledges a message');
   assert.equal(livePage.document.title,'Реклама MANUFACT',
     'Browser tab title clears without re-opening the chat');
   assert.equal(livePage.feed.getAttribute('data-last'),'11',
     'Chat stays on the same thread with new message visible');
+
+  const backgroundWindow=openPage(new Memory(),new Memory(),10,'21',
+    {liveChat:true,focused:false});
+  await tick();await tick();
+  backgroundWindow.cursor=11;
+  await backgroundWindow.poll();await tick();
+  assert.equal(backgroundWindow.readCalls.includes(11),false,
+    'A background window must not silently mark unread messages as read');
+  await backgroundWindow.focus();await tick();await tick();await tick();
+  assert.ok(backgroundWindow.readCalls.includes(11),
+    'Returning to the active live chat acknowledges the pending message');
+  assert.equal(backgroundWindow.badge.hidden,true,
+    'Unread badge clears immediately on returning to a visible chat');
 
   const syncedLocal=new Memory(),syncSessionA=new Memory(),syncSessionB=new Memory();
   const staffA=openPage(syncSessionA,syncedLocal,15,'7');
