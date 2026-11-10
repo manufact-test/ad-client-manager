@@ -444,8 +444,9 @@ try:
         require('data-chat-tone="1"' in html(chatPage) and
                 'data-chat-tone="2"' in html(chatPage) and
                 'data-chat-tone="3"' in html(chatPage) and
-                "Включить звук" in html(chatPage),
-                "Opt-in audio and three tone selectors available for "+role)
+                "Включить звук" in html(chatPage) and
+                'data-chat-audio-status data-audio-state="off"' in html(chatPage),
+                "Opt-in sound, readiness icon and three tones available for "+role)
         status,_,roomPage=request(role,"/?view=chat&thread="+str(real))
         require(status==200 and "chat-feed" in html(roomPage) and
                 "CI real ledger" in html(roomPage),
@@ -530,6 +531,11 @@ try:
     status,_,faviconData=request("director","/favicon.ico")
     require(status==200 and faviconData.startswith(b"\x00\x00\x01\x00"),
             "Valid ICO served as a public static asset")
+    status,headers,alertIcon=request("employee","/?chat_icon=1")
+    require(status==200 and "image/svg+xml" in headers.lower() and
+            b'<svg xmlns="http://www.w3.org/2000/svg"' in alertIcon and
+            b'fill="#e4344f"' in alertIcon,
+            "Unread favicon comes from a same-origin, static red-dot SVG endpoint")
     match=re.search(r'data-chat-reply="(\d+)"',html(initial))
     # Before posting the first message in this room there may be no replies.
     if match:
@@ -668,6 +674,8 @@ try:
             "script-src 'nonce-"+match.group(1)+"'" in policy.group(1),
             "CSP permits the task editor, dropdowns and calendars without unsafe inline scripts")
     require("script-src 'unsafe-inline'" not in policy.group(1),"No JavaScript unsafe-inline bypass")
+    require("img-src 'self'" in policy.group(1) and "img-src 'self' data:" not in policy.group(1),
+            "Tab unread favicon does not broaden the existing image CSP")
     inline_script=re.search(r'<script nonce="[A-Za-z0-9+/=]+">([\s\S]*?)</script>',page)
     require(inline_script is not None,"Authorized browser interaction script is present")
     js_check=subprocess.run(["node","--check"],input=inline_script.group(1),
