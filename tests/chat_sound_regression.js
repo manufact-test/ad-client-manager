@@ -56,6 +56,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
   }));
   const audio = { tones: 0, clips: 0, contexts: 0, gestures: 0, soundFetches: [] };
   let latest = firstCursor, readCursor=firstCursor, readCalls=[];
+  let failReadOnceAt=opts.failReadOnceAt??null;
   let interval;
   let alertInterval=null;
   let timerCounter=0;
@@ -168,6 +169,9 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
       if(url==='/' && request.method==='POST' && opts.liveChat){
         const requested=Number(request.body?.get('last_id')||0);
         readCalls.push(requested);
+        if(requested===failReadOnceAt){
+          failReadOnceAt=null;return Promise.reject(Error('Temporary read POST failure'));
+        }
         readCursor=Math.max(readCursor,requested);
         return Promise.resolve({ok:true,json:()=>Promise.resolve({ok:true})});
       }
@@ -389,12 +393,16 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2', opts={}
 
   // Read acknowledgments can finish while the poll is busy. Re-poll after
   // acknowledging so badges disappear automatically in the open chat.
-  const livePage=openPage(new Memory(),new Memory(),10,'20',{liveChat:true});
+  const livePage=openPage(new Memory(),new Memory(),10,'20',
+    {liveChat:true,failReadOnceAt:11});
   await tick();await tick();
   livePage.cursor=11;
   await livePage.poll();await tick();await tick();await tick();
-  assert.ok(livePage.readCalls.includes(11),
-    'Active live chat acknowledges newly shown incoming messages');
+  assert.equal(livePage.badge.hidden,false,
+    'A failed read acknowledgment does not pretend the message was read');
+  await livePage.poll();await tick();await tick();await tick();
+  assert.equal(livePage.readCalls.filter(id=>id===11).length,2,
+    'The open chat automatically retries a failed read acknowledgment on its next poll');
   assert.equal(livePage.badge.hidden,true,
     'The unread counter clears after the open chat acknowledges a message');
   assert.equal(livePage.document.title,'Реклама MANUFACT',
