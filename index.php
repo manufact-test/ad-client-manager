@@ -502,6 +502,11 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           min-width:33px;height:33px;padding:0 6px;border:1px solid #bfc4db;
           background:#fff;border-radius:8px;color:#433ca5;font-size:12px;font-weight:700;box-shadow:none}
         .chat-tone-options button[aria-pressed=true]{background:#4d43c2;border-color:#4d43c2;color:#fff}
+        .chat-sound-debug{position:relative;margin:0;min-width:0}
+        .chat-sound-debug>summary{padding:5px 3px;font-weight:500;font-size:11px;color:#69728b;white-space:nowrap}
+        .chat-sound-debug>p{position:absolute;z-index:15;right:0;top:100%;width:min(310px,75vw);
+          padding:10px;margin:3px 0 0;background:#fff;border:1px solid #dfe2ed;border-radius:9px;
+          box-shadow:0 7px 22px #1b245426;font-size:12px;line-height:1.5;white-space:normal}
         @media(max-width:560px){.chat-sound-controls{width:100%;justify-content:flex-start;margin-left:0}}
         .chat-attach{position:relative;display:inline-flex;align-items:center;gap:10px;
             max-width:100%;cursor:pointer;margin:8px 0 13px;font-size:13px;color:#525d77;font-weight:500}
