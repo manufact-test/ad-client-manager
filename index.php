@@ -493,6 +493,9 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         .chat-audio-indicator[data-audio-state="ready"] .chat-audio-waves{display:block}
         .chat-audio-indicator[data-audio-state="ready"] .chat-audio-cross{display:none}
         .chat-audio-indicator[data-audio-state="needs-click"]{background:#fff4e0;color:#996510;border-color:#ead29b}
+        .chat-audio-indicator[data-audio-state="needs-click"] .chat-audio-cross{display:none}
+        .chat-audio-indicator .chat-audio-pending{display:none}
+        .chat-audio-indicator[data-audio-state="needs-click"] .chat-audio-pending{display:block}
         .chat-audio-indicator:hover{filter:brightness(.97)}
         .chat-tone-options{display:flex;align-items:center;gap:5px}
         .chat-tone-options button{display:inline-flex;align-items:center;justify-content:center;
@@ -856,7 +859,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     try{
       var previous=sessionStorage.getItem(soundCursorKey);
       if(previous!==null&&/^\d+$/.test(previous))
-        lastOther=Math.max(lastOther===null?0:lastOther,Number(previous));
+        lastOther=Number(previous);
     }catch(e){}
     function showAudioStatus(){
       if(!soundIndicator)return;
@@ -1086,8 +1089,10 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           if(status)status.textContent="Не удалось сохранить реакцию. Повторите попытку.";
         }).finally(function(){reaction.disabled=false;});
     });
+    var repoll=false;
     function poll(){
-      if(busy)return;busy=true;
+      if(busy){repoll=true;return;}
+      busy=true;
       var after=feed?Number(feed.getAttribute("data-last")||0):0;
       fetch("/?chat_poll=1&status="+(feed?"0":"1")+"&thread="+thread+"&after="+after,
         {credentials:"same-origin",cache:"no-store"})
@@ -1137,7 +1142,12 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         updateReactions(r.reactions);
         if(wasNearBottom)feed.scrollTop=feed.scrollHeight;
         if(messages.length)markRead(maxId);
-      }).catch(function(){}).finally(function(){busy=false;});
+      }).catch(function(){}).finally(function(){
+        busy=false;
+        // A read acknowledgment can finish during a poll. Never lose the
+        // follow-up refresh that clears a badge the employee just read.
+        if(repoll){repoll=false;poll();}
+      });
     }
     if(feed){
       if(focused){
