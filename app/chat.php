@@ -447,6 +447,7 @@ function adc_chat_html(PDO $db,array $user):string {
        '<path d="M11 5 6.8 8H3v8h3.8L11 19V5Z"/>'.
        '<path class="chat-audio-waves" d="M15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/>'.
        '<path class="chat-audio-cross" d="m15 9 5 6m0-6-5 6"/>'.
+       '<path class="chat-audio-pending" d="M18 6v7m0 5v.2"/>'.
        '</svg></button>'.
        '<div class="chat-tone-options" role="group" aria-label="Выбрать звук уведомления">';
     foreach([1,2,3] as $tone){
