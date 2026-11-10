@@ -265,8 +265,8 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
     'Director can rearm selected MP3 by clicking the crossed indicator once');
   director.cursor = 31;
   await director.poll();
-  assert.equal(director.audio.clips, 1,
-    'Director receives notification sound from an employee message');
+  assert.equal(director.audio.clips, 2,
+    'Director plays a check preview and receives a separate employee message sound');
 
   const explicitlyMuted = new Memory();
   explicitlyMuted.setItem('adc-chat-tone-v1-1', '2');
