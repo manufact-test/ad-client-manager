@@ -94,7 +94,7 @@ function openPage(sessionStorage, localStorage, firstCursor, userId='2') {
       return selector === '[data-chat-badge]' ? badge :
         selector === '[data-chat-sound]' ? soundButton :
         selector === '[data-chat-audio-status]' ? soundIndicator :
-        selector === 'link[rel~="icon"]' ? icon : null;
+        selector === 'link[rel~=icon]' ? icon : null;
     },
     addEventListener(name, cb) { events.set(name, cb); },
     querySelectorAll(selector) { return selector === '[data-chat-tone]' ? tones : []; }
