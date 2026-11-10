@@ -445,8 +445,9 @@ try:
                 'data-chat-tone="2"' in html(chatPage) and
                 'data-chat-tone="3"' in html(chatPage) and
                 "Включить звук" in html(chatPage) and
-                'data-chat-audio-status data-audio-state="off"' in html(chatPage),
-                "Opt-in sound, readiness icon and three tones available for "+role)
+                'data-chat-audio-status data-audio-state="off"' in html(chatPage) and
+                re.search(r'data-chat-user="\d+" data-chat-initial="\d+"',html(chatPage)),
+                "Both roles receive a server-generated initial alert cursor and sound controls")
         status,_,roomPage=request(role,"/?view=chat&thread="+str(real))
         require(status==200 and "chat-feed" in html(roomPage) and
                 "CI real ledger" in html(roomPage),
@@ -494,6 +495,9 @@ try:
                 "Unreacted messages have only compact contextual pin/reaction icons for "+reader)
         if reader=="director":
             messageid=re.search(r'data-mid="(\d+)"',target).group(1)
+            cursor=re.search(r'data-chat-user="\d+" data-chat-initial="(\d+)"',html(chatPage))
+            require(cursor and int(cursor.group(1))>=int(messageid),
+                    "Director page snapshots the newest incoming employee message")
     for role,token,emoji in (("director",director,"👍"),("employee",employee,"👍")):
         status,_,raw=post(role,token,"chat_react",{
             "message_id":messageid,"emoji":emoji})
