@@ -454,10 +454,9 @@ function adc_chat_html(PDO $db,array $user):string {
         $out.='<button type="button" data-chat-tone="'.$tone.'" aria-pressed="false" '.
             'title="Смешной звук '.$tone.'">'.$tone.'</button>';
     }
-    $out.='</div>'.
-       '<details class="chat-sound-debug"><summary>Диагностика</summary>'.
-       '<p class="muted" data-chat-sound-debug>Ожидаем входящее сообщение.</p>'.
-       '</details></div></div>'.
+    // Keep internal browser-only audio diagnostics for future support,
+    // but hide the troubleshooting widget after owner acceptance.
+    $out.='</div></div></div>'.
        '<div><span data-chat-state role="status" class="muted">'.
        ($statusWarning?'Уведомления временно недоступны, переписка работает.':'').
        '</span></div>'.
