@@ -998,10 +998,15 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     });
     soundLabel();
     var lastReadRequested=0,readInFlight=false;
+    function chatCanAcknowledge(){
+      return !!feed&&!focused&&!document.hidden&&
+        (typeof document.hasFocus!=="function"||document.hasFocus())&&
+        feed.scrollHeight-feed.scrollTop-feed.clientHeight<110;
+    }
     function markRead(id){
-      // A visible live chat counts as read even if a text field or a popover
-      // temporarily owns focus. Historical focused-message mode remains safe.
-      if(!feed||!id||focused||document.hidden)return;
+      // Only an active, visible live chat at the latest messages may mark
+      // messages read. Background windows and scrolled-up histories must not.
+      if(!id||!chatCanAcknowledge())return;
       lastReadRequested=Math.max(lastReadRequested,id);
       if(readInFlight)return;
       readInFlight=true;
@@ -1141,7 +1146,7 @@ function adc_page(string $title, string $body, ?array $user = null): never {
           feed.querySelector(".chat-msg").remove();
         updateReactions(r.reactions);
         if(wasNearBottom)feed.scrollTop=feed.scrollHeight;
-        if(messages.length)markRead(maxId);
+        if(messages.length&&wasNearBottom)markRead(maxId);
       }).catch(function(){}).finally(function(){
         busy=false;
         // A read acknowledgment can finish during a poll. Never lose the
@@ -1150,6 +1155,9 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       });
     }
     if(feed){
+      feed.addEventListener("scroll",function(){
+        if(chatCanAcknowledge())markRead(Number(feed.getAttribute("data-last")||0));
+      });
       if(focused){
         var key=window.location.hash.replace("#","");
         var target=key?document.getElementById(key):null;
@@ -1165,9 +1173,13 @@ function adc_page(string $title, string $body, ?array $user = null): never {
     document.addEventListener("visibilitychange",function(){
       updateTabNotice(unreadCount);showAudioStatus();
       if(!document.hidden){
-        if(feed&&!focused)markRead(Number(feed.getAttribute("data-last")||0));
+        if(chatCanAcknowledge())markRead(Number(feed.getAttribute("data-last")||0));
         poll();
       }
+    });
+    window.addEventListener("focus",function(){
+      if(chatCanAcknowledge())markRead(Number(feed.getAttribute("data-last")||0));
+      poll();
     });
     window.addEventListener("pageshow",showAudioStatus);
 
