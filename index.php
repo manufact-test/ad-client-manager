@@ -825,21 +825,78 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       drawTabTitle();
     }
     var compose=document.querySelector("[data-chat-compose]");
-    if(compose) {
+    if(compose){
       var send=compose.querySelector(".chat-submit-row button[type=submit]");
-      compose.addEventListener("submit",function(){
+      var sending=false;
+      compose.addEventListener("submit",function(event){
+        if(typeof window.fetch!=="function"&&typeof fetch!=="function"){
+          if(send){send.disabled=true;send.textContent="Отправляем…";}
+          return; // Browser fallback: normal POST + redirect
+        }
+        event.preventDefault();
+        if(sending)return;
+        sending=true;
         if(send){send.disabled=true;send.textContent="Отправляем…";}
+        var data=new FormData(compose);
+        data.set("chat_async","1");
+        var status=document.querySelector("[data-chat-state]");
+        if(status)status.textContent="";
+        fetch("/",{method:"POST",credentials:"same-origin",body:data})
+          .then(function(response){
+            return response.json().then(function(data){
+              if(!response.ok||!data.ok)throw Error(data.error||"Не удалось отправить сообщение.");
+              return data;
+            });
+          })
+          .then(function(result){
+            var token=compose.querySelector("[name=send_token]");
+            if(token&&result.send_token)token.value=result.send_token;
+            var message=compose.querySelector("[name=message]");
+            if(message)message.value="";
+            var file=compose.querySelector("[data-chat-file]");
+            if(file)file.value="";
+            var fileName=compose.querySelector("[data-chat-file-name]");
+            if(fileName){fileName.textContent="PDF или изображение · до 10 МБ";fileName.title="";}
+            var reply=compose.querySelector("[data-reply-id]");
+            if(reply)reply.value="0";
+            var replyPreview=compose.querySelector("[data-reply-preview]");
+            if(replyPreview)replyPreview.hidden=true;
+            var replyLabel=compose.querySelector("[data-reply-label]");
+            if(replyLabel)replyLabel.textContent="";
+            poll();
+          })
+          .catch(function(error){
+            if(status)status.textContent=error&&error.message?
+              error.message:"Не удалось отправить сообщение. Повторите попытку.";
+          })
+          .finally(function(){
+            sending=false;
+            if(send){send.disabled=false;send.textContent="Отправить сообщение";}
+          });
       });
       window.addEventListener("pageshow",function(){
+        sending=false;
         if(send){send.disabled=false;send.textContent="Отправить сообщение";}
       });
     }
-    var audible=false,selectedTone=0,lastOther=null,busy=false,soundContext=null;
+    var audible=false,selectedTone=0,lastOther=null,lastUnread=null;
+    var busy=false,soundContext=null,pendingIncoming=false;
     var userKey=badge.getAttribute("data-chat-user")||"0";
     var soundCursorKey="adc-chat-last-other-"+userKey;
     var soundPreferenceKey="adc-chat-sound-v2-"+userKey;
     var soundToneKey="adc-chat-tone-v1-"+userKey;
     var soundBuffers={},soundLoads={};
+    var soundDebug=document.querySelector("[data-chat-sound-debug]");
+    var soundDebugKey="adc-chat-audio-debug-"+userKey;
+    function audioDebug(message){
+      var line=new Date().toLocaleTimeString("ru-RU")+" · "+message;
+      if(soundDebug)soundDebug.textContent=line;
+      try{sessionStorage.setItem(soundDebugKey,line);}catch(e){}
+    }
+    if(soundDebug){
+      try{soundDebug.textContent=sessionStorage.getItem(soundDebugKey)||
+        "Ожидаем входящее сообщение."; }catch(e){}
+    }
     // Each account starts muted until sound or a custom tone is selected.
     // Remember that choice on this browser across navigation and restarts.
     try{
@@ -908,36 +965,80 @@ function adc_page(string $title, string $body, ?array $user = null): never {
       return soundLoads[tone];
     }
     function playTone(ctx,preview){
+      var eventName=preview?"Проверка":"Входящее сообщение";
       var tone=selectedTone;
-      if(!tone){chime(ctx);return;}
+      if(!tone){
+        try{chime(ctx);audioDebug(eventName+": стандартный сигнал запущен.");}
+        catch(e){audioDebug(eventName+": ошибка аудиоканала.");}
+        return;
+      }
       loadTone(ctx,tone).then(function(buffer){
-        if(tone!==selectedTone||ctx.state!=="running"||(!preview&&!audible))return;
-        var source=ctx.createBufferSource();
-        source.buffer=buffer;source.connect(ctx.destination);source.start();
-      }).catch(function(){if(ctx.state==="running"&&(preview||audible))chime(ctx);});
+        if(tone!==selectedTone||ctx.state!=="running"||(!preview&&!audible)){
+          audioDebug(eventName+": звук не запущен, аудиоканал изменился.");
+          return;
+        }
+        try{
+          var source=ctx.createBufferSource();
+          source.buffer=buffer;source.connect(ctx.destination);source.start();
+          audioDebug(eventName+": MP3 №"+tone+" запущен в браузере.");
+        }catch(e){
+          audioDebug(eventName+": ошибка запуска MP3.");
+        }
+      }).catch(function(){
+        if(ctx.state==="running"&&(preview||audible)){
+          try{chime(ctx);audioDebug(eventName+": MP3 недоступен, запущен стандартный сигнал.");}
+          catch(e){audioDebug(eventName+": воспроизведение недоступно.");}
+        }else audioDebug(eventName+": браузер заблокировал аудиоканал.");
+      });
+    }
+    function flushIncoming(ctx){
+      if(!pendingIncoming||!audible||!ctx||ctx.state!=="running")return;
+      pendingIncoming=false;
+      playTone(ctx,false);
     }
     function beep(preview){
-      // The actual browser audio channel state decides if playback can run.
-      // The former "activated" flag could stay false despite a green/running
-      // AudioContext, silently dropping genuine incoming messages.
-      if(!preview&&!audible)return;
-      var ctx=audioChannel();if(!ctx){showAudioStatus();return;}
-      if(ctx.state==="running"){showAudioStatus();playTone(ctx,!!preview);return;}
-      // A new document/background tab can lose autoplay permission even when
-      // the saved sound preference remains enabled. Never call it "ready"
-      // until the browser actually resumes the current AudioContext.
+      if(!preview&&!audible){
+        audioDebug("Входящее сообщение: звук выключен в настройках.");
+        return;
+      }
+      var ctx=audioChannel();
+      if(!ctx){
+        showAudioStatus();
+        audioDebug("Звуковой канал недоступен в браузере.");
+        return;
+      }
+      if(!preview)pendingIncoming=true;
+      if(ctx.state==="running"){
+        showAudioStatus();
+        if(preview)playTone(ctx,true);else flushIncoming(ctx);
+        return;
+      }
       showAudioStatus();
+      audioDebug(preview?"Проверка: включаем аудиоканал.":"Входящее сообщение: аудиоканал приостановлен, пробуем восстановить.");
       try{ctx.resume().then(function(){
         showAudioStatus();
-        if((preview||audible)&&ctx.state==="running")playTone(ctx,!!preview);
-      }).catch(function(){showAudioStatus();});}catch(e){showAudioStatus();}
+        if(ctx.state==="running"){
+          if(preview)playTone(ctx,true);
+          flushIncoming(ctx);
+        }else audioDebug("Браузер не разрешил воспроизведение. Нажмите значок звука.");
+      }).catch(function(){
+        showAudioStatus();
+        audioDebug("Браузер отклонил воспроизведение. Нажмите значок звука.");
+      });}catch(e){
+        showAudioStatus();
+        audioDebug("Не удалось активировать аудиоканал.");
+      }
     }
     function unlockAudio(){
       if(!audible){showAudioStatus();return;}
       var ctx=audioChannel();
       if(ctx&&ctx.state!=="running"){
-        try{ctx.resume().then(showAudioStatus).catch(showAudioStatus);}catch(e){showAudioStatus();}
-      }else showAudioStatus();
+        try{ctx.resume().then(function(){
+          showAudioStatus();flushIncoming(ctx);
+        }).catch(showAudioStatus);}catch(e){showAudioStatus();}
+      }else{
+        showAudioStatus();flushIncoming(ctx);
+      }
     }
     function soundLabel(){
       if(soundButton){
@@ -1112,7 +1213,17 @@ function adc_page(string $title, string $body, ?array $user = null): never {
         updateTabNotice(count);
         showRooms(r.room_unread);
         var newest=Number(r.newest_other_id)||0;
-        if(lastOther!==null&&newest>lastOther)beep();
+        var byId=lastOther!==null&&newest>lastOther;
+        // The unread count is an independent safety net for a stale or
+        // out-of-sequence cursor in a staff account. Notify only once if
+        // either source detects a new incoming message.
+        var byUnread=lastUnread!==null&&count>lastUnread;
+        if(byId||byUnread){
+          audioDebug("Обнаружено новое входящее: ID "+newest+
+            ", непрочитанных "+count+", аудио "+(audible?"включено":"выключено")+".");
+          beep(false);
+        }
+        lastUnread=count;
         lastOther=Math.max(lastOther===null?0:lastOther,newest);
         try{sessionStorage.setItem(soundCursorKey,String(lastOther));}catch(e){}
         if(!feed)return;
