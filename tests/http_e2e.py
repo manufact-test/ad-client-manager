@@ -206,10 +206,13 @@ try:
                     "Director retains edit and delete actions within the act disclosure")
         require("Ждём оплату" in finished and "Оплаченные · 1" not in finished,
                 "Sending a nonpayable act does not settle the unrelated invoice")
+    sentGroup=panel("employee",scheduledClient).split(
+        '<details class="ledger-paid ledger-sent">',1)[1]
+    sentEntry=re.search(r'name="action" value="undo_entry_sent".*?name="entry_id" value="(\d+)"',
+                        sentGroup,re.S)
+    require(sentEntry is not None,"Collapsed act provides its own reversible send control")
     status,_,_=post("employee",employee,"undo_entry_sent",{
-        "client_id":scheduledClient,
-        "entry_id":int(re.search(r'name="action" value="undo_entry_sent".*?name="entry_id" value="(\d+)"',
-                                  panel("employee",scheduledClient),re.S).group(1))})
+        "client_id":scheduledClient,"entry_id":int(sentEntry.group(1))})
     require(status==303,"Employee can reverse the sent act from its collapsed section")
     reversedAct=panel("employee",scheduledClient)
     require("Отправленные документы · 1" not in reversedAct and
