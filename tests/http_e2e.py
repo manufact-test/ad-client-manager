@@ -174,6 +174,53 @@ try:
     require(status==303 and "Ждём оплату" in panel("employee",scheduledClient),
             "Normal handover and red payment status remain unchanged")
 
+    # An act sent without a payment amount is finished documentation.
+    # It must fold away without pretending that the paid invoice was received.
+    status,_,_=request("director",files={
+        "csrf":director,"action":"upload_document","client_id":str(scheduledClient),
+        "document":"@"+str(pdf)+";filename=sent-act.pdf;type=application/pdf",
+        "needs_act":"1","category":"advertising"})
+    require(status==303,"Director uploads a nonpayable act")
+    beforeAct=panel("employee",scheduledClient)
+    actIds=set(map(int,re.findall(r"\?download=(\d+)",beforeAct)))-{scheduledDoc}
+    require(len(actIds)==1 and "Отправить документы" in beforeAct,
+            "Act without amount initially remains an open handover task")
+    actId=actIds.pop()
+    status,_,_=post("employee",employee,"transfer_document",{
+        "client_id":scheduledClient,"document_id":actId})
+    require(status==303,"Employee sends the act without a payment request")
+    for role in ("director","employee"):
+        finished=panel(role,scheduledClient)
+        group='<details class="ledger-paid ledger-sent"><summary>Отправленные документы · 1</summary>'
+        require(group in finished and
+                finished.index("scheduled-private.pdf")<finished.index(group)<
+                finished.index("sent-act.pdf") and
+                "Документ отправлен · Без суммы" in finished,
+                "Sent act is folded separately from the still-pending invoice for "+role)
+        require(finished.index(group)<finished.index("Отменить отправку") and
+                'href="/?download='+str(actId)+'"' in finished,
+                "Collapsed act still has download and send reversal for "+role)
+        if role=="director":
+            require('name="action" value="void_document"' in finished and
+                    'class="ledger-edit"' in finished,
+                    "Director retains edit and delete actions within the act disclosure")
+        require("Ждём оплату" in finished and "Оплаченные · 1" not in finished,
+                "Sending a nonpayable act does not settle the unrelated invoice")
+    status,_,_=post("employee",employee,"undo_entry_sent",{
+        "client_id":scheduledClient,
+        "entry_id":int(re.search(r'name="action" value="undo_entry_sent".*?name="entry_id" value="(\d+)"',
+                                  panel("employee",scheduledClient),re.S).group(1))})
+    require(status==303,"Employee can reverse the sent act from its collapsed section")
+    reversedAct=panel("employee",scheduledClient)
+    require("Отправленные документы · 1" not in reversedAct and
+            "Отправить документы" in reversedAct,
+            "Reversed act returns to the expanded pending documents")
+    status,_,_=post("employee",employee,"transfer_document",{
+        "client_id":scheduledClient,"document_id":actId})
+    require(status==303 and
+            "Отправленные документы · 1" in panel("employee",scheduledClient),
+            "Resent act returns to the collapsed finished-documents section")
+
     # A task deletion must return to the section that submitted the form.
     taskTitle="CI tab-preservation task"
     due=(date.today()+timedelta(days=5)).isoformat()
