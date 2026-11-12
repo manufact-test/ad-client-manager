@@ -273,11 +273,20 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
         WHERE e.client_id=? AND e.is_void=0 ORDER BY e.received_at IS NOT NULL,e.id DESC');
     $q->execute([$clientId]);$rows=$q->fetchAll();
     $html='<section class="card ledger-panel"><h3>Документы и оплаты</h3>';
-    $pending=[];$done=[];
+    $pending=[];$sentNoAmount=[];$done=[];
     foreach ($rows as $r) {
         if (($user['role']??'')!=='director' && $r['entry_kind']==='document' &&
             !adc_doc_visible_to_staff($r,date('Y-m-d'))) continue;
-        if ($r['received_at']===null) $pending[]=$r;else $done[]=$r;
+        if ($r['received_at']!==null) {
+            $done[]=$r;
+        } elseif ($r['entry_kind']==='document' && $r['amount']===null &&
+            $r['sent_at']!==null) {
+            // Already sent, no payment to collect: finished documentation,
+            // not an outstanding invoice or action for employees.
+            $sentNoAmount[]=$r;
+        } else {
+            $pending[]=$r;
+        }
     }
     $render=static function (array $r) use($db,$clientId,$user): string {
         $id=(int)$r['id'];$doc=$r['entry_kind']==='document';
@@ -347,7 +356,13 @@ function adc_ledger_panel(PDO $db,array $user,int $clientId): string {
         return $h.'</div>'.$editor.'</div>';
     };
     if ($pending) foreach($pending as $r) $html.=$render($r);
-    else $html.='<p class="muted">Нет ожидающих отправки или оплаты записей.</p>';
+    elseif (!$sentNoAmount && !$done) $html.='<p class="muted">Нет ожидающих отправки или оплаты записей.</p>';
+    if ($sentNoAmount) {
+        $html.='<details class="ledger-paid ledger-sent"><summary>Отправленные документы · '.
+            count($sentNoAmount).'</summary>';
+        foreach($sentNoAmount as $r) $html.=$render($r);
+        $html.='</details>';
+    }
     if ($done) {
         $html.='<details class="ledger-paid"><summary>Оплаченные · '.count($done).'</summary>';
         foreach($done as $r) $html.=$render($r);
