@@ -172,6 +172,44 @@ try {
     status_check(adc_ledger_client_status($db,$scheduledClient,'2026-11-02',
         ['role'=>'employee'])[0]==='Отправить документы · 1',
         'Sending one PDF does not hide the separate unsent PDF from staff');
+    $directorWithSentAct=adc_ledger_panel($db,['id'=>1,'role'=>'director'],$scheduledClient);
+    $staffWithSentAct=adc_ledger_panel($db,['id'=>2,'role'=>'employee'],$scheduledClient);
+    foreach ([$directorWithSentAct,$staffWithSentAct] as $panel) {
+        status_check(str_contains($panel,'<details class="ledger-paid ledger-sent"><summary>Отправленные документы · 1</summary>'),
+            'Sent act without a price is collapsed into its own finished-documents group');
+        status_check(str_contains($panel,'<strong>act.pdf</strong>') &&
+            str_contains($panel,'Документ отправлен · Без суммы') &&
+            str_contains($panel,'Отменить отправку'),
+            'Finished act preserves its truthful state and reversible send action');
+        status_check(str_contains($panel,'<strong>future.pdf</strong>') &&
+            str_contains($panel,'Отправить документ'),
+            'Unsent scheduled PDF remains expanded as an actionable item');
+        status_check(strpos($panel,'<strong>future.pdf</strong>') <
+            strpos($panel,'<details class="ledger-paid ledger-sent">') &&
+            strpos($panel,'<details class="ledger-paid ledger-sent">') <
+            strpos($panel,'<strong>act.pdf</strong>'),
+            'Only the already-sent act moves below the active document');
+    }
+    status_check(str_contains($directorWithSentAct,'<strong>act.pdf</strong>') &&
+        str_contains($directorWithSentAct,'<details class="ledger-edit"><summary>Изменить</summary>') &&
+        str_contains($directorWithSentAct,'name="action" value="void_document"'),
+        'Director retains edit and delete controls inside the sent act disclosure');
+    // Undoing the send restores the ordinary unsent row without altering cash.
+    $db->prepare('UPDATE document_bundles SET transferred_at=NULL WHERE id=?')
+        ->execute([$scheduledAct]);
+    $db->prepare('UPDATE client_entries SET sent_at=NULL WHERE document_id=?')
+        ->execute([$scheduledAct]);
+    $undone=adc_ledger_panel($db,['id'=>1,'role'=>'director'],$scheduledClient);
+    status_check(!str_contains($undone,'Отправленные документы · 1') &&
+        substr_count($undone,'Отправить документ')>=2,
+        'Reversing act handover restores an expanded outstanding PDF row');
+    $db->prepare('UPDATE document_bundles SET transferred_at="2026-11-02 10:00:00" WHERE id=?')
+        ->execute([$scheduledAct]);
+    $db->prepare('UPDATE client_entries SET sent_at="2026-11-02 10:00:00" WHERE document_id=?')
+        ->execute([$scheduledAct]);
+    status_check(str_contains(adc_ledger_panel($db,['id'=>1,'role'=>'director'],$scheduledClient),
+        'Отправленные документы · 1'),
+        'The same document collapses again when sent with no payment amount');
     $db->prepare('UPDATE document_bundles SET transfer_due_on=NULL WHERE id=?')->execute([$scheduledDoc]);
     status_check(str_contains(adc_ledger_client_status($db,$scheduledClient,'2026-10-27',
         ['role'=>'employee'])[0],'Отправить документы'),'Clearing date releases PDF immediately');
