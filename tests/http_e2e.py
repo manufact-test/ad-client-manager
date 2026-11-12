@@ -197,8 +197,9 @@ try:
                 finished.index("sent-act.pdf") and
                 "Документ отправлен · Без суммы" in finished,
                 "Sent act is folded separately from the still-pending invoice for "+role)
-        require(finished.index(group)<finished.index("Отменить отправку") and
-                'href="/?download='+str(actId)+'"' in finished,
+        actSection=finished.split(group,1)[1]
+        require("Отменить отправку" in actSection and
+                'href="/?download='+str(actId)+'"' in actSection,
                 "Collapsed act still has download and send reversal for "+role)
         if role=="director":
             require('name="action" value="void_document"' in finished and
